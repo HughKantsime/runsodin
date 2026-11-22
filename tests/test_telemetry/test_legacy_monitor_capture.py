@@ -15,7 +15,7 @@ def capture_store(tmp_path, monkeypatch):
           bed_temp REAL,bed_target_temp REAL,nozzle_temp REAL,nozzle_target_temp REAL,
           gcode_state TEXT,print_stage TEXT,hms_errors TEXT,lights_on INTEGER,
           nozzle_type TEXT,nozzle_diameter REAL,fan_speed REAL,machine_type TEXT,
-          created_at TEXT DEFAULT(datetime('now')));
+          created_at TEXT DEFAULT(datetime('now')),model TEXT);
         INSERT INTO printers(id) VALUES(1);
         CREATE TABLE ams_telemetry(id INTEGER PRIMARY KEY,printer_id INTEGER,ams_unit INTEGER,
           humidity INTEGER,temperature REAL,recorded_at TEXT DEFAULT(datetime('now')),humidity_percent REAL);

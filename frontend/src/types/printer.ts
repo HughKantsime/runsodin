@@ -40,7 +40,7 @@ export type FilamentType =
 // ---- Filament Slots ----
 
 export interface FilamentSlot {
-  rack_filament?: { id: number; type?: string; preset?: string | null; color?: string | null; observed_at: string } | null
+  rack_filament?: { id: number; source?: 'printer'; type?: string; preset?: string | null; color?: string | null; observed_at: string } | null
   catalogue_name?: string | null;
   catalogue_choices?: { id: number; name: string }[];
   do_not_feed?: boolean;
@@ -60,6 +60,7 @@ export interface FilamentSlot {
   remaining_weight?: number | null;
   spool_change_pending?: boolean;
   observed_state?: string | null;
+  preset_id?: string | null;
   preset?: string | null;
   brand?: string | null;
   material_type: string | null;
@@ -338,6 +339,7 @@ export interface PlugState {
 // ---- AMS Environment ----
 
 export interface AmsEnvironmentData {
+  labels?: Record<string, string>
   printer_id: number;
   hours: number;
   humidity_unit?: 'level' | 'unknown';

@@ -286,7 +286,7 @@ export function dualNozzleModelName(machineType: string | null | undefined): str
 
 export function isH3C(printer: { api_type?: string | null; model?: string | null; machine_type?: string | null }): boolean {
   return (!printer.api_type || printer.api_type === 'bambu') && [printer.model, printer.machine_type].some(
-    value => /^(?:Bambu Lab )?H3C$/i.test(value?.trim() || '')
+    value => /^(?:(?:Bambu Lab )?H3C|N10)$/i.test(value?.trim() || '')
   )
 }
 

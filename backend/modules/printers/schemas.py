@@ -4,7 +4,7 @@ modules/printers/schemas.py — Pydantic schemas for the printers domain.
 
 from datetime import datetime
 from typing import Literal, Optional, List
-from pydantic import StrictBool, StrictInt, BaseModel, Field, ConfigDict, computed_field, field_validator, field_serializer, model_validator
+from pydantic import StrictBool, StrictInt, BaseModel, Field, ConfigDict, computed_field, field_validator, field_serializer, model_serializer, model_validator
 
 from core.base import FilamentType
 from modules.printers.services import check_bambu_create_count
@@ -75,12 +75,20 @@ class FilamentSlotResponse(FilamentSlotBase):
     spool_change_pending: bool = False
     observed_state: Optional[str] = None
     rack_filament: Optional[dict] = None
+    preset_id: Optional[str] = None
     preset: Optional[str] = None
     brand: Optional[str] = None
     material_type: Optional[str] = None
     display_name: Optional[str] = None
     mapping_status: Optional[str] = None
     external_spool_id: Optional[str | int] = None
+
+    @model_serializer(mode='wrap')
+    def _reported_preset_id(self, serialize):
+        values = serialize(self)
+        if self.preset_id is None:
+            values.pop('preset_id', None)
+        return values
 
     @model_validator(mode='before')
     @classmethod
@@ -92,12 +100,23 @@ class FilamentSlotResponse(FilamentSlotBase):
         spool = data.assigned_spool
         from core.tray_identity import preset_label
         from core.display_json import display_object
-        from modules.printers.printer_models import is_h3c_printer
+        from modules.printers.printer_models import is_h3c_printer, rack_model_identity
         observation = display_object(data.tray_observation)
         state = observation or {}
-        if is_h3c_printer(data.printer):
+        rack = is_h3c_printer(data.printer)
+        identified = rack and rack_model_identity(data.printer.model, getattr(data.printer, 'machine_type', None))
+        if identified:
+            reading = (display_object(state.get('rack_filament_sources')) or {}).get('vir_slot', {})
+            if isinstance(reading, dict) and (reading.get('type') or reading.get('preset') or
+                                              reading.get('color') not in (None, '', '00000000')):
+                values['rack_filament'] = {**reading, 'id': 256 - data.slot_number}
+            if state.get('ams_unit') == 32:
+                values['preset_id'] = (display_object(state.get('observed')) or {}).get('preset') or None
+            else:
+                state = {}  # Old fixed-printer confirmations are unrelated to these positions.
+        if rack and not identified:
             if isinstance(state.get('rack_filament'), dict):
-                values['rack_filament'] = state['rack_filament']
+                values['rack_filament'] = {**state['rack_filament'], 'source': 'printer'}
             state = {}  # Rack readings do not participate in ODIN spool confirmation.
             values['spool_change_pending'] = False
         else:
@@ -259,8 +278,10 @@ class PrinterResponse(PrinterBase):
             entries = display_entries(stored)
             if self.api_type != 'bambu':
                 return value if entries == stored else json.dumps(entries)
+            quiet = any(isinstance(e, dict) and e.get('informational_only') for e in entries)
             raw = [dict(attr=e['attr'], code=e.get('raw_code', e['code'])) for e in entries]
-            return json.dumps(parse_hms_errors(raw, self.hms_model_prefix))
+            shown = parse_hms_errors(raw, self.hms_model_prefix, quiet_unknown=quiet)
+            return json.dumps(shown)
         except (ValueError, KeyError, TypeError):
             return '[]' if self.api_type == 'bambu' else value
 

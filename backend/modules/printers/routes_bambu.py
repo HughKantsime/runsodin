@@ -114,17 +114,23 @@ async def sync_bambu_ams(printer_id: int, current_user: dict = Depends(require_a
     from modules.printers.schemas import FilamentSlotResponse
     result = sync_ams_state(printer_id, current_user=current_user, db=db)
     printer = _owned_printer(db, printer_id, current_user)
+    from modules.printers.printer_models import rack_model_identity
+    from modules.printers.telemetry.bambu.ams_identity import unit_and_tray
+    h3c = printer.api_type == 'bambu' and rack_model_identity(printer.model, printer.machine_type)
     slots = []
     for row in printer.filament_slots:
         slot = FilamentSlotResponse.model_validate(row)
-        slots.append(dict(do_not_feed=slot.do_not_feed, do_not_feed_note=slot.do_not_feed_note, ams_id=(slot.slot_number - 1) // 4, tray_id=(slot.slot_number - 1) % 4,
+        if h3c and not 1 <= slot.slot_number <= 9:
+            continue
+        unit, tray = unit_and_tray(slot.slot_number, h3c=True) if h3c else divmod(slot.slot_number - 1, 4)
+        slots.append(dict(do_not_feed=slot.do_not_feed, do_not_feed_note=slot.do_not_feed_note, ams_id=unit, tray_id=tray,
                           slot_number=slot.slot_number, filament_type_raw=slot.material_type or '',
                           filament_type=slot.filament_type.value, color_hex=slot.color_hex,
                           remaining_percent=slot.remaining, brand=slot.brand, color_name=slot.color,
                           is_empty=slot.filament_type == FilamentType.EMPTY,
                           spool_change_pending=slot.spool_change_pending, observed_state=slot.observed_state, preset=slot.preset))
     return BambuSyncResult(success=True, printer_name=printer.name, slots=slots,
-                           slots_updated=result['slots_synced'], message=f"Synced {result['slots_synced']} slots from AMS")
+                           slots_updated=result['slots_synced'], message=result.get('message') or f"Synced {result['slots_synced']} slots from AMS")
 
 
 @router.get("/bambu/filament-types", tags=["Bambu"])

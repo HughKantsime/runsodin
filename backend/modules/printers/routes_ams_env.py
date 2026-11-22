@@ -11,7 +11,7 @@ from pydantic import BaseModel as PydanticBaseModel, Field, field_validator, mod
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from modules.printers.ams_humidity import humidity_scale, reported_percent
+from modules.printers.ams_humidity import humidity_scale, reported_percent, zone_labels
 from core.db import get_db
 from core.db_compat import sql
 from core.rbac import require_role, check_org_access, require_action
@@ -71,7 +71,8 @@ async def get_ams_environment(
         units[u].append({"humidity": row.humidity, "humidity_percent": reported_percent(row.humidity_percent),
                          "temperature": row.temperature, "time": row.recorded_at})
 
-    return {"printer_id": printer_id, "hours": hours, "units": units,
+    labels = zone_labels(db, [printer_id]).get(printer_id, {})
+    return {"printer_id": printer_id, "hours": hours, "units": units, **({"labels": labels} if labels else {}),
             "humidity_unit": "level" if printer.api_type == "bambu" else "unknown"}
 
 
@@ -101,6 +102,7 @@ async def get_ams_current(printer_id: int, db: Session = Depends(get_db),
         ORDER BY ams_unit
     """), {"pid": printer_id}).fetchall()
 
+    labels = zone_labels(db, [printer_id]).get(printer_id, {})
     units = []
     for row in rows:
         hum = row[1]
@@ -108,6 +110,7 @@ async def get_ams_current(printer_id: int, db: Session = Depends(get_db),
         missing = hum in (None, 0) or (hum == 5 and index is None)
         hum_label = {1: "Dry", 2: "Low", 3: "Moderate", 4: "High", 5: "Wet"}.get(index, "N/A" if missing else "Unknown")
         units.append({
+            **({"label": labels[str(row[0])]} if str(row[0]) in labels else {}),
             "unit": row[0], "humidity": hum, "humidity_label": hum_label,
             "humidity_percent": reported_percent(row.humidity_percent),
             "humidity_index": index, "grade": grade,

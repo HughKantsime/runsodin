@@ -4,6 +4,7 @@ from core.monitor_observations import fresh_report
 from core.printer_identity_audit import observe_printer_identity
 
 RETAINED_REPORT_LOG_SECONDS = 3600
+AMS_ENV_INTERVAL = 300
 
 
 def log_retained_report(self, raw, runtime):
@@ -23,7 +24,7 @@ def refresh_ams_remain(self):
         ams_remain = {}
         from modules.printers.telemetry.bambu.ams_identity import ams_trays_by_slot, is_rfid_tag
         from modules.printers.monitors.ams_inventory import remaining_percent
-        for slot_idx, tray in ams_trays_by_slot(ams_units):
+        for slot_idx, tray in ams_trays_by_slot(ams_units, h3c=getattr(self, '_identified_h3c', False)):
             known_remaining = remaining_percent(tray.get('remain'))
             if known_remaining is not None and (is_rfid_tag(tray.get('tag_uid')) or is_rfid_tag(tray.get('tray_uuid'))):
                 ams_remain[slot_idx] = known_remaining
@@ -33,6 +34,7 @@ def refresh_ams_remain(self):
 def handle_status(self, status, generation, runtime):
     """Handle incoming MQTT status update."""
     import modules.notifications.event_dispatcher as printer_events
+    from modules.printers.hms_codes import printer_reports_no_error
     with self._lock:
         if self._connection_retired or (generation is not None and generation != self._connection_generation):
             return
@@ -83,25 +85,40 @@ def handle_status(self, status, generation, runtime):
             pending_nozzles['nozzle_1_target_temp'] = (second_extruder[1], 'nozzle_1_target_observed_at', observed)
         self._pending_right_nozzle = pending_nozzles
         incoming_ams_report = raw.get('ams')
+        h3c = getattr(self, '_identified_h3c', False)
+        if isinstance(incoming_ams_report, dict) and 'ams' in incoming_ams_report:
+            # get_version may identify the rack after a partial zone update.
+            from modules.printers.monitors.mqtt_telemetry import parse_ams_env
+            zones = getattr(self, '_ams_zones', {})
+            for sample in parse_ams_env(incoming_ams_report, h3c=True):
+                zones[sample['unit_idx']] = (runtime.time.time(), sample)
+            self._ams_zones = zones
 
-        if isinstance(incoming_ams_report, dict) and ('ams' in incoming_ams_report or 'tray_exist_bits' in incoming_ams_report):
+        cached = getattr(self, '_inventory_ams_units', [])
+        if isinstance(incoming_ams_report, dict) and (
+                'ams' in incoming_ams_report or ('tray_exist_bits' in incoming_ams_report and (not h3c or cached))):
             # Held until the next heartbeat write: Bambu sends the AMS list
             # only on change/pushall, usually between heartbeats.
-            from modules.printers.telemetry.bambu.ams_identity import inventory_report
-            units = incoming_ams_report.get('ams', getattr(self, '_inventory_ams_units', []))
-            report = inventory_report(units, incoming_ams_report.get('tray_exist_bits'),
-                                      getattr(self, '_pending_ams_report', None) or getattr(self, '_inventory_ams_units', ()))
+            from modules.printers.telemetry.bambu.ams_identity import inventory_report, merge_rack_trays
             from copy import deepcopy
-            self._inventory_ams_units = deepcopy(report)
+            pending = getattr(self, '_pending_ams_report', None)
+            units = incoming_ams_report.get('ams', cached)
+            report = inventory_report(units, incoming_ams_report.get('tray_exist_bits'),
+                                      cached if h3c else pending or cached,
+                                      h3c=h3c, bit_only='ams' not in incoming_ams_report)
+            # Keep rack fields for a later get_version even before they can update inventory.
+            self._inventory_ams_units = deepcopy(merge_rack_trays(cached, report))
+            if h3c:
+                report = merge_rack_trays(pending, report)
             from modules.printers.telemetry.bambu.ams_identity import ams_trays_by_slot
-            for _, tray in ams_trays_by_slot(self._inventory_ams_units):
+            for _, tray in ams_trays_by_slot(self._inventory_ams_units, h3c=h3c):
                 tray.pop('_removed', None)
             self._note_ams_report(report)
             # Bind repair evidence to this exact inventory batch, including across a throttled heartbeat.
             from modules.printers.bambu_slots import full_ams_slots
             self._phantom_slot_evidence = None
             received_at = getattr(status, 'mqtt_received_at', None)
-            if (getattr(status, 'mqtt_retained', None) is False and received_at is not None
+            if (not h3c and getattr(status, 'mqtt_retained', None) is False and received_at is not None
                     and fresh_report(False, runtime.time.time() - received_at)):
                 numbers = full_ams_slots(raw)
                 if numbers:
@@ -204,6 +221,8 @@ def handle_status(self, status, generation, runtime):
                 self._recorded_attempt_trays = set()
                 self._pending_attempt_trays = set()
             tray = accounting.valid_ams_tray(incoming_ams_report.get('tray_now')) if isinstance(incoming_ams_report, dict) else None
+            if h3c and tray is not None and tray >= 9:
+                tray = None
             if gcode_state in ('RUNNING', 'PAUSE') and tray is not None and tray not in self._recorded_attempt_trays:
                 self._pending_attempt_trays.add(tray)
             if self._pending_attempt_trays:
@@ -220,12 +239,13 @@ def handle_status(self, status, generation, runtime):
                     # Terminal writers durably mark any still-pending evidence.
                     runtime.log.warning('[%s] Attempt tray persistence failed; will retry', self.name)
 
+        quiet_unknown = printer_reports_no_error(self._state.get('print_error'), gcode_state)
+
         def process_hms(packet, expected_print_job_id=None):
             from modules.printers.monitors.hms_evidence import evidence
             report_evidence = evidence(packet, runtime.time.time())
             incoming_hms = packet.get('hms')
             if isinstance(incoming_hms, list) and not incoming_hms:
-                self._last_hms_key = None
                 self._last_hms_processed_key = None
             if not isinstance(incoming_hms, list):
                 return True
@@ -233,10 +253,11 @@ def handle_status(self, status, generation, runtime):
             observed_filename = packet.get('subtask_name') or packet.get('gcode_file')
             corroborated = (fresh_report(report_evidence['mqtt_retained'], report_evidence['report_age_seconds'])
                             and report_evidence['live_state'] in ('FAILED', 'PAUSE', 'IDLE'))
+            quiet = packet.get('_quiet_unknown', quiet_unknown)
             process_key = (expected_print_job_id, observed_filename,
-                           runtime.json.dumps(incoming_hms, sort_keys=True), corroborated)
+                           runtime.json.dumps(incoming_hms, sort_keys=True), corroborated, quiet)
             previous = getattr(self, '_last_hms_processed_key', None)
-            if (process_key == previous or (previous and previous[3]
+            if (process_key == previous or (previous and previous[3] and previous[4] == quiet
                     and process_key[1:3] == previous[1:3]
                     and expected_print_job_id in (None, previous[0]))):
                 return True
@@ -244,7 +265,7 @@ def handle_status(self, status, generation, runtime):
                 result = printer_events.process_hms_errors(
                     self.printer_id, incoming_hms, observed_filename=observed_filename,
                     expected_print_job_id=expected_print_job_id,
-                    **report_evidence,
+                    **report_evidence, **({'quiet_unknown': True} if quiet else {}),
                     **({'withhold_row_writes': True} if question_waiting else {}),
                     tray_evidence_incomplete=(getattr(self, '_tray_attempt_id', None) == expected_print_job_id
                                               and bool(getattr(self, '_pending_attempt_trays', ()))))
@@ -296,6 +317,13 @@ def handle_status(self, status, generation, runtime):
         if resolved:
             from modules.printers.monitors.hms_evidence import prepare
             hms_packet = prepare(self, raw, status, runtime.time.time())
+            previous = getattr(self, '_last_hms_processed_key', None)
+            if ('hms' not in hms_packet and previous and previous[4] != quiet_unknown
+                    and self._state.get('hms')):
+                # Reclassify the displayed codes after a state-only delta. A cached code
+                # cannot supply fresh terminal evidence for the current job.
+                hms_packet = dict(hms_packet, hms=self._state['hms'], gcode_state=None)
+            hms_packet['_quiet_unknown'] = quiet_unknown
             resolved = process_hms(hms_packet, self._current_job_id)
             if not resolved and hms_packet.get('hms'):
                 from copy import deepcopy
@@ -303,7 +331,7 @@ def handle_status(self, status, generation, runtime):
                 self._pending_hms_terminal = {
                     'packet': deepcopy({k: hms_packet[k] for k in
                         ('hms', 'subtask_name', 'gcode_file', 'gcode_state',
-                         '_hms_retained', '_hms_report_age', '_hms_received_at') if k in hms_packet}),
+                         '_hms_retained', '_hms_report_age', '_hms_received_at', '_quiet_unknown') if k in hms_packet}),
                     'state': dict(self._state), 'terminal': gcode_state if terminal else None,
                     'print_job_id': self._current_job_id,
                     'generation': self._connection_generation,
@@ -321,7 +349,8 @@ def handle_status(self, status, generation, runtime):
 
         # Update telemetry + heartbeat (throttled to every 10 seconds)
         live_state_allowed = True
-        if self._transport_offline or runtime.time.time() - getattr(self, '_last_heartbeat', 0) >= 10:
+        heartbeat_due = self._transport_offline or runtime.time.time() - getattr(self, '_last_heartbeat', 0) >= 10
+        if heartbeat_due:
             live_state_allowed = False
             try:
                 with runtime.get_db() as conn:
@@ -332,9 +361,6 @@ def handle_status(self, status, generation, runtime):
                     gstate = self._state.get('gcode_state')
                     stg_cur = self._state.get('stg_cur', -1)
                     stage = pause_stage(self, runtime.resolve_stage_label(stg_cur, gstate))
-                    hms_raw = self._state.get('hms', [])
-                    from modules.printers.bambu_hms_bundle import prefix_from_serial
-                    prefix = prefix_from_serial(getattr(self, 'serial', ''))
                     lights_on_raw = runtime.parse_lights(self._state.get('lights_report', []))
                     # Check cooldown — don't overwrite if toggled via API within last 20s
                     printer_config = conn.execute('SELECT lights_toggled_at,model,machine_type FROM printers WHERE id=?', (self.printer_id,)).fetchone()
@@ -462,20 +488,32 @@ def handle_status(self, status, generation, runtime):
                             runtime.log.debug(f"[{self.name}] Telemetry insert: {e}")
 
                     from modules.printers.printer_models import rack_model_identity
-                    rack = rack_model_identity(raw_pt, getattr(self, '_reported_model', None), *self._stored_models)
-                    rack = rack if rack is not None else getattr(self, '_rack_rows_stored', False)
+                    identity = rack_model_identity(raw_pt, getattr(self, '_reported_model', None), *self._stored_models)
+                    rack = identity if identity is not None else getattr(self, '_rack_rows_stored', False)
 
                     # ---- AMS Environmental Data Capture ----
-                    if runtime.time.time() - getattr(self, '_last_ams_env', 0) >= 300:
+                    if ((not identity or getattr(self, '_ams_zones', {}))
+                            and runtime.time.time() - getattr(self, '_last_ams_env', 0) >= AMS_ENV_INTERVAL):
                         ams_capture_at = runtime.time.time()
                         try:
                             ams_raw_env = self._state.get('ams', {})
-                            for entry in runtime.parse_ams_env(ams_raw_env, rack=rack):
+                            if identity:
+                                entries = [sample for seen, sample in self._ams_zones.values()
+                                           if ams_capture_at - seen <= 2 * AMS_ENV_INTERVAL]
+                            else:
+                                entries = runtime.parse_ams_env(ams_raw_env, rack=rack)
+                            for entry in entries:
                                 conn.execute(
                                     "INSERT INTO ams_telemetry (printer_id, ams_unit, humidity, temperature, humidity_percent) VALUES (?, ?, ?, ?, ?)",
                                     (self.printer_id, entry['unit_idx'], entry['humidity'], entry['temperature'], entry['humidity_percent'])
                                 )
-                            conn.execute(  # nosemgrep: python.lang.security.audit.formatted-sql-query.formatted-sql-query,python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- verified safe — sql.* helpers return constant SQL fragments, no user input
+                                if entry.get('label'):
+                                    label = {str(entry['unit_idx']): entry['label']}
+                                    conn.execute("INSERT INTO system_config(key,value) SELECT 'ams.zone.' || CAST(id AS TEXT) "
+                                                 "|| '.' || CAST(created_at AS TEXT) || '.' || ?, ? FROM printers WHERE id=? "
+                                                 "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                                                 (str(entry['unit_idx']), runtime.json.dumps(label), self.printer_id))
+                            conn.execute(  # nosemgrep: python.lang.security.audit.formatted-sql-query.formatted-sql-query,python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- constant retention interval
                                 f"DELETE FROM ams_telemetry WHERE recorded_at < {runtime.sql.now_offset('-90 days')}"
                             )
                             conn.commit()
@@ -486,7 +524,7 @@ def handle_status(self, status, generation, runtime):
 
                     # ---- AMS Filament Slot Auto-Sync ----
                     pending_ams = getattr(self, '_pending_ams_report', None)
-                    if pending_ams is not None and rack:
+                    if pending_ams is not None and rack and not identity:
                         self._reset_pending_ams()
                         pending_ams = None
                     now = runtime.time.time()
@@ -500,9 +538,12 @@ def handle_status(self, status, generation, runtime):
                         # AMS_SYNC_MAX_ATTEMPTS (or replaced by a newer report).
                         try:
                             from modules.printers.monitors.ams_inventory import sync_ams_inventory
-                            sync_ams_inventory(conn, self.printer_id, pending_ams)
+                            if identity:
+                                sync_ams_inventory(conn, self.printer_id, pending_ams, h3c=True)
+                            else:
+                                sync_ams_inventory(conn, self.printer_id, pending_ams)
                             evidence = getattr(self, '_phantom_slot_evidence', None)
-                            if evidence and evidence[0] is pending_ams and fresh_report(False, runtime.time.time() - evidence[2]):
+                            if not identity and evidence and evidence[0] is pending_ams and fresh_report(False, runtime.time.time() - evidence[2]):
                                 from core.print_attempts import qmark_runner
                                 from modules.printers.bambu_slots import repair_phantom_slots
                                 repair_phantom_slots(qmark_runner(conn), self.printer_id, evidence[1])
@@ -568,27 +609,38 @@ def handle_status(self, status, generation, runtime):
                     ws_payload['external_spools'] = external_spools
                 runtime.ws_push('printer_telemetry', ws_payload)
 
-                # Process HMS errors through universal handler for alerts
-                if hms_raw:
-                    import json as _json2
-                    hms_key = _json2.dumps(hms_raw)
-                    if hms_key != getattr(self, '_last_hms_key', None):
-                        with runtime.get_db() as hconn:
-                            try:
-                                parsed = printer_events.parse_hms_errors(hms_raw, prefix)
-                                for err in parsed:
-                                    hconn.execute(
-                                        "INSERT INTO hms_error_history (printer_id, code, message, severity, source) VALUES (?, ?, ?, ?, ?)",
-                                        (self.printer_id, err.get('code', ''), err.get('message', ''), err.get('severity', 'warning'), 'bambu_hms')
-                                    )
-                                hconn.execute(f"DELETE FROM hms_error_history WHERE occurred_at < {runtime.sql.now_offset('-90 days')}")  # nosemgrep: python.lang.security.audit.formatted-sql-query.formatted-sql-query,python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- verified safe — sql.* helpers return constant SQL fragments, no user input
-                                hconn.commit()
-                                self._last_hms_key = hms_key
-                            except Exception as e:
-                                hconn.rollback()
-                                runtime.log.debug(f"[{self.name}] HMS history insert: {e}")
             except Exception as e:
                 runtime.log.warning(f"Failed to update telemetry for printer {self.printer_id}: {e}")
+
+        # History follows activations, including a pause or a clear between heartbeats.
+        if raw.get('hms') == []:
+            self._last_hms_key = {}
+        elif live_state_allowed and self._state.get('hms') and (heartbeat_due or {'hms', 'gcode_state', 'print_error'}.intersection(raw)):
+            from modules.printers.bambu_hms_bundle import prefix_from_serial
+            try:
+                prefix = prefix_from_serial(getattr(self, 'serial', ''))
+                parsed = printer_events.parse_hms_errors(self._state['hms'], prefix, quiet_unknown=quiet_unknown)
+                previous = getattr(self, '_last_hms_key', None) or {}
+                # Remember whether each still-active code already has an actionable history row.
+                active = {}
+                rows = []
+                for err in parsed:
+                    code = err['code']
+                    notice = err.get('informational_only', False)
+                    active[code] = previous.get(code, False) or not notice
+                    if code not in previous or active[code] != previous[code]:
+                        severity = 'error' if code in previous else err['severity']
+                        rows.append((self.printer_id, code, err['message'], severity,
+                                     'bambu_notice' if notice else 'bambu_hms'))
+                if rows:
+                    with runtime.get_db() as hconn:
+                        for row in rows:
+                            hconn.execute("INSERT INTO hms_error_history (printer_id, code, message, severity, source) VALUES (?, ?, ?, ?, ?)", row)
+                        hconn.execute(f"DELETE FROM hms_error_history WHERE occurred_at < {runtime.sql.now_offset('-90 days')}")  # nosemgrep: python.lang.security.audit.formatted-sql-query.formatted-sql-query,python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- constant interval
+                        hconn.commit()
+                self._last_hms_key = active
+            except Exception as e:
+                runtime.log.debug(f"[{self.name}] HMS history insert: {e}")
 
         # Optional evidence never precedes an attempted status commit. Throttled
         # deltas still refresh only this connection's explicit live state.

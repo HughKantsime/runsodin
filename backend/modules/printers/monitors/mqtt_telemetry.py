@@ -61,7 +61,7 @@ def parse_lights(lights_report: list) -> Optional[bool]:
     return any(l.get('mode') == 'on' for l in lights_report)
 
 
-def parse_ams_env(ams_raw: dict, *, rack=False) -> list:
+def parse_ams_env(ams_raw: dict, *, rack=False, h3c=False) -> list:
     """
     Extract AMS unit humidity and temperature from raw AMS payload.
     Returns list of {unit_idx, humidity, humidity_percent, temperature} dicts.
@@ -71,9 +71,19 @@ def parse_ams_env(ams_raw: dict, *, rack=False) -> list:
     ams_units = ams_raw.get('ams', []) if isinstance(ams_raw, dict) else []
     if not isinstance(ams_units, list):
         return []
-    for unit_idx, unit in enumerate(ams_units):
-        if not isinstance(unit, dict) or (rack and str(unit.get('id')) == '32'):
+    sensors = []
+    for index, unit in enumerate(ams_units):
+        if not isinstance(unit, dict):
             continue
+        if h3c:
+            zones = unit.get('zone_info')
+            if str(unit.get('id')) == '32' and isinstance(zones, list):
+                for zone in zones:
+                    if isinstance(zone, dict) and type(zone.get('zone_id')) is int and 0 <= zone['zone_id'] <= 8:
+                        sensors.append((zone['zone_id'], zone))
+        elif not (rack and str(unit.get('id')) == '32'):
+            sensors.append((index, unit))
+    for unit_idx, unit in sensors:
         humidity = unit.get('humidity')
         temperature = unit.get('temp')
         # Bambu reports humidity as string "1"-"5" or int
@@ -113,6 +123,9 @@ def parse_ams_env(ams_raw: dict, *, rack=False) -> list:
         if humidity is not None or humidity_percent is not None or temperature is not None:
             results.append({'unit_idx': unit_idx, 'humidity': humidity, 'temperature': temperature,
                             'humidity_percent': humidity_percent})
+            if h3c:
+                from modules.printers.ams_humidity import zone_label
+                results[-1]['label'] = zone_label(unit)
     return results
 
 

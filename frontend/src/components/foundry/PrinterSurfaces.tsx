@@ -1,4 +1,5 @@
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
+import { isH3C } from '../../utils/shared'
 import { useQuery } from '@tanstack/react-query'
 import { printJobs, jobs } from '../../api'
 import { canAccessPage } from '../../permissions'
@@ -18,8 +19,10 @@ export function usePrinterJobs() {
 export function ManagedPrinter({ printer, children, selection }: { printer: Printer; children: ReactNode; selection?: ReactNode }) {
   const { prints, queue } = usePrinterJobs()
   const now = useNow()
-  return <PrinterCard printer={printer} job={activePrint(printer, prints)} next={nextJob(printer, queue)} now={now} selection={selection} statusDetail={<PauseCause printer={printer} className="f-pause-cause" />}>
-    <details className="f-management"><summary>Controls and settings</summary><PauseCauseSuppressed.Provider value={true}>{children}</PauseCauseSuppressed.Provider></details>
+  const [editingRack, setEditingRack] = useState(false)
+  const rack = isH3C(printer)
+  return <PrinterCard rackSlotsVisible={!editingRack} printer={printer} job={activePrint(printer, prints)} next={nextJob(printer, queue)} now={now} selection={selection} statusDetail={<PauseCause printer={printer} className="f-pause-cause" />}>
+    <details className="f-management" onToggle={rack ? e => setEditingRack(e.currentTarget.open) : undefined}><summary>Controls and settings</summary><PauseCauseSuppressed.Provider value={true}>{(!rack || editingRack) && children}</PauseCauseSuppressed.Provider></details>
   </PrinterCard>
 }
 export function ManagedRows({ printers }: { printers: Printer[] }) {

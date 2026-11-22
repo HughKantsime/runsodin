@@ -17,13 +17,15 @@ AMS_HT_UNIT_COUNT = 8
 AMS_HT_FIRST_SLOT = 17
 
 
-def ams_slot_number(unit_id, tray_id):
+def ams_slot_number(unit_id, tray_id, *, h3c=False):
     """No array-position fallback; unknown hardware IDs return None."""
     try:
         unit = coerce_int_or_raise(unit_id)
         tray = coerce_int_or_raise(tray_id)
     except ValueError:
         return None
+    if h3c:
+        return tray + 1 if unit == 32 and 0 <= tray < 9 else None
     if 0 <= unit <= 3 and 0 <= tray <= 3:
         return unit * 4 + tray + 1
     if AMS_HT_FIRST_UNIT <= unit < AMS_HT_FIRST_UNIT + AMS_HT_UNIT_COUNT and tray == 0:
@@ -31,8 +33,12 @@ def ams_slot_number(unit_id, tray_id):
     return None
 
 
-def unit_and_tray(slot):
+def unit_and_tray(slot, *, h3c=False):
     """Inverse of ams_slot_number for a validated physical slot."""
+    if h3c:
+        if 1 <= slot <= 9:
+            return 32, slot - 1
+        raise ValueError('Unknown rack position')
     if 1 <= slot < AMS_HT_FIRST_SLOT:
         return divmod(slot - 1, 4)
     if AMS_HT_FIRST_SLOT <= slot < AMS_HT_FIRST_SLOT + AMS_HT_UNIT_COUNT:
@@ -68,7 +74,7 @@ def is_rfid_tag(tag_uid):
     return isinstance(tag_uid, str) and bool(tag_uid.strip()) and tag_uid.strip().strip('0') != ''
 
 
-def ams_trays_by_slot(units, *, strict=False):
+def ams_trays_by_slot(units, *, strict=False, h3c=False):
     """Refuse invalid inventory batches; omit ambiguous display/cache entries."""
     entries = []
     invalid = False
@@ -81,11 +87,13 @@ def ams_trays_by_slot(units, *, strict=False):
         if not isinstance(unit, dict) or not isinstance(unit.get('tray', []), list):
             invalid = True
             continue
+        if h3c and str(unit.get('id')) != '32':
+            continue
         for tray in unit.get('tray', []):
             if not isinstance(tray, dict):
                 invalid = True
                 continue
-            number = ams_slot_number(unit.get('id'), tray.get('id'))
+            number = ams_slot_number(unit.get('id'), tray.get('id'), h3c=h3c)
             if number is None:
                 invalid = True
                 continue
@@ -98,10 +106,13 @@ def ams_trays_by_slot(units, *, strict=False):
     return [(number, tray) for number, tray in entries if number not in duplicate]
 
 
-def ams_connection_counts(units, slot_numbers):
+def ams_connection_counts(units, slot_numbers, *, h3c=False):
     # A listed standard AMS has four slots even when its tray list is incomplete.
     if not isinstance(units, list):
         units = []
+    if h3c:
+        connected = any(isinstance(unit, dict) and str(unit.get('id')) == '32' for unit in units)
+        return {'ams_slots': 9 if connected else 0, 'ams_ht_slots': 0}
     first_slots = {ams_slot_number(unit.get('id'), 0) for unit in units if isinstance(unit, dict)}
     return {"ams_slots": 4 * sum(n is not None and n <= 16 for n in first_slots),
             "ams_ht_slots": sum(17 <= n <= 24 for n in slot_numbers)}
@@ -181,22 +192,61 @@ def slot_color(reported, filament_type, previous_type, previous_color, *, swappe
     return previous_color if filament_type == previous_type else None
 
 
-def tray_exists(bits, slot_number):
+def tray_exists(bits, slot_number, *, h3c=False):
     try:
-        return bool(int(bits, 16) & (1 << (slot_number - 1))) if isinstance(bits, str) else None
+        return bool(int(bits, 16) & (1 << (slot_number - 1 + (28 if h3c else 0)))) if isinstance(bits, str) else None
     except ValueError:
         return None
 
 
-def inventory_report(units, bits=None, previous=()):
+def _merge_tray_fields(held, tray):
+    # Empty/replaced trays cannot inherit the previous spool's identity.
+    if tray.get('_exists') is False or held.get('_exists') is False or (
+            tray.get('state') == 0 and not tray.get('tray_type')) or any(
+            tray[key] != held[key] for key in ('tag_uid', 'tray_uuid') if key in tray and key in held):
+        return tray
+    if 'tag_uid' not in tray and 'tray_uuid' not in tray and any(
+            tray[key] != held[key] for key in ('tray_type', 'tray_color', 'tray_info_idx') if key in tray and key in held):
+        return {**held, **tray, 'tag_uid': None, 'tray_uuid': None}
+    return {**held, **tray}
+
+
+def merge_rack_trays(previous, incoming):
+    """A zone or a single tray may arrive between the full report and the next sync."""
+    if not isinstance(previous, list) or not isinstance(incoming, list):
+        return incoming
+    old = [u for u in previous if isinstance(u, dict) and str(u.get('id')) == '32']
+    new = [u for u in incoming if isinstance(u, dict) and str(u.get('id')) == '32']
+    if len(old) != 1 or len(new) != 1 or len(incoming) != 1:
+        return incoming
+    try:
+        held = dict(ams_trays_by_slot(old, strict=True, h3c=True))
+        for number, tray in ams_trays_by_slot(incoming, strict=True, h3c=True):
+            previous_tray = held.get(number, {})
+            held[number] = _merge_tray_fields(previous_tray, tray)
+            if previous_tray.get('_removed'):
+                held[number] = {**held[number], '_removed': True}
+    except ValueError:
+        return incoming  # Let the normal writer validate the newer batch.
+    return [{**old[0], **new[0], 'tray': list(held.values())}]
+
+
+def inventory_report(units, bits=None, previous=(), *, h3c=False, bit_only=False):
     """Keep a removal seen between heartbeat writes, including bit-only reports."""
     import copy
     result = copy.deepcopy(units)
     # A malformed earlier report is no prior state, and must not refuse every later packet.
-    prior = dict(ams_trays_by_slot(list(previous) if isinstance(previous, (list, tuple)) else []))
-    for number, tray in ams_trays_by_slot(result):
-        exists = tray_exists(bits, number)
+    prior = dict(ams_trays_by_slot(list(previous) if isinstance(previous, (list, tuple)) else [], h3c=h3c))
+    for number, tray in ams_trays_by_slot(result, h3c=h3c):
+        exists = tray_exists(bits, number, h3c=h3c)
+        if h3c and not bit_only:
+            if type(tray.get('state')) is int and tray['state'] == 0 and not tray.get('tray_type'):
+                exists = False
+            elif exists is None and tray.get('tray_type'):
+                exists = True
         old = prior.get(number, {})
         tray['_exists'] = exists if exists is not None else old.get('_exists')
         tray['_removed'] = bool(old.get('_removed') or old.get('_exists') is False)
+        if h3c:
+            tray.update(_merge_tray_fields(old, tray))
     return result

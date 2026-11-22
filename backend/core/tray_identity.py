@@ -43,6 +43,9 @@ def advance(previous, tray, bound_tag=None, bound_uuid=None):
     elif observed['exists'] is not False and old and changed and any(old.get(k) != observed[k] for k in ('type', 'sub_brand', 'preset', 'color')):
         pending = True
     state = dict(id=uuid.uuid4().hex if changed or strong else previous['id'], observed=observed, pending=pending)
+    for key in ('rack_filament', 'rack_filament_sources'):
+        if key in previous:
+            state[key] = previous[key]
     if pending:
         state['hold_id'] = previous.get('hold_id', previous.get('id')) if previous.get('pending') else state['id']
     if not changed and previous.get('confirmation_id'):

@@ -421,3 +421,67 @@ def test_previous_print_cached_start_tray_is_not_evidence(inventory, monkeypatch
     send.monitor._state = {'ams': {'tray_now': 2}, 'subtask_name': 'fixture'}
     send()  # Fresh RUNNING without fresh AMS must not reuse cached tray 2.
     assert rows(inventory, "SELECT key FROM system_config WHERE key LIKE '%observed_trays'") == []
+
+
+def test_h3c_running_report_charges_position_seven(inventory, monkeypatch):
+    from modules.printers.monitors.mqtt_telemetry import parse_ams_env
+    from modules.printers.telemetry.bambu import ams_evidence
+    from tests.test_contracts.test_h3c_readonly import capture_packet
+    from core.db_live import live_get_db
+    from modules.printers.monitors.ams_inventory import sync_ams_inventory
+    from modules.printers.telemetry.bambu.ams_identity import inventory_report
+    packet = capture_packet('ams3h-loaded')
+    packet['ams']['tray_now'] = '6'
+    seventh = packet['ams']['ams'][0]['tray'][6]
+    seed(inventory, 56, sealed=False, tag=seventh['tag_uid'], tray_uuid=seventh['tray_uuid'])
+    with live_get_db() as conn:
+        conn.execute("UPDATE printers SET model='H3C',machine_type='N10',slot_count=9 WHERE id=1")
+        report = inventory_report(packet['ams']['ams'], packet['ams']['tray_exist_bits'], h3c=True)
+        assert sync_ams_inventory(conn, 1, report, h3c=True) == 9
+        conn.commit()
+    assert rows(inventory, 'SELECT assigned_spool_id FROM filament_slots WHERE printer_id=1 AND slot_number=7') == [(56,)]
+
+    facts = []
+    parse = ams_evidence.parse_raw_ams_facts
+    def capture_facts(*args, **kwargs):
+        result = parse(*args, **kwargs)
+        facts.extend(result)
+        return result
+    monkeypatch.setattr(ams_evidence, 'parse_raw_ams_facts', capture_facts)
+
+    def during():
+        send = telemetry(inventory)
+        send.runtime.parse_ams_env = parse_ams_env
+        send.monitor._note_ams_report = lambda report: None
+        send(state='RUNNING', ams=packet['ams'])
+        assert send.monitor._display_facts['feeding_slot']['value'] == 7
+        seventh, = [fact for fact in facts if fact.slot_number == 7]
+        assert (seventh.unit_id, seventh.tray_id, seventh.material, seventh.extruder) == (32, 6, 'PLA', None)
+        assert [f.slot_number for f in facts if f.material_state == 'explicit_empty'] == [2, 3, 4, 5, 6, 8]
+        send('9')  # outside this rack
+    assert print_case(inventory, target=None, after_capture=during)[:2] == ('accounted', None)
+    assert stored_trays(inventory) == [[6]]
+    assert rows(inventory, 'SELECT spool_id,weight_used_g FROM spool_usage') == [(56, 165.89)]
+
+
+def test_h3c_tagless_colour_change_does_not_charge_previous_spool(inventory):
+    from core.db_live import live_get_db
+    from modules.printers.monitors.ams_inventory import sync_ams_inventory
+    from modules.printers.telemetry.bambu.ams_identity import inventory_report
+    from tests.test_contracts.test_h3c_readonly import capture_packet
+
+    ams = capture_packet('ams3h-loaded')['ams']
+    tray = ams['ams'][0]['tray'][6]
+    seed(inventory, 56, sealed=False, tag=tray['tag_uid'], tray_uuid=tray['tray_uuid'])
+    with live_get_db() as conn:
+        conn.execute("UPDATE printers SET model='H3C',slot_count=9 WHERE id=1")
+        held = inventory_report(ams['ams'], ams['tray_exist_bits'], h3c=True)
+        sync_ams_inventory(conn, 1, held, h3c=True)
+        assert conn.execute('SELECT assigned_spool_id FROM filament_slots WHERE printer_id=1 AND slot_number=7').fetchone()[0] == 56
+        delta = [{'id': '32', 'tray': [{'id': '6', 'tray_color': '112233FF'}]}]
+        sync_ams_inventory(conn, 1, inventory_report(delta, previous=held, h3c=True), h3c=True)
+        conn.commit()
+
+    assert print_case(inventory, target=None, observed_tray=6)[:2] == ('unresolved', 'no_bound_spool')
+    assert rows(inventory, 'SELECT remaining_weight_g FROM spools WHERE id=56') == [(1000,)]
+    assert rows(inventory, 'SELECT spool_id FROM spool_usage') == []

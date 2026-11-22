@@ -23,6 +23,14 @@ it('keeps AMS unit identity available instead of flattening incompatible reading
  expect(await screen.findByRole('combobox', {name:'AMS unit'})).toBeTruthy()
 })
 
+it('labels rack zones by their reported positions', async () => {
+ const reading = {time: '2026-11-21T20:35:00Z', temperature: 25, humidity: 3}
+ vi.mocked(getAmsEnvironment).mockResolvedValue({printer_id:1,hours:24,units:{'0':[reading], '1':[reading]},
+  labels:{'0':'Slots 6, 8', '1':'Slots 1-5, 7, 9'}})
+ render(<AmsEnvironmentChart printerId={1} />)
+ expect(await screen.findByRole('option', {name:'Slots 6, 8'})).toHaveValue('0')
+ expect(screen.getByRole('option', {name:'Slots 1-5, 7, 9'})).toHaveValue('1')
+})
 it('plots only the selected unit while preserving zero readings', async () => {
  vi.mocked(getAmsEnvironment).mockResolvedValue({printer_id:1,hours:24,units:{'0':[{time:'2026-10-11T12:00:00Z',temperature:0,humidity:0}],'1':[{time:'2026-10-11T12:00:00Z',temperature:30,humidity:4}]}})
  render(<AmsEnvironmentChart printerId={1} />)

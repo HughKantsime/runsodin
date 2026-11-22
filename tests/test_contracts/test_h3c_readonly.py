@@ -65,7 +65,7 @@ def test_capture_through_monitor_and_printer_views(capture, v2_offline_monitor, 
         assert printer['model'] == 'H3C' and printer['installed_nozzles'] == public
         assert 'ams_connected' not in printer and printer['loaded_colors'] == ['blue']
         assert sorted(slot['slot_number'] for slot in printer['filament_slots']) == list(range(1, 10))
-        assert all(slot['rack_filament']['type'] == '' and slot['observed_state'] is None and slot['filament_type'] == 'empty'
+        assert all(slot['rack_filament'] is None and slot['observed_state'] is None and slot['filament_type'] == 'empty'
                    for slot in printer['filament_slots'])
     status = client.get('/printers/199/nozzle-status', headers=headers).json()
     assert status['installed_nozzles'] == public and status['nozzle_count'] == 1
@@ -538,11 +538,20 @@ def test_mounted_tool_overrides_lagging_source(capture):
 
 
 @pytest.mark.parametrize('capture', ['ams3h-loaded'], indirect=True)
-def test_loaded_capture_printer_views(capture, v2_offline_monitor, offline_store, token_client):
+def test_loaded_capture_printer_views(capture, v2_offline_monitor, offline_store, token_client, monkeypatch):
     from modules.printers import routes_crud
     from modules.printers.telemetry.bambu.raw import BambuPrintSection
     from modules.printers.telemetry.events import BambuReportEvent
-    _, emit, _ = v2_offline_monitor
+    from modules.printers import routes_ams_env, routes_integrations, routes_status
+    from modules.printers.telemetry import feature_flag
+    capture['gcode_state'] = 'RUNNING'
+    capture['ams']['tray_now'] = '6'
+    capture['hms'] = [{'attr': 0x0300E400, 'code': 0x00020007}]
+    monitor, emit, runtime = v2_offline_monitor
+    from modules.notifications import error_handling
+    monkeypatch.setattr(error_handling, 'get_db', runtime.get_db)
+    outgoing = []
+    monkeypatch.setattr(error_handling, 'dispatch_alert', lambda **kwargs: outgoing.append(kwargs))
     offline_store.execute(text("UPDATE printers SET model='H3C',tags='[\"rack\"]' WHERE id=199"))
     offline_store.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type,color_hex) "
                                "VALUES(199,1,'PETG','112233')"))
@@ -558,12 +567,50 @@ def test_loaded_capture_printer_views(capture, v2_offline_monitor, offline_store
         assert [r['position'] for r in rows if r['mounted']] == [5]
         slots = sorted(printer['filament_slots'], key=lambda s: s['slot_number'])
         assert [s['slot_number'] for s in slots] == list(range(1, 10))
-        assert (slots[0]['filament_type'], slots[0]['color_hex']) == ('PETG', '112233')
+        assert printer['feeding_slot'] == 7
+        assert printer['last_error_code'] is None
+        notice, = json.loads(printer['hms_errors'])
+        assert notice['severity'] == 'info'
+        assert notice['message'] == 'Printer code 0300-E400-0002-0007 (no description; the printer reports no error)'
         loaded = {1: ('PLA', 'GFA01', 'AE96D4FF'), 7: ('PLA', 'GFA01', 'AE835BFF'), 9: ('PLA', 'GFA00', 'FF6A13FF')}
         for n, slot in enumerate(slots, 1):
-            reading = slot['rack_filament']
-            assert reading['id'] == 256 - n
-            assert (reading['type'], reading['preset'], reading['color']) == loaded.get(n, ('', '', '00000000'))
+            assert slot['rack_filament'] is None
+            if n in loaded:
+                material, preset, rgba = loaded[n]
+                assert (slot['filament_type'], slot['preset_id'], slot['color_hex'], slot['remaining']) == (material, preset, rgba[:6], 100)
+                assert slot['assigned_spool_id'] and slot['spool_confirmed']
+            else:
+                assert (slot['filament_type'], slot['color_hex'], slot['assigned_spool_id']) == ('empty', None, None)
+    for module in (routes_integrations, routes_status, routes_ams_env):
+        client.app.include_router(module.router)
+    assert not outgoing
+    home = client.get('/integrations/home-assistant/status', headers=issue(['read'])).json()
+    ha = next(p for p in home['printers'] if p['id'] == 199)
+    assert ha['active_errors'] == 0 and ha['status'] == 'printing' and ha['last_error'] is None
+    assert len(ha['slots']) == 9
+    for slot in ha['slots']:
+        if slot['slot'] in loaded:
+            _, preset, rgba = loaded[slot['slot']]
+            assert (slot['preset_id'], slot['color_hex'].lstrip('#').upper(), slot['remaining_percent']) == (preset, rgba[:6], 100)
+        else:
+            assert slot['remaining_percent'] is None and slot['color_hex'] is None
+    expected = [('Slots 6, 8', 2, 36, 25.4), ('Slots 1-5, 7, 9', 3, 30, 25.0)]
+    assert [(u['label'], u['bambu_level'], u['humidity_percent'], u['temperature_c']) for u in ha['ams']] == expected
+    current = client.get('/printers/199/ams/current', headers=headers).json()
+    assert [(u['label'], u['humidity'], u['humidity_percent'], u['temperature']) for u in current['units']] == expected
+    history = client.get('/printers/199/ams/environment', headers=headers).json()
+    assert list(history['labels'].values()) == [entry[0] for entry in expected]
+    assert [len(rows) for rows in history['units'].values()] == [1, 1]
+
+    monkeypatch.setattr(routes_status.crypto, 'decrypt', lambda _: 'synthetic|synthetic')
+    monkeypatch.setattr(feature_flag, 'is_v2_enabled', lambda: True)
+    monkeypatch.setattr(routes_status, '_fetch_live_status_v2', lambda *args: {'gcode_state': 'RUNNING'})
+    offline_store.execute(text("UPDATE printers SET api_host='test.invalid',api_key='synthetic' WHERE id=199"))
+    offline_store.commit()
+    live = client.get('/printers/199/live-status', headers=headers).json()
+    assert live['feeding_slot'] == 7
+    assert [(s['slot_number'], s['color_hex'], s['remaining']) for s in live['filament_slots']] == [
+        (s['slot_number'], s['color_hex'], s['remaining']) for s in slots]
 
 
 @pytest.mark.parametrize('capture', ['ams3h-loaded'], indirect=True)
@@ -623,10 +670,13 @@ def test_ams3h_unit_is_excluded_from_generic_ams(capture, offline_store, v2_offl
     # The capture has only zone sensors. A unit-level reading must not create ordinary AMS unit 0.
     capture['ams']['ams'][0]['temp'] = '25'
     emit_rack_report(monitor, offline_store, capture)
-    assert offline_store.execute(text('SELECT count(*) FROM ams_telemetry WHERE printer_id=199')).scalar_one() == 0
+    assert bambu_tray_counts(capture, 'N10') == {'ams_slots': 9, 'ams_ht_slots': 0}
+    assert offline_store.execute(text('SELECT ams_unit,temperature FROM ams_telemetry WHERE printer_id=199 ORDER BY ams_unit')).all() == [(0, 25.4), (1, 25.0)]
+    assert monitor._ams_sync_failures == 0
+    loaded = {1: "AE96D4", 7: "AE835B", 9: "FF6A13"}
     assert offline_store.execute(text('SELECT slot_number,filament_type,color_hex FROM filament_slots '
                                       'WHERE printer_id=199 ORDER BY slot_number')).all() == [
-        (n, 'empty', None) for n in range(1, 10)]
+        (n, 'PLA' if n in loaded else 'empty', loaded.get(n)) for n in range(1, 10)]
 
 
 @pytest.mark.parametrize('other_ids', [[], list(range(16, 25)), [1, 16, 17]])

@@ -10,6 +10,8 @@ All notable changes to O.D.I.N. are documented here.
 - Platform administrators can turn on daily ODIN release checks in Settings > System and see when a newer version fixes a security problem.
 - You can select the Bambu Lab H3C during setup or when adding a printer. Its card and printer page show the nine rack positions, nozzle types and diameters, the tool in the head, and the filament the printer reports beside your ODIN slot settings. Dispatch and printer controls are not supported yet.
 
+- The Bambu Lab H3C now tracks filament and spools in all nine AMS 3H positions and shows humidity and temperature for each zone. Hand-fed filament is shown separately. Bambu printer codes without a description appear as notices when the printer reports no error.
+
 ## [2.5.0] - 2026-11-21
 
 

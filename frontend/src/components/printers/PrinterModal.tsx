@@ -305,7 +305,7 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
     const submitData: any = {
       name: formData.name,
       nickname: formData.nickname || null,
-      model: formData.model,
+      ...(!printer || modelOverride || formData.model !== (printer.model || '') ? { model: formData.model } : {}),
       ...(!printer || slotCount !== printer.slot_count ? { slot_count: slotCount } : {}),
       tags: formData.tags || [],
       timelapse_enabled: formData.timelapse_enabled || false,

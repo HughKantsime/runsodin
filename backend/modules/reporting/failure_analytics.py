@@ -112,14 +112,14 @@ def build_failure_analytics(db, current_user, cutoff):
             text(
                 "SELECT h.code, h.message, COUNT(*) as cnt FROM hms_error_history h "
                 "JOIN printers p ON h.printer_id = p.id "
-                "WHERE h.occurred_at >= :cutoff AND (p.org_id = :org OR p.org_id IS NULL OR p.shared IS TRUE) "
+                "WHERE (h.source IS NULL OR h.source <> 'bambu_notice') AND h.occurred_at >= :cutoff AND (p.org_id = :org OR p.org_id IS NULL OR p.shared IS TRUE) "
                 "GROUP BY h.code, h.message ORDER BY cnt DESC, h.code, h.message LIMIT 10"
             ),
             {"cutoff": cutoff.isoformat(), "org": org},
         ).fetchall()
     else:
         hms_rows = db.execute(
-            text("SELECT code, message, COUNT(*) as cnt FROM hms_error_history WHERE occurred_at >= :cutoff GROUP BY code, message ORDER BY cnt DESC, code, message LIMIT 10"),
+            text("SELECT code, message, COUNT(*) as cnt FROM hms_error_history WHERE (source IS NULL OR source <> 'bambu_notice') AND occurred_at >= :cutoff GROUP BY code, message ORDER BY cnt DESC, code, message LIMIT 10"),
             {"cutoff": cutoff.isoformat()},
         ).fetchall()
     hms_errors = [{"code": r[0], "message": r[1], "count": r[2]} for r in hms_rows]

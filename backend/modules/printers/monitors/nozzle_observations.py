@@ -53,7 +53,10 @@ def observe(monitor, packet, status, runtime):
     rack_only_mask = bool(rack_rows) and type(mask) is int and mask >= 0 and (bool(ids) or not (mask & 3))
     stored_models = getattr(monitor, '_stored_models', None)
     stored_rack = getattr(monitor, '_rack_rows_stored', False)
-    if stored_models is None and (rack_only_mask or stored_rack):
+    ams = packet.get('ams')
+    units = ams.get('ams') if isinstance(ams, dict) else None
+    rack_unit = isinstance(units, list) and any(isinstance(u, dict) and str(u.get('id')) == '32' for u in units)
+    if stored_models is None and (rack_only_mask or stored_rack or rack_unit):
         # Before the first heartbeat even get_version may not have supplied a model.
         try:
             with runtime.get_db() as conn:
@@ -66,6 +69,7 @@ def observe(monitor, packet, status, runtime):
         stored_models = ('H3C',) if getattr(monitor, '_configured_h3c', False) else ()
     model_code = packet.get('printer_type') or monitor._state.get('printer_type')
     identity = rack_model_identity(model, model_code, getattr(status, 'printer_type', None), *stored_models)
+    monitor._identified_h3c = identity is True
     fixed_report = fresh and isinstance(info, list) and any(
         isinstance(r, dict) and type(r.get('id')) is int and r['id'] < 16 for r in info)
     if identity is False and ids and not getattr(monitor, '_reported_model', None):
@@ -206,7 +210,7 @@ def _updated_rack_filament(raw_id, prior, readings):
     if updated:
         ams = sources.get('ams', {})
         selected = ams if _has_filament(ams) else sources.get('vir_slot', ams)
-        return {'rack_filament_sources': sources, 'rack_filament': {**selected, 'id': raw_id}}
+        return {**state, 'rack_filament_sources': sources, 'rack_filament': {**selected, 'id': raw_id}}
 
 
 def _has_filament(fields):

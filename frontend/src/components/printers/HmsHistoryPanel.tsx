@@ -116,10 +116,10 @@ export default function HmsHistoryPanel({ printerId, apiType, readOnly = false, 
           {/* Frequency summary */}
           {topErrors.length > 0 && (
             <div>
-              <span className="text-xs text-[var(--brand-text-muted)] font-semibold">Top Recurring ({data.total} total)</span>
+              <span className="text-xs text-[var(--brand-text-muted)] font-semibold">Top Recurring ({Object.values(data.frequency).reduce((sum, count) => sum + count, 0)} total)</span>
               <div className="mt-1 space-y-1">
                 {topErrors.map(([code, count]) => {
-                  const entry = data.entries.find(e => e.code === code)
+                  const entry = data.entries.find(e => e.code === code && e.source !== 'bambu_notice')
                   return (
                     <div key={code} className="flex items-center justify-between text-xs py-1">
                       <span className="text-[var(--brand-text-secondary)] truncate mr-2">{entry?.message || code}</span>
@@ -133,7 +133,7 @@ export default function HmsHistoryPanel({ printerId, apiType, readOnly = false, 
 
           {/* Recent entries */}
           <div>
-            <span className="text-xs text-[var(--brand-text-muted)] font-semibold">Recent Errors</span>
+            <span className="text-xs text-[var(--brand-text-muted)] font-semibold">Recent printer codes</span>
             <div className="mt-1 space-y-1 max-h-48 overflow-y-auto">
               {data.entries.slice(0, 20).map(e => (
                 <div key={e.id} className="flex items-center gap-2 text-xs py-1 border-b border-[var(--brand-card-border)]">

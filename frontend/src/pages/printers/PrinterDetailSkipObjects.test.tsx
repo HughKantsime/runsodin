@@ -99,7 +99,7 @@ it.each(['classic', 'foundry'])('shows the read-only H3C rack once on the %s pri
   }))
   const slots = nozzles.map(nozzle => {
     const tray = capture.message.print.vir_slot.find(slot => Number(slot.id) === nozzle.virtual_slot_id)!
-    return { slot_number: nozzle.position, filament_type: 'PETG', color_hex: '112233',
+    return { slot_number: nozzle.position, filament_type: 'PETG', color: 'Slate', color_hex: '112233', remaining: 80,
       rack_filament: { id: Number(tray.id), type: tray.tray_type, preset: tray.tray_info_idx, color: tray.tray_color, observed_at: '2026-11-21T19:57:00Z' } }
   })
   vi.mocked(printers.get).mockResolvedValueOnce({
@@ -112,21 +112,23 @@ it.each(['classic', 'foundry'])('shows the read-only H3C rack once on the %s pri
   const rows = rack.querySelectorAll('li')
   expect(rows).toHaveLength(9)
   expect(rows[0]).toHaveTextContent('Position 1 · Standard (1.75 mm) (HS01) · 0.4 mm')
-  expect(rows[8]).toHaveTextContent('Nothing reported')
-  expect(Array.from(rows).filter(row => row.textContent?.includes('Nothing reported'))).toHaveLength(8)
+  expect(screen.getAllByText(/Hand-fed at the tool/)).toHaveLength(1)
   expect(rack).toHaveTextContent('Position 8 · TPU 2.85 mm (HT01) · 0.4 mm')
-  expect(rows[0]).toHaveTextContent('Printer reports: PLA, GFA01, #AE96D4')
+  expect(rows[0]).toHaveTextContent('Hand-fed at the tool: PLA, GFA01, #AE96D4')
   const editors = screen.getAllByTestId('filament-slot')
   expect(editors).toHaveLength(9)
   expect(screen.getAllByText(/\bPETG\b/)).toHaveLength(9)
   editors.forEach((editor, index) => {
     expect(editor).toHaveTextContent(`Position ${index + 1}`)
+    expect(rows[index]).toContainElement(editor)
     expect(editor).toHaveTextContent('PETG')
+    if (family === 'classic') expect(editor.querySelector('[aria-label="80% remaining"]')).toBeInTheDocument()
+    else expect(editor).toHaveTextContent('80%')
     if (family === 'foundry') expect(editor.querySelector('.f-swatch')).toHaveStyle({ backgroundColor: '#112233' })
     else expect(editor.querySelector('circle[stroke="#112233"]')).toBeInTheDocument()
   })
   expect(rows[0]).toHaveTextContent('ID 255')
-  expect(rows[8]).toHaveTextContent('ID 247')
+  expect(rows[8]).not.toHaveTextContent('Hand-fed')
   expect(rows[4]).toHaveTextContent('In the tool head')
   expect(Array.from(rows).filter(row => row.textContent?.includes('In the tool head'))).toHaveLength(1)
   expect(rack).not.toHaveTextContent(/provisional|Confirm spool/i)
@@ -152,7 +154,7 @@ it.each([
   expect(screen.queryByRole('button', { name: 'Configure AMS tray' })).not.toBeInTheDocument()
   const editors = screen.getAllByTestId('filament-slot')
   expect(editors).toHaveLength(9)
-  expect(editors[7].parentElement).toHaveTextContent('Printer reports: PLA, GFA01, #AE96D4')
+  expect(editors[7].parentElement).toHaveTextContent('Hand-fed at the tool: PLA, GFA01, #AE96D4')
   fireEvent.click(editors[7])
   fireEvent.click(await screen.findByRole('button', { name: 'Clear' }))
   await waitFor(() => expect(printers.updateSlot).toHaveBeenCalledWith(9, 8, {

@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from core.db import get_db
 from core.display_names import display_names
-from core.hms_state import display_entries
+from core.hms_state import attention_entries
 from core.rbac import get_org_scope, require_role, require_scope, should_filter_org
 from modules.printers.integration_floor import HIDDEN_ERROR_MESSAGE, Floor, iso as _iso, to_utc as _utc
 from modules.printers.models import Printer
@@ -44,7 +44,7 @@ def active_hms_count(stored) -> int:
         entries = json.loads(stored or "[]")
     except (TypeError, ValueError):
         return 0
-    return len(display_entries(entries)) if isinstance(entries, list) else 0
+    return len(attention_entries(entries)) if isinstance(entries, list) else 0
 
 
 def is_online(gcode_state, last_seen, now) -> bool:

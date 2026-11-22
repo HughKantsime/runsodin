@@ -9,10 +9,27 @@ from tests.test_contracts.test_product_bom_integrity import bom_client
 pytestmark = pytest.mark.usefixtures("pro_license")
 
 
-def test_hms_same_code_preserves_distinct_messages(analytics_client, review_db):
+@pytest.mark.parametrize('global_scope', [False, True])
+def test_hms_same_code_preserves_distinct_messages(analytics_client, review_db, global_scope):
+    from sqlalchemy import event
+    from core.dependencies import get_current_user
+    if global_scope:
+        analytics_client.app.dependency_overrides[get_current_user] = lambda: {'id': 3, 'role': 'admin', 'group_id': None, 'is_active': True}
+
     review_db.execute(text("INSERT INTO hms_error_history(printer_id,code,message,occurred_at) VALUES(9,'SYNTHETIC','Synthetic first',CURRENT_TIMESTAMP),(9,'SYNTHETIC','Synthetic second',CURRENT_TIMESTAMP),(9,'SYNTHETIC','Synthetic first',CURRENT_TIMESTAMP)"))
+    review_db.execute(text("INSERT INTO hms_error_history(printer_id,code,message,source,severity) "
+                           "VALUES(9,'SYNTHETIC','Unknown code without a printer error','bambu_notice','info')"))
+    review_db.execute(text("UPDATE hms_error_history SET source=NULL WHERE message='Synthetic second'"))
     review_db.commit()
-    response=analytics_client.get('/analytics/failures')
+    def check_sql(conn, cursor, statement, parameters, context, executemany):
+        # SQLite before 3.39 cannot parse this predicate.
+        assert 'IS DISTINCT FROM' not in statement.upper()
+    engine = review_db.get_bind()
+    event.listen(engine, 'before_cursor_execute', check_sql)
+    try:
+        response=analytics_client.get('/analytics/failures')
+    finally:
+        event.remove(engine, 'before_cursor_execute', check_sql)
     assert response.status_code==200
     rows=[row for row in response.json()['hms_errors'] if row['code']=='SYNTHETIC']
     assert {(row['message'],row['count']) for row in rows}=={('Synthetic first',2),('Synthetic second',1)}

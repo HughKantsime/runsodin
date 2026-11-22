@@ -311,7 +311,7 @@ def _test_bambu_v2(request) -> dict:
         "state": view.state,                     # legacy-shaped enum string
         "bed_temp": view.bed_temp,
         "nozzle_temp": view.nozzle_temp,
-        **bambu_tray_counts(section.model_dump(exclude_unset=True) if section else {}),
+        **bambu_tray_counts(section.model_dump(exclude_unset=True) if section else {}, detected_model),
         "model": detected_model,
     }
 

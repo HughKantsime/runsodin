@@ -190,3 +190,13 @@ it('keeps the nine H3C positions fixed when editing a previously configured prin
   // The detected model still has its own Override button.
   expect(screen.getAllByRole('button', { name: 'Override' })).toHaveLength(1)
 })
+
+it('keeps a displayed rack model out of an unrelated edit', () => {
+  const submit = vi.fn()
+  render(<PrinterModal isOpen printer={{ ...saved, model: 'H3C', slot_count: 9, last_seen: '2026-11-21T19:57:00Z' }}
+    onClose={vi.fn()} onSubmit={submit} />)
+  fireEvent.change(screen.getByPlaceholderText('e.g., p1s-01, x1c-floor2'), { target: { value: 'Renamed' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+  expect(submit.mock.calls[0][0].name).toBe('Renamed')
+  expect(submit.mock.calls[0][0]).not.toHaveProperty('model')
+})
