@@ -67,6 +67,7 @@ TRANSITIONS: dict[str, dict[str, frozenset[str]]] = {
         PENDING: frozenset({PENDING, SCHEDULED}),
     },
     "dispatch": {
+        FAILED: frozenset({PENDING, SCHEDULED}),
         PRINTING: frozenset({PENDING, SCHEDULED, PRINTING}),
     },
     "monitor": {

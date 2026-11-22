@@ -30,6 +30,7 @@ from modules.printers.telemetry.bambu.adapter import (
     BambuAdapterConfig,
     BambuTelemetryAdapter,
 )
+from modules.printers.telemetry.bambu.project_reply import ProjectNotSent, ProjectRejected
 from modules.printers.telemetry.bambu.commands import BambuCommandAdapter
 from modules.printers.telemetry.bambu.raw import BambuPrintSection
 from modules.printers.telemetry.bambu.status_view import BambuV2StatusView
@@ -128,11 +129,15 @@ def run_command(
     Returns False on connect failure, method-not-found, or publish
     failure. Matches legacy's boolean return contract.
     """
+    rack_start = method_name == 'start_print' and kwargs.get('h3c') is True
     adapter = BambuCommandAdapter(config)
     try:
         try:
             adapter.start()
-        except Exception:
+        except Exception as exc:
+            if rack_start:
+                from modules.printers.connection_reasons import transport_error_detail
+                raise ProjectNotSent(f"Could not connect to the H3C after uploading the file ({transport_error_detail(exc)}).") from None
             logger.warning("Command adapter could not start")
             return False
         # Wait briefly for CONNACK
@@ -142,6 +147,10 @@ def run_command(
                 break
             time.sleep(0.05)
         if not adapter.is_connected():
+            if rack_start:
+                code = adapter.connect_refusal
+                detail = f" (MQTT CONNACK {code})" if code is not None else ""
+                raise ProjectNotSent(f"Could not connect to the H3C after uploading the file{detail}.")
             logger.warning("command adapter not connected within timeout: printer=%s", config.printer_id)
             return False
 
@@ -156,6 +165,8 @@ def run_command(
                 if method_name != "start_print" or not callable(before_command) or before_command() is not True:
                     return False
             return bool(method(*args, **kwargs))
+        except ProjectRejected:
+            raise
         except Exception:
             logger.warning("Printer command outcome could not be confirmed")
             return False

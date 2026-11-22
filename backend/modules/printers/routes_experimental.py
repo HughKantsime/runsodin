@@ -32,7 +32,7 @@ def _printer_for_opt_in(db, printer_id, enabling):
     if printer is None:
         raise HTTPException(404, 'Printer not found')
     # Disable can clear obsolete settings on other types. Retired Bambu entries stay untouched.
-    if not support_levels.opt_in_applies(printer.api_type) and (
+    if not support_levels.opt_in_applies(support_levels.capability_key(printer)) and (
         enabling or support_levels.normalize(printer.api_type) == 'bambu'
     ):
         raise HTTPException(409, detail={
@@ -65,7 +65,7 @@ def set_experimental_actions(
                        'actor_token_id': current_user.get('_token_id')})
         db.commit()
         return {'printer_id': printer_id, 'support_level': level,
-                'experimental_actions_enabled': result['enabled'] and support_levels.opt_in_applies(printer.api_type)}
+                'experimental_actions_enabled': result['enabled'] and support_levels.opt_in_applies(support_levels.capability_key(printer))}
     except Exception:
         db.rollback()
         raise
@@ -93,7 +93,7 @@ def experimental_controls_guard(
     printer = db.get(Printer, printer_id)
     if printer is None or not check_org_access(current_user, printer.org_id):
         return
-    support_levels.require_control_capable_model(printer)
+    support_levels.require_control_capable_model(printer, safety=action in _EXEMPT_SUFFIXES, db=db)
     if action in _EXEMPT_SUFFIXES and not support_levels.is_monitor_only(printer.api_type):
         return
     refusal = support_levels.control_refusal(db, printer.id, printer.api_type, action)

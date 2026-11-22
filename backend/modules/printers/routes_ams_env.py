@@ -28,7 +28,7 @@ def _ams_printer(printer_id: int, db: Session, current_user: dict, *, write: boo
         raise HTTPException(status_code=404, detail="Printer not found")
     if write:
         from modules.printers.support_levels import require_control_capable_model
-        require_control_capable_model(printer)
+        require_control_capable_model(printer, db=db)
     return printer
 
 
@@ -216,7 +216,13 @@ async def configure_ams_slot(
     ensure_local_filaments(printer_id)
     if printer.api_type != "bambu":
         raise HTTPException(status_code=400, detail="AMS slot config is only supported on Bambu printers")
-    if ams_id < 0 or ams_id > 3 or slot_id < 0 or slot_id > 3:
+    from modules.printers.printer_models import identified_h3c
+    from modules.printers.telemetry.bambu.ams_identity import ams_slot_number
+    rack = identified_h3c(printer)
+    slot_number = ams_slot_number(ams_id, slot_id, h3c=rack)
+    if rack and slot_number is None:
+        raise HTTPException(400, 'Choose a tray in the H3C rack.')
+    if not rack and (ams_id < 0 or ams_id > 3 or slot_id < 0 or slot_id > 3):
         raise HTTPException(status_code=400, detail="ams_id and slot_id must be 0-3")
 
     material = body.material
@@ -225,7 +231,7 @@ async def configure_ams_slot(
 
     slot = db.query(FilamentSlot).filter(
         FilamentSlot.printer_id == printer_id,
-        FilamentSlot.slot_number == ams_id * 4 + slot_id + 1,
+        FilamentSlot.slot_number == slot_number,
     ).first()
     if spool_id is not None:
         from modules.inventory.models import Spool

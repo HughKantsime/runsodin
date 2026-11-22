@@ -58,6 +58,7 @@ class BambuCommandAdapter:
         self._client: Optional[mqtt.Client] = None
         self._connected = False
         self._lock = threading.Lock()
+        self.connect_refusal = None
 
     # ---- Lifecycle ----
 
@@ -68,6 +69,7 @@ class BambuCommandAdapter:
         # Retain ownership before setup/connect can partially start a client.
         # The session's finally must be able to stop it on every exit path.
         self._client = client
+        self.connect_refusal = None
         if self._config.access_code:
             client.username_pw_set(self._config.username, self._config.access_code)
         if self._config.use_tls:
@@ -77,6 +79,9 @@ class BambuCommandAdapter:
             client.tls_set_context(tls)
         client.on_connect = self._on_connect
         client.on_disconnect = self._on_disconnect
+        if self._config.h3c:
+            from modules.printers.telemetry.bambu.project_reply import ProjectReplies
+            client.project_replies = ProjectReplies(client, self._lock)
         # Policy-validated IP literal (no rebinding on connect or reconnect).
         from core.webhook_utils import device_connect_ip
         client.connect(device_connect_ip(self._config.host, self._config.port), self._config.port, keepalive=60)
@@ -100,6 +105,7 @@ class BambuCommandAdapter:
             self._connected = True
             logger.info("bambu command adapter connected: printer=%s", self._config.printer_id)
         else:
+            self.connect_refusal = getattr(reason_code, 'value', reason_code)
             logger.warning(
                 "bambu command adapter connect failed: printer=%s rc=%s",
                 self._config.printer_id, reason_code,
@@ -121,7 +127,8 @@ class BambuCommandAdapter:
             row_id = self._config.printer_row_id
             if row_id is None and str(self._config.printer_id).isdecimal():
                 row_id = int(self._config.printer_id)
-            if stored_rack_refusal(row_id, host=self._config.host, serial=self._config.serial, payload=payload, allow_print_start=self._config.allow_print_start):
+            if stored_rack_refusal(row_id, host=self._config.host, serial=self._config.serial, payload=payload,
+                                   known_h3c=self._config.h3c, allow_print_start=self._config.allow_print_start):
                 return False
             result = self._client.publish(
                 self._config.topic_request,
@@ -277,6 +284,7 @@ class BambuCommandAdapter:
         bed_leveling: bool = True,
         timelapse: bool = False,
         ams_mapping: Optional[list[int]] = None,
+        h3c: bool = False,
     ) -> bool:
         """Start a print of an already-uploaded .3mf file.
 
@@ -307,5 +315,10 @@ class BambuCommandAdapter:
         }
         if ams_mapping is not None:
             from modules.printers.telemetry.bambu.ams_identity import print_mapping_fields
-            payload["print"].update(print_mapping_fields(ams_mapping))
+            payload["print"].update(print_mapping_fields(ams_mapping, h3c=h3c))
+        if h3c:
+            from modules.printers.telemetry.bambu.project_reply import ProjectNotSent, publish_project
+            if not self._connected or self._client is None:
+                raise ProjectNotSent("MQTT disconnected before the H3C start command.")
+            return publish_project(self._client, self._config.topic_report, self._publish, payload)
         return self._publish(payload)

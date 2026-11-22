@@ -10,12 +10,13 @@ from core.rbac import _check_token_scope, _is_platform_superadmin, check_org_acc
 from core.rbac_policy import action_roles
 from modules.models_library.services import stored_print_objects
 from modules.printers import monitor_commands, support_levels
-from modules.printers.printer_models import bambu_model_name
+from modules.printers.printer_models import bambu_model_name, is_h3c_printer
 from modules.printers.routes_plate_thumbnail import _RUNNING_PRINT
 
 BOTTOM_FRONT_MODELS = frozenset({'P2S'})
 
 REASONS = {
+    'unsupported_rack_printer': 'Identify the rack printer model before skipping an object.',
     'not_printing': 'Nothing is printing on this printer.',
     'printer_type_unsupported': 'ODIN can skip objects on Bambu Lab printers. This printer is a different type.',
     'started_outside_odin': "ODIN did not start this print from one of its stored files, so it cannot list its objects. Skip the object at the printer or in the printer maker's app.",
@@ -52,7 +53,8 @@ def _may_skip(db, printer, principal):
 
 
 def running_print_objects(db, printer, principal):
-    gated = 'skip_objects' in support_levels.gated_capabilities(printer.api_type)
+    key = support_levels.capability_key(printer)
+    gated = key == 'h3c' or 'skip_objects' in support_levels.gated_capabilities(key)
     result = dict(printer_id=printer.id, supported=False, reason_code=None, reason=None,
                   retry_after_seconds=None, experimental=gated, source=None, print=None,
                   skipped_reported=False, current_object_id=None, can_skip=False, max_selectable=0,
@@ -68,9 +70,11 @@ def running_print_objects(db, printer, principal):
     result['print'] = dict(print_job_id=running.id, job_id=running.scheduled_job_id, name=None, plate=None)
     if support_levels.normalize(printer.api_type) != 'bambu':
         return refuse('printer_type_unsupported')
-    if gated and not support_levels.experimental_enabled(db, printer.id, printer.api_type):
+    if key != 'h3c' and is_h3c_printer(printer):
+        return refuse('unsupported_rack_printer')
+    if gated and not support_levels.experimental_enabled(db, printer.id, key):
         refuse('experimental_not_enabled')
-        result['reason'] = support_levels.experimental_capability_message(printer.api_type, 'skip_objects')
+        result['reason'] = (support_levels.H3C_MESSAGE if key == 'h3c' else support_levels.experimental_capability_message(key, 'skip_objects'))
         return result
     if running.scheduled_job_id is None:
         # Restart answers and an unmatched admitted attempt are not proof of an outside start.

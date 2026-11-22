@@ -317,6 +317,7 @@ class PrinterResponse(PrinterBase):
     # Job sending and controls on an Experimental printer type are off until a superadmin opts the printer in.
     experimental_actions_enabled: bool = False
 
+    unidentified_rack: bool = False
     pending_control: Optional[PendingControl] = None
 
     @computed_field
@@ -338,6 +339,12 @@ class PrinterResponse(PrinterBase):
         from modules.printers.support_levels import support_level as level_of
         return level_of(self.api_type)
 
+    @computed_field
+    @property
+    def support_source(self) -> Optional[str]:
+        from modules.printers.support_levels import capability_key, support_source
+        return support_source(self.api_type, h3c=not self.unidentified_rack and capability_key(self) == 'h3c')
+
     @model_validator(mode='before')
     @classmethod
     def _effective_camera(cls, data):
@@ -346,12 +353,13 @@ class PrinterResponse(PrinterBase):
             return data
         from modules.printers.route_utils import effective_camera_url
         values = {name: getattr(data, name) for name in cls.model_fields if name != 'camera_source' and hasattr(data, name)}
-        from modules.printers.printer_models import is_h3c_printer
+        from modules.printers.printer_models import identified_h3c, is_h3c_printer
         rack = is_h3c_printer(data)
         if rack or values.get('installed_nozzles'):
             from modules.printers.nozzle_capability import display_nozzles
             values['installed_nozzles'] = display_nozzles(values.get('installed_nozzles'), rack=rack)
         if rack:
+            values['unidentified_rack'] = not identified_h3c(data)
             values['model'] = 'H3C'
         url = effective_camera_url(data)
         from modules.printers.bambu_hms_bundle import credential_prefix

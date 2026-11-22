@@ -151,7 +151,7 @@ def _reserve_education_hardware_action(job: dict, extension: str):
 
 
 
-def _cancel_education_reservation(provider, reservation: dict) -> bool:
+def _cancel_education_reservation(provider, reservation: dict, *, failure_notes=None) -> bool:
     from core.db import engine
     from sqlalchemy.orm import Session
 
@@ -164,6 +164,7 @@ def _cancel_education_reservation(provider, reservation: dict) -> bool:
                 job_id=int(reservation["job_id"]),
                 printer_id=int(reservation["printer_id"]),
                 expected_revision=int(reservation["authority_revision"]),
+                **({"failure_notes": failure_notes} if failure_notes is not None else {}),
             )
             if cancelled:
                 db.commit()

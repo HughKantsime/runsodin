@@ -8,6 +8,7 @@ import re
 import zipfile
 from dataclasses import dataclass
 from defusedxml import ElementTree
+from core.h3c_plate import RackPlate, RackPlateError
 from core.material_identity import canonical_reported_material
 
 MAX_ARCHIVE_BYTES = 160 * 1024 * 1024
@@ -105,6 +106,13 @@ class VerifiedSource:
     material: str
     extruder: int | None
     used_grams: float | None
+
+
+@dataclass(frozen=True)
+class VerifiedRackSource(VerifiedSource):
+    nozzle_diameter: float
+    volume_type: str
+    group_id: int
 
 
 @dataclass(frozen=True)
@@ -481,7 +489,8 @@ def inspect_ams_sources(payload: bytes, plate_index: int = 0, *, single_source=F
             if not isinstance(materials, list) or not max(used) < len(materials) <= 16:
                 raise ValueError(refusal)
             rack = settings.get('printer_model') in ('Bambu Lab H2C', 'H2C')
-            proof = PlateExtruders(settings, plates[0], used) if requires_extruder_proof(settings) else None
+            h3c = RackPlate(settings, plates[0], by_source) if settings.get('printer_model') in ('H3C', 'Bambu Lab H3C') else None
+            proof = PlateExtruders(settings, plates[0], used) if not h3c and requires_extruder_proof(settings) else None
             sources = []
             for index, filament in sorted(by_source.items()):
                 material = canonical_reported_material(filament.get('type'))
@@ -492,6 +501,9 @@ def inspect_ams_sources(payload: bytes, plate_index: int = 0, *, single_source=F
                     grams = float(grams)
                     if not math.isfinite(grams) or grams < 0:
                         raise ValueError(refusal)
+                if h3c:
+                    sources.append(VerifiedRackSource(index, material, None, grams, *h3c.tools[index]))
+                    continue
                 sources.append(VerifiedSource(index, material,
                     proof.extruders[index] if proof else
                     _rack_source_extruder(settings, plates[0], index) if rack and not single_source else None, grams))
@@ -522,6 +534,9 @@ def inspect_ams_sources(payload: bytes, plate_index: int = 0, *, single_source=F
                             raise ValueError(refusal)
                         headers.append([canonical_reported_material(value.strip()) for value in header_materials])
                     command = line.split(';', 1)[0].strip()
+                    if h3c:
+                        h3c.check(line, command)
+                        continue
                     if proof:
                         proof.check_header(line, line_number)
                         proof.check_command(command, line_number)
@@ -583,16 +598,18 @@ def inspect_ams_sources(payload: bytes, plate_index: int = 0, *, single_source=F
                     if int(match.group(2)) not in used:
                         raise ValueError(refusal)
                     switches[int(match.group(1))].add(int(match.group(2)))
+            if h3c:
+                h3c.finish()
             if proof:
                 proof.finish()
             if p2s is not None:
                 p2s.finish()
             expected_materials = [canonical_reported_material(value) for value in materials]
             if (any(value is None for value in expected_materials) or headers != [expected_materials]
-                    or switches != {620: used, 621: used}):
+                    or (not h3c and switches != {620: used, 621: used})):
                 raise ValueError(refusal)
         return VerifiedSources(0, tuple(sources))
-    except (MultipleAMSSources, _SourceRefusal):
+    except (MultipleAMSSources, _SourceRefusal, RackPlateError):
         raise
     except Exception:
         raise ValueError(refusal) from None

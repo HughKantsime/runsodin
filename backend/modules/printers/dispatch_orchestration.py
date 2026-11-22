@@ -180,6 +180,9 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
                 if not error:
                     # Options validation inspected this exact staged snapshot once.
                     source_facts = options.source_facts
+                    from modules.printers.printer_models import identified_h3c
+                    rack_options = ({'rack_selection': (source_facts['sources'], options['ams_mapping'])}
+                                    if identified_h3c(creds) else {})
                     deadline=time.monotonic()+ADMISSION_SECONDS
                     _require_target(target_handle)
                     power=smart_plug.prepare_bounded_dispatch_power(job['printer_id'],deadline)
@@ -198,7 +201,7 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
                         if creds['api_type'] == 'bambu':
                             from modules.printers.dispatch_capability_gate import create_capability_gate
                             preflight = create_capability_gate(job=job, creds=creds,
-                                staged_path=staged.path, plate_number=options.get('plate_num', 1), target_handle=target_handle)
+                                staged_path=staged.path, plate_number=options.get('plate_num', 1), target_handle=target_handle, **rack_options)
                             if not preflight.prepare():
                                 dispatch._notify_start_outcome(job, 'adapter_rejected', gate_refusal=preflight.refusal)
                                 result = (False, dispatch._gate_refusal_message(preflight))
@@ -241,7 +244,7 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
                                 from modules.printers.dispatch_capability_gate import create_capability_gate
                                 before_start = create_capability_gate(job=job, creds=creds,
                                     staged_path=staged.path, plate_number=options.get('plate_num', 1),
-                                    target_handle=target_handle, previous=before_start)
+                                    target_handle=target_handle, previous=before_start, **rack_options)
                             if is_kobra_s1(creds):
                                 options.s1_gate = before_start
                             # License admission is last: it runs after every other

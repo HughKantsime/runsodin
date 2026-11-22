@@ -70,10 +70,11 @@ def fresh_bambu_status_is_idle(creds: dict, deadline: float, *, return_report=Fa
                 if 'gcode_state' not in packet or 'print_error' not in packet:
                     return
                 if return_report:
-                    from modules.printers.printer_models import bambu_nozzle_count
+                    from modules.printers.printer_models import bambu_nozzle_count, identified_h3c
                     dual = bambu_nozzle_count(creds.get('machine_type') or creds.get('model')) == 2
                     nozzle = (packet.get('device') or {}).get('nozzle') or {}
-                    if (dual and not isinstance(nozzle.get('info'), list)) or (not dual and 'nozzle_type' not in packet):
+                    needs_rows = dual or identified_h3c(creds)
+                    if (needs_rows and not isinstance(nozzle.get('info'), list)) or (not needs_rows and 'nozzle_type' not in packet):
                         return
                 ready = raw_status_is_idle('bambu',packet)
             except Exception:

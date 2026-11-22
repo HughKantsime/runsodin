@@ -127,10 +127,9 @@ def test_migration_changes_only_known_wrong_pair(tmp_path):
 def test_defaults_cover_all_listed_bambu_models():
     from modules.printers.printer_models import BAMBU_BEDS, BAMBU_MODEL_IDS
     from modules.printers.schemas import PrinterCreate
-    # The read-only H3C has no certified dispatch geometry.
-    assert set(BAMBU_BEDS) == set(BAMBU_MODEL_IDS.values()) - {'H3C'}
+    assert set(BAMBU_BEDS) == set(BAMBU_MODEL_IDS.values())
     rack = PrinterCreate(name='Rack', api_type='bambu', model='H3C')
-    assert (rack.bed_x_mm, rack.bed_y_mm) == (None, None)
+    assert (rack.bed_x_mm, rack.bed_y_mm) == (330, 320)
     for model, dims in BAMBU_BEDS.items():
         printer = PrinterCreate(name='Synthetic', api_type='bambu', model=model)
         assert (printer.bed_x_mm, printer.bed_y_mm) == dims

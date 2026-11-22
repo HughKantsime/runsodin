@@ -192,10 +192,12 @@ def test_bambu_delta_traffic_preserves_pause_authority_after_grace(guarded_visio
     assert pauses == ['pause']  # reconnect cannot reuse the old explicit state
 
 
-def test_h3c_auto_pause_stops_before_device_access(guarded_vision, review_db, monkeypatch):
+def test_unidentified_rack_auto_pause_stops_before_device_access(guarded_vision, review_db, monkeypatch):
     from core import crypto
     thread, _, clock, report, _, _, _ = guarded_vision
-    review_db.execute(text("UPDATE printers SET api_type='bambu',machine_type='Bambu Lab H3C' WHERE id=9"))
+    review_db.execute(text("""UPDATE printers SET api_type='bambu',model=NULL,machine_type=NULL,
+                           installed_nozzles=:nozzles WHERE id=9"""),
+                      {"nozzles": '[{"id":16},{"id":17},{"id":18}]'})
     review_db.commit()
     thread._analyzed_frames = 3
     thread._first_analysis_at = clock[0] - 61
@@ -206,7 +208,8 @@ def test_h3c_auto_pause_stops_before_device_access(guarded_vision, review_db, mo
 
 
 @pytest.mark.parametrize('v2', [False, True])
-def test_p1s_auto_pause_survives_identity_lookup_failure(v2, guarded_vision, review_db, monkeypatch):
+@pytest.mark.parametrize('model,enabled', [('P1S', False), ('H3C', False), ('H3C', True)])
+def test_auto_pause_survives_identity_lookup_failure(model, enabled, v2, guarded_vision, review_db, monkeypatch):
     import json
     from unittest.mock import Mock
     from core import crypto, db
@@ -215,7 +218,10 @@ def test_p1s_auto_pause_survives_identity_lookup_failure(v2, guarded_vision, rev
     from modules.printers.telemetry.bambu.commands import BambuCommandAdapter
 
     thread, _, clock, report, _, _, _ = guarded_vision
-    review_db.execute(text("UPDATE printers SET api_type='bambu',model='P1S',api_host='127.0.0.1' WHERE id=9"))
+    review_db.execute(text("UPDATE printers SET api_type='bambu',model=:model,api_host='127.0.0.1' WHERE id=9"), {'model': model})
+    if enabled:
+        from tests.test_contracts.test_printer_support_levels import opt_in
+        opt_in(review_db, 9)
     review_db.commit()
     thread._analyzed_frames = 3
     thread._first_analysis_at = clock[0] - 61

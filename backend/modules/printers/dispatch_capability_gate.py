@@ -6,7 +6,9 @@ from modules.printers.nozzle_capability import installed_nozzles, compare_nozzle
 from modules.printers.dispatch_capability_payload import inspect_payload, geometry_refusal
 
 
-def create_capability_gate(*, job, creds, staged_path, plate_number, target_handle, previous=None):
+def create_capability_gate(*, job, creds, staged_path, plate_number, target_handle, previous=None, rack_selection=None):
+    from modules.printers.printer_models import identified_h3c
+    h3c = identified_h3c(creds)
     facts = inspect_payload(staged_path, plate_number, creds.get('machine_type') or creds.get('model'))
     lock = Lock()
     prepared = used = False
@@ -64,10 +66,17 @@ def create_capability_gate(*, job, creds, staged_path, plate_number, target_hand
                 read_ms = round((time.monotonic() - acquired_at) * 1000)
                 if packet is None:
                     return refuse('nozzle_read_failed', 'Fresh printer report could not be verified')
-                installed = installed_nozzles(packet, dual=dual)
+                installed = installed_nozzles(packet, dual=dual, include_rack=h3c)
             if not 0 <= time.monotonic() - acquired_at < 10:
                 return refuse('snapshot_stale', 'Nozzle observation expired before START')
-            detail, incomplete = compare_nozzles(facts['requirements'], installed)
+            if h3c:
+                from modules.printers.nozzle_capability import rack_tool_refusal
+                if not rack_selection:
+                    return refuse('ams_mapping_required', 'Choose a position for each H3C filament.')
+                detail = rack_tool_refusal(*rack_selection, installed)
+                incomplete = False
+            else:
+                detail, incomplete = compare_nozzles(facts['requirements'], installed)
             if detail:
                 return refuse('nozzle_mismatch', detail)
             if incomplete or facts.get('incomplete') or facts.get('notes'):
@@ -111,6 +120,11 @@ def static_refusal(path, plate_number, creds):
     facts = inspect_payload(path, plate_number, creds.get('machine_type') or creds.get('model'))
     required = bambu_model_name(facts.get('printer_model'))
     actual = bambu_model_name(creds.get('machine_type') or creds.get('model'))
+    from modules.printers.printer_models import identified_h3c
+    if identified_h3c(creds) and required != 'H3C':
+        return GateRefusal('printer_model_mismatch', 'Choose a plate sliced for the H3C.')
+    if required == 'H3C' and not identified_h3c(creds):
+        return GateRefusal('printer_model_mismatch', 'Choose an identified H3C for this plate.')
     if required and actual and required != actual:
         return GateRefusal('printer_model_mismatch', f'File requires {required}; printer is {actual}')
     if facts.get('mapping_refusal'):

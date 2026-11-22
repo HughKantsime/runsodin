@@ -686,11 +686,11 @@ class PrinterVisionThread(threading.Thread):
         try:
             with engine.connect() as conn:
                 row = conn.execute(
-                    text("SELECT api_type, api_host, api_key, model, machine_type FROM printers WHERE id = :pid"),
+                    text("SELECT api_type, api_host, api_key, model, machine_type, installed_nozzles FROM printers WHERE id = :pid"),
                     {"pid": self.printer_id}
                 ).mappings().fetchone()
-            from modules.printers.services import is_h3c_printer
-            if not row or is_h3c_printer(row) or not self._live_printing():
+            from modules.printers.services import rack_printer_refusal
+            if not row or rack_printer_refusal(row, safety=True) or not self._live_printing():
                 return
 
             api_type = row['api_type']

@@ -1,0 +1,79 @@
+{
+ "captured": "2026-11-21T21:19:21-0500",
+ "message": {
+  "print": {
+   "ams_mapping": [
+    36,
+    34,
+    29,
+    31,
+    32,
+    -1,
+    -1,
+    -1
+   ],
+   "ams_mapping2": [
+    {
+     "ams_id": 32,
+     "slot_id": 8
+    },
+    {
+     "ams_id": 32,
+     "slot_id": 6
+    },
+    {
+     "ams_id": 32,
+     "slot_id": 1
+    },
+    {
+     "ams_id": 32,
+     "slot_id": 3
+    },
+    {
+     "ams_id": 32,
+     "slot_id": 4
+    },
+    {
+     "ams_id": 255,
+     "slot_id": 255
+    },
+    {
+     "ams_id": 255,
+     "slot_id": 255
+    },
+    {
+     "ams_id": 255,
+     "slot_id": 255
+    }
+   ],
+   "auto_bed_leveling": 2,
+   "bed_leveling": false,
+   "bed_type": "textured_plate",
+   "cfg": "14",
+   "command": "project_file",
+   "err_code": 0,
+   "extrude_cali_flag": 2,
+   "extrude_cali_manual_mode": 0,
+   "file": "h3c-test-plate.gcode.3mf",
+   "flow_cali": false,
+   "is_from_mqtt": true,
+   "layer_inspect": true,
+   "md5": "00000000000000000000000000000000",
+   "nozzle_offset_cali": 2,
+   "param": "Metadata/plate_1.gcode",
+   "profile_id": "REDACTED",
+   "project_id": "REDACTED",
+   "reason": "SUCCESS",
+   "result": "SUCCESS",
+   "sequence_id": "20005",
+   "subtask_id": "REDACTED",
+   "subtask_name": "h3c-test-plate",
+   "task_id": "REDACTED",
+   "timelapse": true,
+   "url": "brtc://emmc/h3c-test-plate.gcode.3mf",
+   "use_ams": true,
+   "vibration_cali": false
+  }
+ },
+ "note": "project_file echo on the report topic for the first H3C print, sent by Bambu Studio 02.09.01.70; ids redacted"
+}

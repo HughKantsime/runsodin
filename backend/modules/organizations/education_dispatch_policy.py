@@ -213,6 +213,7 @@ def cancel_dispatch_reservation(
     job_id: int,
     printer_id: int,
     expected_revision: int,
+    failure_notes: str | None = None,
 ) -> bool:
     """Cancel only the still-current reservation created by this dispatch attempt."""
     adapter = owner._ExecutionAdapter(executor)
@@ -253,6 +254,26 @@ def cancel_dispatch_reservation(
             )
             if deleted.rowcount != 1:
                 raise owner._MonitorTransitionMiss
+            if failure_notes is not None:
+                context = adapter.fetchone(
+                    "SELECT id AS submission_id,org_id,cost_center_id,submitted_by FROM education_submissions "
+                    "WHERE id=:id", {"id": submission_id})
+                if context is None:
+                    raise owner._MonitorTransitionMiss
+                params = {"printer": printer_id, "org": context["org_id"]}
+                changed = transition_result(adapter.executor, job_id, "failed", "dispatch",
+                    from_states=("scheduled",), where="printer_id=:printer AND charged_to_org_id=:org",
+                    params=params, extra_fields={"fail_reason": "dispatch", "fail_notes": failure_notes,
+                                                "actual_end": Expr("CURRENT_TIMESTAMP")})
+                if changed.rowcount != 1:
+                    raise owner._MonitorTransitionMiss
+                adapter.execute("UPDATE education_submissions SET status='failed',"
+                                "lifecycle_revision=lifecycle_revision+1,updated_at=CURRENT_TIMESTAMP "
+                                "WHERE id=:id", {"id": submission_id})
+                owner._record_monitor_transition(adapter, context={**context, "claim_id": claim_id},
+                    action="submission.dispatch_failed", revision=expected_revision + 1,
+                    details={"from_status": "scheduled", "to_status": "failed"},
+                    result={"job_id": job_id, "submission_id": submission_id, "transitioned": True})
     except owner._MonitorTransitionMiss:
         return False
     return True

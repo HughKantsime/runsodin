@@ -14,6 +14,7 @@ Usage:
 """
 
 import json
+import logging
 from collections.abc import Mapping
 from typing import Optional
 
@@ -76,7 +77,7 @@ BAMBU_BEDS = {
     'X1C': (256, 256), 'X1': (256, 256), 'X1E': (256, 256),
     'P1P': (256, 256), 'P1S': (256, 256), 'P2S': (256, 256),
     'A1': (256, 256), 'A1 Mini': (180, 180), 'H2D': (350, 320),
-    'H2D Pro': (350, 320), 'H2C': (330, 320), 'H2S': (340, 320),
+    'H2D Pro': (350, 320), 'H2C': (330, 320), 'H3C': (330, 320), 'H2S': (340, 320),
 }
 
 _BAMBU_FRIENDLY_NAMES = {name.upper(): name for name in BAMBU_PRODUCT_NAMES.values()}
@@ -150,49 +151,92 @@ def is_h3c_printer(printer):
     return identified if identified is not None else bool(rack_nozzle_ids(get('installed_nozzles')))
 
 
-def rack_printer_refusal(printer):
-    if is_h3c_printer(printer):
-        return 'unsupported_rack_printer: Sending jobs to an H3C is unavailable. Rack dispatch is pending live certification.'
-    return None
+def identified_h3c(printer):
+    get = printer.get if isinstance(printer, Mapping) else lambda key: getattr(printer, key, None)
+    return (str(get('api_type') or '').strip().lower() in ('', 'bambu')
+            and rack_model_identity(get('model'), get('machine_type')) is True)
 
 
-def stored_rack_refusal(printer_id, *, host=None, serial=None, payload=None, allow_print_start=False):
+def rack_printer_refusal(printer, *, safety=False, db=None):
+    if not is_h3c_printer(printer):
+        return None
+    if not identified_h3c(printer):
+        return 'unsupported_rack_printer: Identify the rack printer model before sending jobs or controls.'
+    if safety:
+        return None
+    from modules.printers.support_levels import H3C_REFUSAL, experimental_enabled
+    get = printer.get if isinstance(printer, Mapping) else lambda key: getattr(printer, key, None)
+    printer_id = get('id') or get('printer_id')
+    if printer_id and get('api_type') == 'bambu':
+        if db is not None:
+            return None if experimental_enabled(db, printer_id, 'h3c') else H3C_REFUSAL
+        from core.db import engine
+        try:
+            with engine.connect() as conn:
+                return None if experimental_enabled(conn, printer_id, 'h3c') else H3C_REFUSAL
+        except Exception:
+            pass
+    return H3C_REFUSAL
+
+
+def stored_rack_refusal(printer_id, *, host=None, serial=None, payload=None, allow_print_start=False, safety=False, known_h3c=False):
     """Look up the row ID, or match the MQTT topic's serial at a standalone endpoint."""
+    direct_start = False
     if isinstance(payload, dict) and len(payload) == 1:
         section, fields = next(iter(payload.items()))
         if isinstance(fields, dict):
             command = (section, fields.get('command'))
             if command in (('pushing', 'pushall'), ('info', 'get_version')):
                 return None
-            # Dispatch already checked the loaded printer at admission.
-            if allow_print_start and command == ('print', 'project_file'):
+            safety = command in (('print', 'pause'), ('print', 'stop'))
+            direct_start = command == ('print', 'project_file') and not allow_print_start
+            # The checked dispatch path already verifies the opt-in before publishing.
+            if allow_print_start and command == ('print', 'project_file') and not known_h3c:
                 return None
-    if printer_id is None and (not host or not serial):
-        return None
-    try:
-        return _lookup_rack_refusal(printer_id, host, serial)
-    except Exception:
-        # This guard requires positive rack identity. Transport errors are handled by the publisher.
-        return None
+    unconfirmed = 'Could not confirm the Experimental setting for this H3C.' if known_h3c and not safety else None
+    reason = unconfirmed
+    if printer_id is not None or (host and serial):
+        try:
+            reason = _lookup_rack_refusal(printer_id, host, serial, safety, direct_start, known_h3c, unconfirmed)
+        except Exception:
+            pass  # Only a known H3C requires a confirmed setting on lookup failure.
+    if unconfirmed and reason == unconfirmed:
+        logging.getLogger(__name__).warning('%s', reason)
+    return reason
 
 
-def _lookup_rack_refusal(printer_id, host, serial):
+def _lookup_rack_refusal(printer_id, host, serial, safety, direct_start, known_h3c, unconfirmed):
     from core.db import engine
     from sqlalchemy import text
+
+    def refusal(row):
+        if known_h3c:
+            if row['api_type'] != 'bambu':
+                return unconfirmed
+            # Live product identity also applies to endpoint/serial lookups.
+            row = {**row, 'model': 'H3C'}
+        if direct_start and is_h3c_printer(row):
+            return 'Send this job through the checked dispatch path.'
+        return rack_printer_refusal(row, safety=safety, db=conn)
+
     with engine.connect() as conn:
         if printer_id is not None:
-            row = conn.execute(text('SELECT api_type,model,machine_type,installed_nozzles FROM printers WHERE id=:id'),
+            row = conn.execute(text('SELECT id,api_type,model,machine_type,installed_nozzles FROM printers WHERE id=:id'),
                                {'id': printer_id}).mappings().first()
-            return rack_printer_refusal(row)
+            if row is None:
+                return unconfirmed
+            return refusal(row)
         from core.crypto import decrypt
-        rows = conn.execute(text('SELECT api_type,model,machine_type,installed_nozzles,api_key FROM printers '
+        rows = conn.execute(text('SELECT id,api_type,model,machine_type,installed_nozzles,api_key FROM printers '
                                  'WHERE lower(api_host)=lower(:host)'),
                             {'host': host}).mappings()
         for row in rows:
-            reason = rack_printer_refusal(row)
-            if reason and serial and (decrypt(row['api_key']) or '').partition('|')[0] == serial:
-                return reason
-    return None
+            reason = refusal(row)
+            if (reason or unconfirmed) and serial and (decrypt(row['api_key']) or '').partition('|')[0] == serial:
+                if reason:
+                    return reason
+                unconfirmed = None
+    return unconfirmed
 
 
 # ---------------------------------------------------------------------------

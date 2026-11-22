@@ -117,7 +117,7 @@ def test_plate_map_required_once_and_in_range(tmp_path, kind, reason):
 
 
 @pytest.mark.parametrize('key,value,reason', [
-    ('printer_model', 'Bambu Lab H3C', 'unsupported_rack_printer'),
+    ('printer_model', 'Bambu Lab H3C', 'nine tools'),
     ('extruder_max_nozzle_count', [1, 6], 'one_nozzle_per_extruder_unverified'),
     ('extruder_max_nozzle_count', [1], 'one_nozzle_per_extruder_unverified'),
     ('extruder_max_nozzle_count', [True, 1], 'one_nozzle_per_extruder_unverified'),

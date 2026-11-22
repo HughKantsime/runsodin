@@ -1,4 +1,5 @@
 """Maintenance and Experimental-opt-in checks at preparation and the final physical-command boundary."""
+import re
 from contextlib import contextmanager
 from contextvars import ContextVar
 from core.printer_maintenance import hold_reason
@@ -37,11 +38,11 @@ def refusal(engine, printer_id):
         return hold_reason(conn, printer_id)
 
 
-def experimental_refusal(engine, printer_id):
+def experimental_refusal(engine, printer_id, *, expected_h3c=None):
     from modules.printers.support_levels import experimental_refusal_for_printer
     try:
         with engine.connect() as conn:
-            return experimental_refusal_for_printer(conn, printer_id)
+            return experimental_refusal_for_printer(conn, printer_id, expected_h3c=expected_h3c)
     except Exception:
         from modules.printers.support_levels import EXPERIMENTAL_REFUSAL
         return EXPERIMENTAL_REFUSAL
@@ -56,10 +57,11 @@ def report(job, reason):
 def report_experimental(job, reason):
     from modules.printers.dispatch import _notify_start_outcome
     from modules.printers.support_levels import EXPERIMENTAL_MESSAGE, EXPERIMENTAL_NOT_ENABLED
-    prefix = f'{EXPERIMENTAL_NOT_ENABLED}: '
-    message = reason[len(prefix):] if reason.startswith(prefix) else EXPERIMENTAL_MESSAGE
+    code, separator, message = reason.partition(': ')
+    if not separator or not re.fullmatch(r'[a-z][a-z0-9_]{2,60}', code):
+        code, message = EXPERIMENTAL_NOT_ENABLED, reason
     _notify_start_outcome(job, 'adapter_rejected',
-        gate_refusal=GateRefusal(EXPERIMENTAL_NOT_ENABLED, message), message=message)
+        gate_refusal=GateRefusal(code or EXPERIMENTAL_NOT_ENABLED, message or EXPERIMENTAL_MESSAGE), message=message)
 
 
 @contextmanager
@@ -71,7 +73,11 @@ def command_context(engine, job):
         _context.reset(token)
 
 
-def check_command():
+def has_command_context():
+    return _context.get() is not None
+
+
+def check_command(*, expected_h3c=None):
     context = _context.get()
     if context is not None:
         engine, job = context
@@ -79,7 +85,7 @@ def check_command():
         if reason:
             report(job, reason)
             raise MaintenanceHold(reason)
-        reason = experimental_refusal(engine, job['printer_id'])
+        reason = experimental_refusal(engine, job['printer_id'], expected_h3c=expected_h3c)
         if reason:
             report_experimental(job, reason)
             raise ExperimentalNotEnabled(reason)

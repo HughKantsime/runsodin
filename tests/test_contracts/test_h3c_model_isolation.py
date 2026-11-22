@@ -147,7 +147,7 @@ def test_standalone_adapter_distinguishes_reused_host(offline_store, monkeypatch
         sender._client, sender._connected = Mock(), True
         sender._client.publish.return_value.rc = 0
         sender._client.publish.return_value.is_published.return_value = True
-        assert sender.pause_print() is allowed
+        assert sender.resume_print() is allowed
         assert sender._client.publish.called is allowed
 
 
@@ -178,7 +178,7 @@ def test_dispatch_without_start_gate_uses_loaded_identity(model, monkeypatch):
     ok, reason = dispatch._dispatch_bambu_v2(4, 'file', 'remote.3mf',
         dict(printer_id=199, ip='127.0.0.1', serial='synthetic', access_code='', model=model))
     if model == 'H3C':
-        assert not ok and reason.startswith('unsupported_rack_printer:')
+        assert not ok and reason.startswith('experimental_not_enabled:')
         run.assert_not_called()
     else:
         assert ok and 'before_command' not in run.call_args.kwargs
@@ -244,17 +244,17 @@ def test_final_start_uses_existing_checks_and_reports_confirmed_refusal(protocol
         assert ok and len(selects) == 4
         wire.publish.assert_called_once()
     else:
-        assert ok, reason
-        wire.publish.assert_called_once()
-        # The next admission sees the identity committed during the first connection.
+        assert not ok and reason.startswith('experimental_not_enabled:')
+        wire.publish.assert_not_called()
+        # The next admission also sees the new identity.
         target.update(offline_store.execute(text(
             'SELECT model,machine_type FROM printers WHERE id=199')).mappings().one())
         ok, reason = method(2, 'file', 'next.3mf', target, before_start=gate)
-        assert not ok and reason.startswith('unsupported_rack_printer:')
+        assert not ok and reason.startswith('experimental_not_enabled:')
         assert isinstance(reason, dispatch.NoStartMessage)
         if gate is not None:
-            assert gate.refusal.code == 'unsupported_rack_printer'
-        wire.publish.assert_called_once()
+            assert gate.refusal.code == 'experimental_not_enabled'
+        wire.publish.assert_not_called()
 
 
 def test_fixed_nozzle_presence_matches_baseline_for_signed_mask():

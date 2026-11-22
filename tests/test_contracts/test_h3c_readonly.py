@@ -227,8 +227,11 @@ def test_dispatch_refuses_target_before_device_or_file_inspection(review_db, tmp
     monkeypatch.setattr(dispatch, '_validated_print_options', lambda *a: pytest.fail('Reached file inspection'))
     monkeypatch.setattr(smart_plug, 'prepare_bounded_dispatch_power', lambda *a: pytest.fail('Reached device preparation'))
     ok, reason = dispatch.dispatch_job(59, 53)
-    assert not ok and reason.startswith('unsupported_rack_printer:')
-    assert 'rack dispatch is pending live certification' in reason.lower()
+    assert not ok
+    if model is None:
+        assert reason.startswith('unsupported_rack_printer:')
+    else:
+        assert reason.startswith('experimental_not_enabled:') and 'Experimental features' in reason
     with engine.connect() as conn:
         assert conn.execute(text('SELECT count(*) FROM printer_dispatch_claims')).scalar_one() == 0
 
@@ -247,7 +250,7 @@ def test_dispatch_to_p1s_ignores_stored_rack_rows(review_db, tmp_path, monkeypat
     assert not reason.startswith('unsupported_rack_printer:')
 
 
-def test_printer_controls_stay_read_only(offline_store, token_client):
+def test_printer_controls_without_opt_in(offline_store, token_client, monkeypatch):
     from modules.printers import routes_controls, routes_experimental, routes_ams_env, services
     offline_store.execute(text("UPDATE printers SET machine_type='Bambu Lab H3C' WHERE id=199"))
     offline_store.commit()
@@ -255,12 +258,17 @@ def test_printer_controls_stay_read_only(offline_store, token_client):
     client.app.include_router(routes_controls.router, dependencies=[Depends(routes_experimental.experimental_controls_guard)])
     client.app.include_router(routes_ams_env.router)
     headers = issue(['admin', 'write:printers'])
-    for action in ('lights', 'pause', 'resume', 'stop', 'ams/refresh'):
+    calls = []
+    monkeypatch.setattr(routes_controls, '_send_printer_command', lambda printer, action: calls.append(action) or True)
+    for action in ('pause', 'stop'):
+        assert client.post(f'/printers/199/{action}', headers=headers).status_code == 200
+    assert calls == ['pause_print', 'stop_print']
+    for action in ('lights', 'resume', 'ams/refresh'):
         response = client.post(f'/printers/199/{action}', headers=headers)
-        assert response.status_code == 409 and response.json()['detail']['code'] == 'printer_type_monitoring_only'
+        assert response.status_code == 409 and response.json()['detail']['code'] == 'experimental_not_enabled' and 'Experimental features' in response.text
     response = client.put('/printers/199/ams/0/slots/0', headers=headers, json={
         'preset_id': 'PLA', 'material': 'PLA', 'color': 'FFFFFF', 'nozzle_temp_min': 190, 'nozzle_temp_max': 220})
-    assert response.status_code == 409 and response.json()['detail']['code'] == 'printer_type_monitoring_only'
+    assert response.status_code == 409 and response.json()['detail']['code'] == 'experimental_not_enabled' and 'Experimental features' in response.text
     printer = SimpleNamespace(api_type='bambu', model='H3C')
     assert services.request_observed_task_resume(printer, 199) == 'refused'
 
@@ -310,7 +318,7 @@ def test_h3c_release_note_describes_observations():
     changelog = (Path(__file__).parents[2] / 'CHANGELOG.md').read_text()
     entry = next(line.lower() for line in changelog.splitlines() if 'select the Bambu Lab H3C' in line)
     assert 'no ams is connected' not in entry
-    for fact in ('nine rack positions', 'nozzle types', 'tool in the head', 'filament', 'dispatch', 'controls'):
+    for fact in ('nine rack positions', 'nozzle types', 'tool in the head', 'filament'):
         assert fact in entry
 
 
@@ -405,10 +413,11 @@ def test_rack_refusal_at_sender(sender, identity, api_type, capture, offline_sto
         emit[0](BambuInfoEvent('monitor-199', 2000, BambuInfoSection.model_validate(info)))
     if identity in ('rack_report', 'mounted_report', 'rack_report_on_p1s'):
         assert [row['position'] for row in stored_nozzles()] == list(range(1, 10))
-    if sender == 'fallback':
+    allowed = sender != 'monitor' and identity not in ('mounted_report', 'rack_report')
+    if sender == 'fallback' and not allowed:
         monkeypatch.setattr(route_utils, '_bambu_command', lambda *args: pytest.fail('Reached Bambu fallback'))
-    check_send(allowed=False)
-    wire.publish.assert_not_called()
+    check_send(allowed=allowed)
+    assert wire.publish.called is allowed
 
 
 @pytest.mark.parametrize('protocol', ['v2', 'legacy'])
@@ -431,14 +440,20 @@ def test_rack_observed_during_upload_refuses_next_dispatch(review_db, tmp_path, 
                          {'rows': STORED_RACK_ROWS})
     sent = transport(monkeypatch, path, protocol, events, after_upload=report_rack)
     ok, reason = dispatch.dispatch_job(59, 53)
-    assert ok, reason
+    if model is None:
+        assert not ok and 'unsupported_rack_printer' in reason
+        assert events == ['upload'] and not sent
+    else:
+        assert ok, reason
     ok, reason = dispatch.dispatch_job(59, 54)
     if model == 'P1S':
         assert not reason.startswith('unsupported_rack_printer:')
     else:
         assert not ok and reason.startswith('unsupported_rack_printer:')
-    assert events == (['upload', 'fresh_read', 'start'] if mapped else ['upload', 'start'])
-    assert len(sent) == 1
+    if model == 'P1S':
+        assert events == ['upload', 'fresh_read', 'start'] and len(sent) == 1
+    else:
+        assert events == ['upload'] and not sent
 
 
 @pytest.mark.parametrize('transport', ['legacy', 'v2-monitor', 'v2-command'])
