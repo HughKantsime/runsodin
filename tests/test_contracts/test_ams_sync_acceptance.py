@@ -214,14 +214,13 @@ def test_manual_rack_sync_uses_passive_status_and_shared_spool_writer(sync_clien
     from modules.printers import routes_bambu
     from modules.printers.telemetry.bambu import session
     from modules.printers.telemetry.bambu.raw import BambuPrintSection
-    from tests.test_contracts.test_h3c_readonly import capture_packet, distinguish_redacted_tags
+    from tests.test_contracts.test_h3c_readonly import capture_packet
     client, headers, _ = sync_client
     client.app.include_router(routes_bambu.router)
     review_db.execute(text("UPDATE printers SET model='H3C',machine_type=NULL WHERE id=199"))
     review_db.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type,do_not_feed) VALUES(199,8,'PETG',true)"))
     review_db.commit()
     capture = capture_packet('ams3h-loaded')
-    distinguish_redacted_tags(capture)
     section = BambuPrintSection.model_validate(capture)
     monkeypatch.setattr(session, 'read_status_once', lambda *a, **kw: SimpleNamespace(success=True, section=section))
     response = client.post('/printers/199/bambu/sync-ams', headers=headers)
@@ -229,7 +228,49 @@ def test_manual_rack_sync_uses_passive_status_and_shared_spool_writer(sync_clien
     report = response.json()
     assert report['slots_updated'] == 9
     empty = next(s for s in report['slots'] if s['slot_number'] == 8)
-    assert empty['is_empty'] and empty['do_not_feed']
+    assert empty['observed_state'] and empty['filament_type'] == 'PETG' and empty['do_not_feed']
+    assert not empty['is_empty']  # The legacy response reflects the retained operator type.
+    assert empty['color_hex'] is None and empty['remaining_percent'] is None
+    assert {s['slot_number'] for s in report['slots'] if s['is_empty']} == {2, 3, 4, 5, 6}
     assert all(s['ams_id'] == 32 and s['tray_id'] == s['slot_number'] - 1 for s in report['slots'])
-    assert {s['slot_number']: (s['color_hex'], s['remaining_percent']) for s in report['slots'] if not s['is_empty']} == {
+    assert {s['slot_number']: (s['color_hex'], s['remaining_percent']) for s in report['slots'] if s['color_hex']} == {
         1: ('AE96D4', 100), 7: ('AE835B', 100), 9: ('FF6A13', 100)}
+
+
+def test_rack_evidence_only_manual_sync_ignores_unit_32(sync_client, review_db, monkeypatch):
+    import json
+    from modules.printers.telemetry.bambu import session
+    from modules.printers.telemetry.bambu.raw import BambuPrintSection
+    from tests.test_contracts.test_h3c_readonly import capture_packet
+    client, headers, _ = sync_client
+    rows = [{'side': 'rack', 'nozzle_id': n} for n in range(16, 25)]
+    review_db.execute(text("UPDATE printers SET model=NULL,machine_type=NULL,installed_nozzles=:rows WHERE id=199"), {'rows': json.dumps(rows)})
+    review_db.commit()
+    before = review_db.execute(text('SELECT * FROM filament_slots WHERE printer_id=199')).all()
+    section = BambuPrintSection.model_validate(capture_packet('ams3h-loaded'))
+    monkeypatch.setattr(session, 'read_status_once', lambda *a, **kw: SimpleNamespace(success=True, section=section))
+    response = client.post('/printers/199/sync-ams', headers=headers)
+    assert response.status_code == 200 and response.json()['slots_synced'] == 0
+    assert review_db.execute(text('SELECT * FROM filament_slots WHERE printer_id=199')).all() == before
+
+
+@pytest.mark.parametrize('model,unit', [('P1S', '0'), ('H3C', '32')])
+def test_manual_empty_tray_releases_spool_and_retains_type(sync_client, review_db, monkeypatch, model, unit):
+    from modules.printers.telemetry.bambu import session
+    from modules.printers.telemetry.bambu.raw import BambuPrintSection
+    from tests.test_contracts.test_h3c_readonly import capture_packet
+    client, headers, _ = sync_client
+    review_db.execute(text("UPDATE printers SET model=:model,machine_type=NULL WHERE id=199"), {'model': model})
+    review_db.commit()
+    tray = capture_packet('ams3h-loaded')['ams']['ams'][0]['tray'][0]
+    def sync(tray):
+        section = BambuPrintSection.model_validate({'ams': {'ams': [{'id': unit, 'tray': [tray]}]}})
+        monkeypatch.setattr(session, 'read_status_once', lambda *a, **kw: SimpleNamespace(success=True, section=section))
+        response = client.post('/printers/199/sync-ams', headers=headers)
+        assert response.status_code == 200
+        return response.json()['slots'][0]
+    spool = sync(tray)['spool_id']
+    changed = sync({'id': '0', 'state': 0})
+    assert changed['empty'] and changed['type'] == 'PLA'
+    assert review_db.execute(text('SELECT filament_type,color_hex,assigned_spool_id FROM filament_slots WHERE printer_id=199 AND slot_number=1')).one() == ('PLA', None, None)
+    assert review_db.execute(text('SELECT location_printer_id,location_slot FROM spools WHERE id=:id'), {'id': spool}).one() == (None, None)

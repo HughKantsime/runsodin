@@ -25,7 +25,7 @@ def zone_label(zone):
     for _, group in groupby(enumerate(sorted({n + 1 for n in slots})), lambda pair: pair[1] - pair[0]):
         run = [n for _, n in group]
         ranges.append(str(run[0]) if len(run) == 1 else f'{run[0]}-{run[-1]}')
-    return ('Drying slots ' if zone.get('zone_id') == 0 else 'Slots ') + ', '.join(ranges)
+    return 'Slots ' + ', '.join(ranges)
 
 
 def zone_labels(db, printer_ids):

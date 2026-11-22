@@ -20,8 +20,9 @@ export function ManagedPrinter({ printer, children, selection }: { printer: Prin
   const { prints, queue } = usePrinterJobs()
   const now = useNow()
   const [editingRack, setEditingRack] = useState(false)
+  const rack = isH3C(printer)
   return <PrinterCard rackSlotsVisible={!editingRack} printer={printer} job={activePrint(printer, prints)} next={nextJob(printer, queue)} now={now} selection={selection} statusDetail={<PauseCause printer={printer} className="f-pause-cause" />}>
-    <details className="f-management" onToggle={isH3C(printer) ? e => setEditingRack(e.currentTarget.open) : undefined}><summary>Controls and settings</summary><PauseCauseSuppressed.Provider value={true}>{children}</PauseCauseSuppressed.Provider></details>
+    <details className="f-management" onToggle={rack ? e => setEditingRack(e.currentTarget.open) : undefined}><summary>Controls and settings</summary><PauseCauseSuppressed.Provider value={true}>{(!rack || editingRack) && children}</PauseCauseSuppressed.Provider></details>
   </PrinterCard>
 }
 export function ManagedRows({ printers }: { printers: Printer[] }) {

@@ -21,7 +21,7 @@ class RawTrayFact:
     extruder: int | None = None
 
 
-def parse_raw_ams_facts(print_packet) -> tuple[RawTrayFact, ...]:
+def parse_raw_ams_facts(print_packet, *, h3c=False) -> tuple[RawTrayFact, ...]:
     """Parse only explicitly reported tray fields; no cache or snapshot claims.
 
     Missing AMS data produces no facts. Invalid batch identity is refused as a
@@ -38,33 +38,35 @@ def parse_raw_ams_facts(print_packet) -> tuple[RawTrayFact, ...]:
     if len(root['ams']) > 4 + AMS_HT_UNIT_COUNT:
         raise ValueError('AMS packet identity unavailable')
     if any(not isinstance(unit, dict) or not isinstance(unit.get('tray'), list)
-           or len(unit['tray']) > 4 for unit in root['ams']):
+           or len(unit['tray']) > (9 if h3c else 4) for unit in root['ams']):
         raise ValueError('AMS packet identity unavailable')
     unit_ids = []
     for unit in root['ams']:
-        identity = ams_slot_number(unit.get('id'), 0)
+        identity = ams_slot_number(unit.get('id'), 0, h3c=h3c)
         # Four-tray units 0-3 and AMS HT units 128-135 are both known hardware;
         # an H2D reports its AMS HT in every AMS packet. Unknown ids refuse.
         if identity is None or identity in unit_ids:
             raise ValueError('AMS packet identity unavailable')
         unit_ids.append(identity)
     try:
-        entries = ams_trays_by_slot(root['ams'], strict=True)
+        entries = ams_trays_by_slot(root['ams'], strict=True, h3c=h3c)
     except ValueError:
         raise ValueError('AMS packet identity unavailable') from None
     # BambuStudio DevFilaSystemParser::ParseAmsInfo: info bits 8-11 are
     # the bound physical extruder. Missing info and switcher bindings are unknown.
     bindings = {}
     for unit in root['ams']:
-        info = unit.get('info')
+        info = None if h3c else unit.get('info')  # A rack position is not a dual-nozzle binding.
         extruder = (int(info, 16) >> 8) & 0xf if type(info) is str and re.fullmatch('[0-9a-fA-F]{1,8}', info) else None
         bindings[int(unit['id'])] = extruder if extruder in (0, 1) else None
     result = []
     for slot, tray in entries:
-        unit, tray_id = unit_and_tray(slot)
+        unit, tray_id = unit_and_tray(slot, h3c=h3c)
         value = tray.get('tray_type')
         material = canonical_reported_material(value)
-        if slot >= AMS_HT_FIRST_SLOT and tray_exists(root.get('tray_exist_bits'), slot) is False:
+        rack_empty = h3c and type(tray.get('state')) is int and tray['state'] == 0 and not value
+        has_mask = h3c or slot >= AMS_HT_FIRST_SLOT
+        if rack_empty or (has_mask and tray_exists(root.get('tray_exist_bits'), slot, h3c=h3c) is False):
             material, state = None, 'explicit_empty'
         elif 'tray_type' not in tray:
             state = 'unknown'

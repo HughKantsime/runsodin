@@ -198,6 +198,19 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
     (s.assigned_spool_id && !s.spool_confirmed) || (!s.assigned_spool_id && s.color_hex)
   ).length || 0
 
+  const renderSlot = (slot: any) => externallyManagedFilament ? <LedgerFilamentSlot key={slot.slot_number} slot={slot} /> : (
+    <FilamentSlotEditor
+      printerId={printer.id}
+      apiType={printer.api_type}
+      rack={rack}
+      spools={spools}
+      key={slot.id}
+      slot={slot}
+      allFilaments={allFilaments}
+      onSave={(data) => onUpdateSlot(printer.id, slot.slot_number, data)}
+    />
+  )
+
   return (
     <div
       data-testid="printer-card"
@@ -258,7 +271,6 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
       {plugOutcome && <p role="status" className="px-3 py-1 text-xs text-[var(--brand-text-secondary)]">{plugOutcome}</p>}
       <PauseCause printer={printer} />
       <ExperimentalOptIn printer={printer} />
-      {rack && !foundry && <InstalledNozzles rack feedingSlot={isActivePrintState(printer.gcode_state) ? printer.feeding_slot : null} showOperatorSlots={false} nozzles={printer.installed_nozzles} slots={printer.filament_slots} />}
       <div className="filament-slot-container p-3 md:p-4">
         <div className="flex items-center gap-2 mb-3 flex-wrap">
           <Palette size={14} className="text-[var(--brand-text-muted)]" />
@@ -284,7 +296,8 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
         </div>
         {externallyManagedFilament && printer.filament_source_status === 'unavailable' && <p role="status" className="text-xs text-yellow-400 mb-3">Filament Ledger is unavailable. Spool information could not be read.</p>}
         {externallyManagedFilament && printer.filament_source_status === 'partial' && <p role="status" className="text-xs text-yellow-400 mb-3">Some slots could not be matched or read from Filament Ledger.</p>}
-        {(() => {
+        {rack ? <InstalledNozzles rack feedingSlot={isActivePrintState(printer.gcode_state) ? printer.feeding_slot : null}
+          nozzles={printer.installed_nozzles} slots={printer.filament_slots} renderSlot={renderSlot} /> : (() => {
           const slots = printer.filament_slots || []
           // Keep ACE box grouping aligned with the common filament-slot numbering.
           const groups = slots.map((slot: any) => filamentSlotGroup(printer.api_type, slot.slot_number))
@@ -294,18 +307,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
             <div data-testid="filament-slot-grid" className="filament-slot-grid grid gap-2 min-w-0">
               {slots.map((slot: any, index: number) => {
                 const group = groups[index]
-                const el = externallyManagedFilament ? <LedgerFilamentSlot key={slot.slot_number} slot={slot} /> : (
-                  <FilamentSlotEditor
-                    printerId={printer.id}
-                    apiType={printer.api_type}
-                    label={rack ? `Position ${slot.slot_number}` : undefined}
-                    spools={spools}
-                    key={slot.id}
-                    slot={slot}
-                    allFilaments={allFilaments}
-                    onSave={(data) => onUpdateSlot(printer.id, slot.slot_number, data)}
-                  />
-                )
+                const el = renderSlot(slot)
                 const header = labelled && group && group.key !== previous
                 previous = group ? group.key : null
                 return header ? [

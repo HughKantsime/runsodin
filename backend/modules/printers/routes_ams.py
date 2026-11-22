@@ -186,9 +186,8 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
     if not printer or not check_org_access(current_user, printer.org_id):
         raise HTTPException(status_code=404, detail="Printer not found")
     from modules.printers.printer_models import is_h3c_printer, rack_model_identity
-    h3c = is_h3c_printer(printer)
-    if h3c and not rack_model_identity(printer.model, printer.machine_type):
-        raise HTTPException(409, "Identify the printer model before syncing its rack slots.")
+    rack = is_h3c_printer(printer)
+    h3c = rack and rack_model_identity(printer.model, printer.machine_type) is True
     ensure_local_filaments(printer_id)
 
     def authorize_spool(spool):
@@ -357,7 +356,7 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
     repair_numbers = None
     received_at = None
     # The one-shot V2 reader only subscribes. The legacy connector requests status on connect.
-    if h3c or is_v2_enabled():
+    if rack or is_v2_enabled():
         from modules.printers.telemetry.bambu.adapter import BambuAdapterConfig
         from modules.printers.telemetry.bambu.broker_policy import resolve_bambu_broker_config
         from modules.printers.telemetry.bambu.session import read_status_once
@@ -451,7 +450,7 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
 
     printer, locked_rfid = _lock_ams_mutation(
         db, printer_id, current_user, tags, acquired_connection, uuids, trays)
-    if h3c != is_h3c_printer(printer) or (h3c and not rack_model_identity(printer.model, printer.machine_type)):
+    if h3c != (rack_model_identity(printer.model, printer.machine_type) is True):
         raise HTTPException(409, "The printer model changed. Refresh its details and try syncing again.")
     sealed_rows = locked_rfid.candidates
     known = [rfid.match_id(locked_rfid, tray) for tray in trays if tray['tray_type']]
@@ -611,8 +610,6 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
                 "remaining_percent": None,
             })
         else:
-            if h3c:
-                db_slot.filament_type = FilamentType.EMPTY
             db_slot.color = None
             db_slot.color_hex = None
             updated_slots.append({

@@ -10,12 +10,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { filaments, printers, spools } from '../../api'
 import { canDo } from '../../permissions'
 import FilamentSlotEditor from './FilamentSlotEditor'
-import { RackFilamentReading } from './InstalledNozzles'
-import type { FilamentSlotUpdate } from '../../types/printer'
+import InstalledNozzles from './InstalledNozzles'
+import type { FilamentSlotUpdate, InstalledNozzle } from '../../types/printer'
 
 // TODO: type this properly — runtime printer shape has extra MQTT fields
 interface PrinterLike {
-  installed_nozzles?: { position?: number | null }[] | null
+  installed_nozzles?: InstalledNozzle[] | null
   name: string
   nozzle_temp: number | null
   nozzle_target_temp: number | null
@@ -104,22 +104,24 @@ function RackSlotEditors({ printer }: { printer: PrinterLike }) {
   return <section aria-label="Filament" className="mb-6">
     <h2 className="font-medium">ODIN filament slots</h2>
     {save.isError && <p role="alert">{save.error.message}</p>}
-    <div className="grid gap-2 sm:grid-cols-3">
-      {printer.filament_slots.map(slot => <div key={slot.slot_number} className="rounded-md border border-[var(--brand-border)] p-2">
-        <FilamentSlotEditor printerId={printer.id} apiType={printer.api_type} slot={slot} label={`${slot.slot_number <= 9 ? 'Position' : 'Slot'} ${slot.slot_number}`}
-          allFilaments={materials.data} spools={inventory.data}
-          onSave={data => Object.keys(data).length ? save.mutate({ position: slot.slot_number, data: data as FilamentSlotUpdate }) : refresh()} />
-        {slot.slot_number <= 9 && !printer.installed_nozzles?.some(n => n.position === slot.slot_number) && <RackFilamentReading slot={slot} rawId={256 - slot.slot_number} />}
-      </div>)}
-    </div>
+    <InstalledNozzles rack nozzles={printer.installed_nozzles} slots={printer.filament_slots}
+      feedingSlot={isActivePrintState(printer.gcode_state) ? printer.feeding_slot : null}
+      renderSlot={slot => <FilamentSlotEditor printerId={printer.id} apiType={printer.api_type} slot={slot} rack
+        allFilaments={materials.data} spools={inventory.data}
+        onSave={data => Object.keys(data).length ? save.mutate({ position: slot.slot_number, data: data as FilamentSlotUpdate }) : refresh()} />} />
   </section>
 }
 
 export function FilamentSlotsPanel({ printer, rackDetail = false }: { printer: PrinterLike; rackDetail?: boolean }) {
   const foundry = useFoundry()
   const slots = printer.filament_slots || []
+  if (rackDetail) {
+    if (printer.filament_source !== 'filament-ledger') return <RackSlotEditors printer={printer} />
+    return <InstalledNozzles rack slots={slots} nozzles={printer.installed_nozzles}
+      feedingSlot={isActivePrintState(printer.gcode_state) ? printer.feeding_slot : null}
+      renderSlot={slot => <SlotTile slot={slot} label={`Position ${slot.slot_number}`} />} />
+  }
   if (!slots.length) return null
-  if (rackDetail && printer.filament_source !== 'filament-ledger') return <RackSlotEditors printer={printer} />
   if (foundry) return <section aria-label="Filament" className="f-slots">{slots.map(slot => <SlotTile key={slot.slot_number} slot={slot} apiType={printer.api_type} />)}</section>
 
   return (

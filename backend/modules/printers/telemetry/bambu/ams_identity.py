@@ -199,17 +199,30 @@ def tray_exists(bits, slot_number, *, h3c=False):
         return None
 
 
+def _merge_tray_fields(held, tray):
+    # Empty/replaced trays cannot inherit the previous spool's identity.
+    if tray.get('_exists') is False or held.get('_exists') is False or (
+            tray.get('state') == 0 and not tray.get('tray_type')) or any(
+            tray[key] != held[key] for key in ('tag_uid', 'tray_uuid') if key in tray and key in held):
+        return tray
+    return {**held, **tray}
+
+
 def merge_rack_trays(previous, incoming):
     """A zone or a single tray may arrive between the full report and the next sync."""
     if not isinstance(previous, list) or not isinstance(incoming, list):
         return incoming
     old = [u for u in previous if isinstance(u, dict) and str(u.get('id')) == '32']
     new = [u for u in incoming if isinstance(u, dict) and str(u.get('id')) == '32']
-    if len(old) != 1 or len(new) != 1:
+    if len(old) != 1 or len(new) != 1 or len(incoming) != 1:
         return incoming
     try:
         held = dict(ams_trays_by_slot(old, strict=True, h3c=True))
-        held.update(ams_trays_by_slot(incoming, strict=True, h3c=True))
+        for number, tray in ams_trays_by_slot(incoming, strict=True, h3c=True):
+            previous_tray = held.get(number, {})
+            held[number] = _merge_tray_fields(previous_tray, tray)
+            if previous_tray.get('_removed'):
+                held[number] = {**held[number], '_removed': True}
     except ValueError:
         return incoming  # Let the normal writer validate the newer batch.
     return [{**old[0], **new[0], 'tray': list(held.values())}]
@@ -231,4 +244,6 @@ def inventory_report(units, bits=None, previous=(), *, h3c=False, bit_only=False
         old = prior.get(number, {})
         tray['_exists'] = exists if exists is not None else old.get('_exists')
         tray['_removed'] = bool(old.get('_removed') or old.get('_exists') is False)
+        if h3c:
+            tray.update(_merge_tray_fields(old, tray))
     return result

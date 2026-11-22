@@ -99,12 +99,33 @@ it.each([['RUNNING', 'Printing'], ['PAUSED', 'Needs you'], ['IDLE', 'Ready'], ['
 it.each(['classic', 'foundry'])('shows the H3C rack and its ODIN slot on the %s card', family => {
  document.documentElement.dataset.themeFamily = family
  const rows = [{ nozzle_id: 23, position: 8, side: 'rack', type: 'HT01', diameter: 0.4, present: true, mounted: true, virtual_slot_id: 248 }]
- const rackPrinter = { ...printer, api_type: 'bambu', model: 'H3C', gcode_state: 'RUNNING', feeding_slot: 8, installed_nozzles: rows, filament_slots: [{ id: 8, slot_number: 8, filament_type: 'PETG', rack_filament: { id: 248, type: 'TPU' } }] }
+ const rackPrinter = { ...printer, api_type: 'bambu', model: 'H3C', gcode_state: 'RUNNING', feeding_slot: 8, installed_nozzles: rows, filament_slots: [{ id: 8, slot_number: 8, filament_type: 'PETG', color_hex: '112233', remaining: 80, rack_filament: { id: 248, type: 'TPU' } }] }
  render(family === 'classic' ? <PrinterCard printer={rackPrinter} {...props} /> : <MemoryRouter><FoundryPrinterCard printer={rackPrinter as Printer} /></MemoryRouter>)
  expect(screen.getByRole('region', { name: 'Nozzle rack' })).toHaveTextContent('Position 8 · TPU 2.85 mm (HT01) · 0.4 mm')
  expect(screen.queryByText(/No AMS connected|AMS status unknown/)).not.toBeInTheDocument()
  expect(screen.getAllByText(/\bPETG\b/)).toHaveLength(1)
  expect(screen.getAllByText(/Hand-fed at the tool: TPU/)).toHaveLength(1)
  expect(screen.getByRole('region', { name: 'Nozzle rack' })).toHaveTextContent('In use · In the tool head')
- if (family === 'classic') expect(screen.getByTestId('filament-slot')).toBeInTheDocument()
+ const row = screen.getByRole('listitem')
+ expect(row).toHaveTextContent('PETG')
+ if (family === 'classic') {
+   expect(row.querySelector('[aria-label="80% remaining"]')).toBeInTheDocument()
+   expect(row.querySelector('circle[stroke="#112233"]')).toBeInTheDocument()
+ } else {
+   expect(row).toHaveTextContent('80%')
+   expect(row).toHaveTextContent('#112233')
+ }
+})
+
+
+it('shows all nine synced Foundry positions before a nozzle report', () => {
+ const slots = Array.from({length: 9}, (_, i) => ({ slot_number: i + 1, filament_type: 'PLA', remaining: i + 10, color_hex: 'AE835B' }))
+ render(<MemoryRouter><FoundryPrinterCard printer={{...printer, model: 'H3C', api_type: 'bambu', filament_slots: slots} as Printer} /></MemoryRouter>)
+ const rows = screen.getAllByRole('listitem')
+ expect(rows).toHaveLength(9)
+ rows.forEach((row, i) => {
+   expect(row).toHaveTextContent(`Position ${i + 1}`)
+   expect(row).toHaveTextContent('PLA')
+   expect(row).toHaveTextContent(`${i + 10}%`)
+ })
 })

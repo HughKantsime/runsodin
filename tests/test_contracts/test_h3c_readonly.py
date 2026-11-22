@@ -537,14 +537,6 @@ def test_mounted_tool_overrides_lagging_source(capture):
     assert (rows[4]['type'], rows[4]['present'], rows[4]['virtual_slot_id']) == ('HS01', True, 251)
 
 
-def distinguish_redacted_tags(capture):
-    # The cleaned capture uses one placeholder across three different physical spools.
-    for tray in capture['ams']['ams'][0]['tray']:
-        if tray.get('tray_type'):
-            tray['tag_uid'] = f"{1 + int(tray['id']):016X}"
-            tray['tray_uuid'] = f"{1 + int(tray['id']):032X}"
-
-
 @pytest.mark.parametrize('capture', ['ams3h-loaded'], indirect=True)
 def test_loaded_capture_printer_views(capture, v2_offline_monitor, offline_store, token_client, monkeypatch):
     from modules.printers import routes_crud
@@ -552,7 +544,6 @@ def test_loaded_capture_printer_views(capture, v2_offline_monitor, offline_store
     from modules.printers.telemetry.events import BambuReportEvent
     from modules.printers import routes_ams_env, routes_integrations, routes_status
     from modules.printers.telemetry import feature_flag
-    distinguish_redacted_tags(capture)
     capture['gcode_state'] = 'RUNNING'
     capture['ams']['tray_now'] = '6'
     capture['hms'] = [{'attr': 0x0300E400, 'code': 0x00020007}]
@@ -603,7 +594,7 @@ def test_loaded_capture_printer_views(capture, v2_offline_monitor, offline_store
             assert (slot['preset_id'], slot['color_hex'].lstrip('#').upper(), slot['remaining_percent']) == (preset, rgba[:6], 100)
         else:
             assert slot['remaining_percent'] is None and slot['color_hex'] is None
-    expected = [('Drying slots 6, 8', 2, 36, 25.4), ('Slots 1-5, 7, 9', 3, 30, 25.0)]
+    expected = [('Slots 6, 8', 2, 36, 25.4), ('Slots 1-5, 7, 9', 3, 30, 25.0)]
     assert [(u['label'], u['bambu_level'], u['humidity_percent'], u['temperature_c']) for u in ha['ams']] == expected
     current = client.get('/printers/199/ams/current', headers=headers).json()
     assert [(u['label'], u['humidity'], u['humidity_percent'], u['temperature']) for u in current['units']] == expected
@@ -681,11 +672,11 @@ def test_ams3h_unit_is_excluded_from_generic_ams(capture, offline_store, v2_offl
     emit_rack_report(monitor, offline_store, capture)
     assert bambu_tray_counts(capture, 'N10') == {'ams_slots': 9, 'ams_ht_slots': 0}
     assert offline_store.execute(text('SELECT ams_unit,temperature FROM ams_telemetry WHERE printer_id=199 ORDER BY ams_unit')).all() == [(0, 25.4), (1, 25.0)]
-    # Identical redacted tags/UUIDs make this unmodified capture ambiguous for binding.
-    assert monitor._ams_sync_failures == 1
+    assert monitor._ams_sync_failures == 0
+    loaded = {1: "AE96D4", 7: "AE835B", 9: "FF6A13"}
     assert offline_store.execute(text('SELECT slot_number,filament_type,color_hex FROM filament_slots '
                                       'WHERE printer_id=199 ORDER BY slot_number')).all() == [
-        (n, 'empty', None) for n in range(1, 10)]
+        (n, 'PLA' if n in loaded else 'empty', loaded.get(n)) for n in range(1, 10)]
 
 
 @pytest.mark.parametrize('other_ids', [[], list(range(16, 25)), [1, 16, 17]])

@@ -75,7 +75,7 @@ def observe(monitor, packet, *, retained=False):
         if 'ams' in ams:
             from modules.printers.telemetry.bambu.ams_evidence import parse_raw_ams_facts
             try:
-                trays = parse_raw_ams_facts({'ams': ams})
+                trays = parse_raw_ams_facts({'ams': ams}, h3c=getattr(monitor, '_identified_h3c', False))
                 put('ht_trays', {str(t.slot_number): t.material for t in trays if t.slot_number >= 17})
                 put('slot_extruders', {str(t.slot_number): t.extruder for t in trays if t.extruder is not None})
             except (ValueError, TypeError, KeyError):

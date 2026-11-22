@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import PrinterNumber from '../ui/PrinterNumber'
 import type { FilamentSlot, InstalledNozzle } from '../../types/printer'
 import { parseServerDate } from '../../utils/shared'
@@ -11,31 +12,37 @@ export function RackFilamentReading({ slot, rawId }: { slot?: FilamentSlot; rawI
   return reported ? <div>{reading?.source === 'printer' ? 'Printer reports' : 'Hand-fed at the tool'}: {reported} <small>ID {rawId}</small></div> : null
 }
 
-export default function InstalledNozzles({ nozzles, rack = false, slots, showOperatorSlots = true, feedingSlot }: {
+export default function InstalledNozzles({ nozzles, rack = false, slots, renderSlot, feedingSlot }: {
   nozzles?: InstalledNozzle[] | null
   slots?: FilamentSlot[]
   feedingSlot?: number | null
-  showOperatorSlots?: boolean
+  renderSlot?: (slot: FilamentSlot) => ReactNode
   rack?: boolean
 }) {
   if (rack) {
-    const positions = nozzles?.filter(nozzle => nozzle.side === 'rack')
+    const tools = new Map(nozzles?.filter(n => n.side === 'rack' && n.position != null).map(n => [n.position!, n]))
+    const inventory = new Map(slots?.map(slot => [slot.slot_number, slot]))
+    const positions = [...new Set([...tools.keys(), ...inventory.keys()])].sort((a, b) => a - b)
     return <section aria-label="Nozzle rack" className="rounded-lg border border-[var(--brand-card-border)] p-3">
       <h2 className="font-medium">Nozzle rack · Experimental</h2>
-      {positions?.length ? <ul className="mt-2 grid gap-1 text-sm sm:grid-cols-2">
-        {positions.map(nozzle => {
-          const slot = slots?.find(slot => slot.slot_number === nozzle.position)
-          const tool = nozzle.type && rackToolNames[nozzle.type]
-          return <li key={nozzle.nozzle_id}>
-            Position {nozzle.position} · {tool ? `${tool} (${nozzle.type})` : nozzle.type || 'Type unknown'} · {nozzle.diameter == null ? 'Diameter unknown' : `${nozzle.diameter} mm`}
-            {nozzle.present === false && ' · Absent'}
-            {feedingSlot === nozzle.position && ' · In use'}
-            {nozzle.mounted && ' · In the tool head'}
-            <RackFilamentReading slot={slot} rawId={nozzle.virtual_slot_id} />
-            {showOperatorSlots && slot && <div>ODIN slot: {[slot.filament_type, slot.color, slot.color_hex && `#${slot.color_hex.replace(/^#/, '')}`].filter(Boolean).join(', ')}</div>}
+      {!tools.size && <p>No rack report received.</p>}
+      <ul className="mt-2 grid gap-1 text-sm sm:grid-cols-2">
+        {positions.map(position => {
+          const nozzle = tools.get(position)
+          const slot = inventory.get(position)
+          const tool = nozzle?.type && rackToolNames[nozzle.type]
+          return <li key={position}>
+            {position <= 9 ? 'Position' : 'Slot'} {position}
+            {nozzle && <> · {tool ? `${tool} (${nozzle.type})` : nozzle.type || 'Type unknown'} · {nozzle.diameter == null ? 'Diameter unknown' : `${nozzle.diameter} mm`}</>}
+            {nozzle?.present === false && ' · Absent'}
+            {feedingSlot === position && ' · In use'}
+            {nozzle?.mounted && ' · In the tool head'}
+            {position <= 9 && <RackFilamentReading slot={slot} rawId={nozzle?.virtual_slot_id ?? 256 - position} />}
+            {slot && (renderSlot ? renderSlot(slot) : <div>ODIN slot: {[slot.material_type || slot.filament_type, slot.color,
+              slot.color_hex && `#${slot.color_hex.replace(/^#/, '')}`, slot.remaining != null && `${slot.remaining}%`].filter(Boolean).join(', ')}</div>)}
           </li>
         })}
-      </ul> : <p>No rack report received.</p>}
+      </ul>
     </section>
   }
   return <section aria-label="Installed nozzles" className="mb-6 rounded-lg border border-[var(--brand-card-border)] p-4">

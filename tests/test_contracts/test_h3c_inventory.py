@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import text
 
 from tests.test_contracts.test_api_token_delegation_behavior import review_db, token_client
-from tests.test_contracts.test_h3c_readonly import capture_packet, distinguish_redacted_tags
+from tests.test_contracts.test_h3c_readonly import capture_packet
 from tests.test_contracts.test_printer_offline_behavior import offline_store, v2_offline_monitor
 
 
@@ -15,6 +15,8 @@ def inventory(v2_offline_monitor, offline_store, token_client, monkeypatch):
     from modules.notifications import error_handling
     from modules.printers import routes_crud, routes_status
     monitor, _, runtime = v2_offline_monitor
+    from core import db
+    monkeypatch.setattr(db, 'engine', offline_store.get_bind())
     monkeypatch.setattr(error_handling, 'get_db', runtime.get_db)
     alerts = []
     monkeypatch.setattr(error_handling, 'dispatch_alert', lambda **kwargs: alerts.append(kwargs))
@@ -43,7 +45,6 @@ def test_unit_32_needs_an_identified_model(inventory, offline_store, model):
                                "VALUES(199,1,'PETG','123456',true)"))
     offline_store.commit()
     capture = capture_packet('ams3h-loaded')
-    distinguish_redacted_tags(capture)
     before = view()['filament_slots']
     send(capture)
     assert view()['filament_slots'] == before
@@ -53,7 +54,6 @@ def test_unit_32_needs_an_identified_model(inventory, offline_store, model):
 def test_tray_changes_and_hand_feed_use_separate_sources(inventory, offline_store):
     send, view, _ = inventory
     capture = capture_packet('ams3h-loaded')
-    distinguish_redacted_tags(capture)
     offline_store.execute(text("UPDATE printers SET model='N10' WHERE id=199"))
     offline_store.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type,color_hex,do_not_feed,do_not_feed_note) "
                                "VALUES(199,7,'ABS','123456',true,'Hold')"))
@@ -101,7 +101,7 @@ def test_unknown_hms_becomes_actionable_on_state_delta(inventory, offline_store,
     assert json.loads(shown['hms_errors'])[0]['severity'] == 'error'
     assert [alert['alert_type'] for alert in alerts] == ['printer_error']
     history = view('/printers/199/hms-history')['entries']
-    assert {entry['severity'] for entry in history} == {'info', 'error'}
+    assert [(entry['code'], entry['severity']) for entry in history] == [(shown['last_error_code'], 'info')]
 
 
 def test_catalogued_p1s_fault_still_alerts(inventory, offline_store, monkeypatch):
@@ -119,7 +119,8 @@ def test_catalogued_p1s_fault_still_alerts(inventory, offline_store, monkeypatch
     assert printer['last_error_code'] == event['code'] and len(alerts) == 1
 
 
-def test_get_version_applies_waiting_trays_without_a_second_ams_report(inventory, v2_offline_monitor, offline_store):
+@pytest.mark.parametrize('zone_delta', [False, True])
+def test_get_version_applies_waiting_trays_without_a_second_ams_report(inventory, v2_offline_monitor, offline_store, zone_delta):
     from modules.printers.telemetry.bambu.raw import BambuInfoSection
     from modules.printers.telemetry.events import BambuInfoEvent
     send, view, _ = inventory
@@ -127,9 +128,10 @@ def test_get_version_applies_waiting_trays_without_a_second_ams_report(inventory
     offline_store.execute(text("UPDATE printers SET model=NULL,machine_type=NULL WHERE id=199"))
     offline_store.commit()
     capture = capture_packet('ams3h-loaded')
-    distinguish_redacted_tags(capture)
     send(capture)
     assert all(slot['assigned_spool_id'] is None for slot in view()['filament_slots'])
+    if zone_delta:
+        send({'ams': {'ams': [{'id': '32', 'zone_info': capture['ams']['ams'][0]['zone_info']}]}}, 2001)
     version = BambuInfoSection.model_validate({'command': 'get_version', 'module': [
         {'name': 'ota', 'sw_ver': '1', 'product_name': 'Bambu Lab H3C'}]})
     emitters[0](BambuInfoEvent('monitor-199', 2001, version))
@@ -144,7 +146,6 @@ def test_zone_delta_uses_reported_slots_at_the_next_sample(inventory, offline_st
     offline_store.execute(text("UPDATE printers SET model='H3C' WHERE id=199"))
     offline_store.commit()
     capture = capture_packet('ams3h-loaded')
-    distinguish_redacted_tags(capture)
     send(capture)
     path = '/printers/199/ams/environment'
     assert {key: len(rows) for key, rows in view(path)['units'].items()} == {'0': 1, '1': 1}
@@ -153,9 +154,11 @@ def test_zone_delta_uses_reported_slots_at_the_next_sample(inventory, offline_st
     assert len(view(path)['units']['0']) == 1
     send({'gcode_state': 'IDLE'}, 2300)
     history = view(path)
-    assert {key: len(rows) for key, rows in history['units'].items()} == {'0': 2, '1': 1}
-    assert history['labels']['0'] == 'Drying slots 1, 3'
+    assert {key: len(rows) for key, rows in history['units'].items()} == {'0': 2, '1': 2}
+    assert history['labels']['0'] == 'Slots 1, 3'
     assert any(row['humidity_percent'] == 42 for row in history['units']['0'])
+    send({'gcode_state': 'IDLE'}, 2600)
+    assert {key: len(rows) for key, rows in view(path)['units'].items()} == {'0': 3, '1': 3}
 
 
 def test_two_tray_changes_and_zone_delta_before_inventory_sync(inventory, offline_store):
@@ -163,7 +166,6 @@ def test_two_tray_changes_and_zone_delta_before_inventory_sync(inventory, offlin
     offline_store.execute(text("UPDATE printers SET model='H3C' WHERE id=199"))
     offline_store.commit()
     capture = capture_packet('ams3h-loaded')
-    distinguish_redacted_tags(capture)
     send(capture)
     def unit(delta, at):
         send({'ams': {'ams': [{'id': '32', **delta}]}}, at)
@@ -172,3 +174,106 @@ def test_two_tray_changes_and_zone_delta_before_inventory_sync(inventory, offlin
     unit({'tray': [{'id': '8', 'state': 0}]}, 2030)
     send({'gcode_state': 'IDLE'}, 2060)
     assert [s['slot_number'] for s in view()['filament_slots'] if s['assigned_spool_id']] == [1]
+
+
+def test_remain_only_tray_delta_keeps_filament_and_binding(inventory, offline_store):
+    send, view, _ = inventory
+    offline_store.execute(text("UPDATE printers SET model='H3C' WHERE id=199"))
+    offline_store.commit()
+    send(capture_packet('ams3h-loaded'))
+    first = view()['filament_slots'][6]
+    send({'ams': {'ams': [{'id': '32', 'tray': [{'id': '6', 'remain': 80}]}]}}, 2061)
+    updated = view()['filament_slots'][6]
+    assert updated['remaining'] == 80
+    for key in ('filament_type', 'color_hex', 'assigned_spool_id', 'preset_id'):
+        assert updated[key] == first[key] and updated[key] is not None
+
+
+@pytest.mark.parametrize('model,unit,slot,bits', [('P1S', '0', 1, '1'), ('H2D', '128', 17, '10000')])
+def test_bit_only_after_reconnect_preserves_slots(inventory, v2_offline_monitor, offline_store, model, unit, slot, bits):
+    send, view, _ = inventory
+    offline_store.execute(text("UPDATE printers SET model=:model WHERE id=199"), {'model': model})
+    offline_store.commit()
+    tray = dict(capture_packet('ams3h-loaded')['ams']['ams'][0]['tray'][0], id='0')
+    send({'ams': {'ams': [{'id': unit, 'tray': [tray]}], 'tray_exist_bits': bits}})
+    before = view()['filament_slots']
+    assert any(s['slot_number'] == slot and s['assigned_spool_id'] for s in before)
+    v2_offline_monitor[0]._begin_connection()
+    send({'ams': {'tray_exist_bits': bits}}, 2061)
+    assert view()['filament_slots'] == before
+
+
+@pytest.mark.parametrize('prefix', ['01P', 'ZZZ'])
+def test_undescribed_level_one_alerts_with_or_without_bundle(inventory, monkeypatch, prefix):
+    from modules.notifications import error_handling
+    from modules.printers import bambu_hms_bundle
+    monkeypatch.setattr(error_handling, 'credential_prefix', lambda _: prefix)
+    monkeypatch.setattr(bambu_hms_bundle, 'credential_prefix', lambda _: prefix)
+    send, view, alerts = inventory
+    send({'hms': [{'attr': 0x0300E400, 'code': 0x00010007}], 'print_error': 0, 'gcode_state': 'RUNNING'})
+    shown = view()
+    assert shown['last_error_code'] == '0300E400_00010007'
+    assert json.loads(shown['hms_errors'])[0]['severity'] == 'critical'
+    assert [alert['alert_type'] for alert in alerts] == ['printer_error']
+
+
+def test_hms_notices_return_separately_and_parse_failure_retries(inventory, monkeypatch):
+    from modules.notifications import error_handling
+    raw = [{'attr': 0x0300E400, 'code': 0x00020007}]
+    result = error_handling.process_hms_errors(199, raw, quiet_unknown=True)
+    assert result['errors'] == []
+    assert [e['code'] for e in result['notices']] == ['0300E400_00020007']
+    critical = {'attr': 0x0300E400, 'code': 0x00010007}
+    mixed = error_handling.process_hms_errors(199, [*raw, critical], quiet_unknown=True)
+    assert [e['code'] for e in mixed['errors']] == ['0300E400_00010007']
+    assert mixed['notices'] == result['notices']
+    assert error_handling.process_hms_errors(199, []) == {'errors': []}
+    parse = error_handling.parse_hms_errors
+    def fail_current(data, *args, **kwargs):
+        if data is raw:
+            raise ValueError('catalog unavailable')
+        return parse(data, *args, **kwargs)
+    monkeypatch.setattr(error_handling, 'parse_hms_errors', fail_current)
+    assert error_handling.process_hms_errors(199, raw) == {'retryable': True}
+
+
+def test_mixed_hms_history_counts_each_activation_once(inventory, monkeypatch):
+    from modules.printers import bambu_hms_bundle
+    from modules.notifications import error_handling
+    for module in (bambu_hms_bundle, error_handling):
+        monkeypatch.setattr(module, 'credential_prefix', lambda _: '01P')
+    send, view, _ = inventory
+    events = [{'attr': 0x0300E400, 'code': 0x00020007}, {'attr': 0x03003100, 'code': 0x00010001}]
+    send({'hms': events, 'print_error': 0, 'gcode_state': 'RUNNING'})
+    send({'gcode_state': 'PAUSE'}, 2061)
+    send({'gcode_state': 'RUNNING'}, 2122)
+    history = view('/printers/199/hms-history')['entries']
+    assert sorted((e['code'], e['severity']) for e in history) == [
+        ('03003100_00010001', 'critical'), ('0300E400_00020007', 'info')]
+
+
+def test_status_without_identification_uses_generic_ams(inventory, v2_offline_monitor, monkeypatch):
+    from modules.printers.monitors import nozzle_observations
+    send, view, _ = inventory
+    monitor = v2_offline_monitor[0]
+    monkeypatch.delattr(monitor, '_identified_h3c', raising=False)
+    monkeypatch.setattr(nozzle_observations, 'observe', lambda *a: None)
+    send({'ams': {'ams': [{'id': '0', 'tray': [{'id': '0', 'tray_type': 'PLA'}]}]}})
+    assert view()['filament_slots'][0]['filament_type'] == 'PLA'
+
+
+def test_history_parser_failure_is_logged_and_retried(inventory, monkeypatch, caplog):
+    import logging
+    from modules.notifications import event_dispatcher
+    send, view, _ = inventory
+    parse = event_dispatcher.parse_hms_errors
+    def fail(*args, **kwargs):
+        raise ValueError('test catalog unavailable')
+    monkeypatch.setattr(event_dispatcher, 'parse_hms_errors', fail)
+    with caplog.at_level(logging.DEBUG, logger='mqtt_monitor'):
+        send({'hms': [{'attr': 0x0300E400, 'code': 0x00020007}], 'gcode_state': 'RUNNING', 'print_error': 0})
+    assert any('HMS history insert' in r.message for r in caplog.records)
+    assert view('/printers/199/hms-history')['entries'] == []
+    monkeypatch.setattr(event_dispatcher, 'parse_hms_errors', parse)
+    send({'gcode_state': 'RUNNING'}, 2061)
+    assert len(view('/printers/199/hms-history')['entries']) == 1

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -38,4 +38,21 @@ it.each(['classic', 'foundry'] as const)('%s shows the pause cause once on the P
     expect(cause.nextElementSibling).toHaveClass('filament-slot-container')
     expect(screen.queryByText('Controls and settings')).not.toBeInTheDocument()
   }
+})
+
+it('keeps one rack inventory row when Foundry controls open and close', async () => {
+  applyTheme('dark', 'foundry')
+  const client = new QueryClient({ defaultOptions: { queries: { enabled: false, retry: false } } })
+  client.setQueryData(['auth', 'me'], { role: 'operator' })
+  client.setQueryData(['printers', null], [{ id: 1, name: 'Rack', model: 'H3C', api_type: 'bambu',
+    is_active: true, tags: [], filament_slots: [{ id: 7, slot_number: 7, filament_type: 'PLA', remaining: 83 }] }])
+  render(<QueryClientProvider client={client}><MemoryRouter><Printers /></MemoryRouter></QueryClientProvider>)
+  const controls = screen.getByText('Controls and settings')
+  expect(screen.getAllByText(/\bPLA\b/)).toHaveLength(1)
+  fireEvent.click(controls)
+  expect(await screen.findByTestId('filament-slot')).toBeVisible()
+  expect(screen.getAllByText(/\bPLA\b/)).toHaveLength(1)
+  fireEvent.click(controls)
+  await waitFor(() => expect(screen.queryByTestId('filament-slot')).toBeNull())
+  expect(screen.getAllByText(/\bPLA\b/)).toHaveLength(1)
 })

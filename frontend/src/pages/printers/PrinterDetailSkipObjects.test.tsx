@@ -99,7 +99,7 @@ it.each(['classic', 'foundry'])('shows the read-only H3C rack once on the %s pri
   }))
   const slots = nozzles.map(nozzle => {
     const tray = capture.message.print.vir_slot.find(slot => Number(slot.id) === nozzle.virtual_slot_id)!
-    return { slot_number: nozzle.position, filament_type: 'PETG', color_hex: '112233',
+    return { slot_number: nozzle.position, filament_type: 'PETG', color: 'Slate', color_hex: '112233', remaining: 80,
       rack_filament: { id: Number(tray.id), type: tray.tray_type, preset: tray.tray_info_idx, color: tray.tray_color, observed_at: '2026-11-21T19:57:00Z' } }
   })
   vi.mocked(printers.get).mockResolvedValueOnce({
@@ -120,7 +120,10 @@ it.each(['classic', 'foundry'])('shows the read-only H3C rack once on the %s pri
   expect(screen.getAllByText(/\bPETG\b/)).toHaveLength(9)
   editors.forEach((editor, index) => {
     expect(editor).toHaveTextContent(`Position ${index + 1}`)
+    expect(rows[index]).toContainElement(editor)
     expect(editor).toHaveTextContent('PETG')
+    if (family === 'classic') expect(editor.querySelector('[aria-label="80% remaining"]')).toBeInTheDocument()
+    else expect(editor).toHaveTextContent('80%')
     if (family === 'foundry') expect(editor.querySelector('.f-swatch')).toHaveStyle({ backgroundColor: '#112233' })
     else expect(editor.querySelector('circle[stroke="#112233"]')).toBeInTheDocument()
   })

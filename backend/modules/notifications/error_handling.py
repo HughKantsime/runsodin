@@ -287,12 +287,16 @@ def process_hms_errors(
         # Old releases persisted raw packets. Compare identities, not old meanings.
         prior_codes = {e['code'] for e in parse_hms_errors(previous, prefix)}
         prior_codes.update(e['code'] for e in previous if isinstance(e, dict) and isinstance(e.get('code'), str) and not e.get('informational_only'))
+        errors = parse_hms_errors(hms_data, prefix, quiet_unknown=quiet_unknown)
     except Exception:
         log.error('Failed to read HMS state for printer %s; retry required', printer_id)
         return {'retryable': True}
-    errors = parse_hms_errors(hms_data, prefix, quiet_unknown=quiet_unknown)
     active = errors + safety_entries(hms_data, errors)
+    notices = [event for event in errors if event.get('informational_only')]
     errors = [event for event in errors if not event.get('informational_only')]
+    result = {'errors': errors}
+    if notices:
+        result['notices'] = notices
     # Persist safety before classification/alert effects can fail or return early.
     # Keep previous display identities until success so retries still alert once.
     # An empty report replaces both sets atomically with [].
@@ -301,7 +305,7 @@ def process_hms_errors(
         conn.execute('UPDATE printers SET hms_errors=? WHERE id=?', (json.dumps(pending), printer_id))
         conn.commit()
     if not errors:
-        return {'errors': display_entries(active)}
+        return result
 
     from core.job_timeline import for_printer
     for error in errors:
@@ -330,7 +334,7 @@ def process_hms_errors(
                     (printer_id, expected_print_job_id),
                 ).fetchone()
                 if row is None:
-                    return {"education_suppressed": education_suppressed, "errors": errors,
+                    return {"education_suppressed": education_suppressed, **result,
                             "terminal_outcome": "irrelevant"}
             education_suppressed = education_suppressed or is_education_reserved_filename(row[1] if row else None)
             if not policy and education_suppressed:
@@ -349,7 +353,7 @@ def process_hms_errors(
         log.error("Failed to classify HMS observation for printer %s; retry required", printer_id)
         # No external alert or terminal operation has started. Retrying this
         # unresolved classification cannot repeat partially delivered effects.
-        return {"education_suppressed": True, "errors": errors,
+        return {"education_suppressed": True, **result,
                 "classification_state": "unresolved", "retryable": True}
 
     # Persist the active set across reconnects/restarts, independent of alert read
@@ -368,15 +372,15 @@ def process_hms_errors(
     # corroborated stopped state grants terminal authority (never cached state).
     from core.monitor_observations import fresh_report
     if withhold_row_writes or not fresh_report(mqtt_retained, report_age_seconds) or live_state not in ('FAILED', 'PAUSE', 'IDLE'):
-        return {'education_suppressed': education_suppressed, 'errors': errors}
+        return {'education_suppressed': education_suppressed, **result}
 
     # Check if any HMS code should fail the active print job
     for err in errors:
         if err["severity"] in ("critical", "error"):
             outcome = _fail_active_job_for_hms(printer_id, err["code"], err["message"], observed_filename=observed_filename, expected_print_job_id=expected_print_job_id, tray_evidence_incomplete=tray_evidence_incomplete)
             if not isinstance(outcome, dict) or outcome.get("terminal_outcome") == "retryable":
-                return {"education_suppressed": education_suppressed, "errors": errors,
+                return {"education_suppressed": education_suppressed, **result,
                         "classification_state": "unresolved", "retryable": True}
             break  # Only fail once per HMS batch
 
-    return {'education_suppressed': education_suppressed, 'errors': errors}
+    return {'education_suppressed': education_suppressed, **result}
