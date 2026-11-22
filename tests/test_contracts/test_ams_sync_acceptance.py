@@ -208,3 +208,28 @@ def test_invalid_retained_initial_weight_cannot_create_invalid_inventory_measure
     monkeypatch.setattr(session,'read_status_once',lambda *args,**kwargs:SimpleNamespace(success=True,section=section))
     assert client.post('/printers/199/sync-ams',headers=headers).status_code==200
     assert review_db.execute(text('SELECT remaining_weight_g FROM spools WHERE id=199')).scalar_one()==500
+
+
+def test_manual_rack_sync_uses_passive_status_and_shared_spool_writer(sync_client, review_db, monkeypatch):
+    from modules.printers import routes_bambu
+    from modules.printers.telemetry.bambu import session
+    from modules.printers.telemetry.bambu.raw import BambuPrintSection
+    from tests.test_contracts.test_h3c_readonly import capture_packet, distinguish_redacted_tags
+    client, headers, _ = sync_client
+    client.app.include_router(routes_bambu.router)
+    review_db.execute(text("UPDATE printers SET model='H3C',machine_type=NULL WHERE id=199"))
+    review_db.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type,do_not_feed) VALUES(199,8,'PETG',true)"))
+    review_db.commit()
+    capture = capture_packet('ams3h-loaded')
+    distinguish_redacted_tags(capture)
+    section = BambuPrintSection.model_validate(capture)
+    monkeypatch.setattr(session, 'read_status_once', lambda *a, **kw: SimpleNamespace(success=True, section=section))
+    response = client.post('/printers/199/bambu/sync-ams', headers=headers)
+    assert response.status_code == 200
+    report = response.json()
+    assert report['slots_updated'] == 9
+    empty = next(s for s in report['slots'] if s['slot_number'] == 8)
+    assert empty['is_empty'] and empty['do_not_feed']
+    assert all(s['ams_id'] == 32 and s['tray_id'] == s['slot_number'] - 1 for s in report['slots'])
+    assert {s['slot_number']: (s['color_hex'], s['remaining_percent']) for s in report['slots'] if not s['is_empty']} == {
+        1: ('AE96D4', 100), 7: ('AE835B', 100), 9: ('FF6A13', 100)}

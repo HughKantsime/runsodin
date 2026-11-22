@@ -8,12 +8,13 @@ export function RackFilamentReading({ slot, rawId }: { slot?: FilamentSlot; rawI
   const reading = slot?.rack_filament?.id === rawId ? slot?.rack_filament : null
   const reported = reading && [reading.type, reading.preset,
     reading.color && reading.color !== '00000000' && `#${reading.color.slice(0, 6)}`].filter(Boolean).join(', ')
-  return <div>Printer reports: {reported || 'Nothing reported'} {rawId != null && <small>ID {rawId}</small>}</div>
+  return reported ? <div>{reading?.source === 'printer' ? 'Printer reports' : 'Hand-fed at the tool'}: {reported} <small>ID {rawId}</small></div> : null
 }
 
-export default function InstalledNozzles({ nozzles, rack = false, slots, showOperatorSlots = true }: {
+export default function InstalledNozzles({ nozzles, rack = false, slots, showOperatorSlots = true, feedingSlot }: {
   nozzles?: InstalledNozzle[] | null
   slots?: FilamentSlot[]
+  feedingSlot?: number | null
   showOperatorSlots?: boolean
   rack?: boolean
 }) {
@@ -28,6 +29,7 @@ export default function InstalledNozzles({ nozzles, rack = false, slots, showOpe
           return <li key={nozzle.nozzle_id}>
             Position {nozzle.position} · {tool ? `${tool} (${nozzle.type})` : nozzle.type || 'Type unknown'} · {nozzle.diameter == null ? 'Diameter unknown' : `${nozzle.diameter} mm`}
             {nozzle.present === false && ' · Absent'}
+            {feedingSlot === nozzle.position && ' · In use'}
             {nozzle.mounted && ' · In the tool head'}
             <RackFilamentReading slot={slot} rawId={nozzle.virtual_slot_id} />
             {showOperatorSlots && slot && <div>ODIN slot: {[slot.filament_type, slot.color, slot.color_hex && `#${slot.color_hex.replace(/^#/, '')}`].filter(Boolean).join(', ')}</div>}

@@ -7,7 +7,7 @@ from unittest.mock import Mock
 import pytest
 from sqlalchemy import text
 
-from tests.test_contracts.test_api_token_delegation_behavior import review_db
+from tests.test_contracts.test_api_token_delegation_behavior import review_db, token_client
 from tests.test_contracts.test_printer_offline_behavior import offline_store, v2_offline_monitor
 
 
@@ -443,3 +443,29 @@ def test_only_unidentified_printer_uses_complete_rack_evidence(model, expected_r
     assert is_h3c_printer(row) is expected_rack
     positions = [n['position'] for n in json.loads(row['installed_nozzles'] or '[]') if n['side'] == 'rack']
     assert positions == ([1, 2, 3] if expected_rack else [])
+
+
+@pytest.mark.parametrize('model,fixture,expected', [
+    ('P1S', 'bambu-p1s-contract', 'cedc2355290aea410bdd5b66f0d158e97a4e43fbe2268bc76dd9f43a48f5d3a1'),
+    ('H2D', 'bambu-h2d-recovery', '9baadd9617ea17e1263f7eac9e62c722406d86f79f6e0755af2e62021b40822f'),
+])
+def test_fixed_inventory_route_matches_base(model, fixture, expected, offline_store, v2_offline_monitor, token_client):
+    """Full slot response at 75e4e109, normalized only for timestamps and generated observation IDs."""
+    from hashlib import sha256
+    from modules.printers import routes_crud
+    path = Path(__file__).parents[1] / 'fixtures/telemetry' / (fixture + '.jsonl')
+    reports = (json.loads(line)['payload'].get('print', {}) for line in path.read_text().splitlines())
+    ams = next(p['ams'] for p in reports if p.get('ams', {}).get('ams'))
+    offline_store.execute(text('UPDATE printers SET model=:model WHERE id=199'), {'model': model})
+    offline_store.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type,color_hex) "
+                               "VALUES(199,1,'PETG','123456')"))
+    offline_store.commit()
+    monitor, _, _ = v2_offline_monitor
+    monitor._on_status(SimpleNamespace(raw_data={'print': {'ams': ams}}))
+    client, issue = token_client
+    client.app.include_router(routes_crud.router)
+    slots = client.get('/printers/199', headers=issue(['read:printers'])).json()['filament_slots']
+    for slot in slots:
+        for key in ('loaded_at', 'observed_state'):
+            slot[key] = bool(slot[key])
+    assert sha256(json.dumps(slots, sort_keys=True).encode()).hexdigest() == expected

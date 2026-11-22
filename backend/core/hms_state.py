@@ -10,6 +10,10 @@ def display_entries(entries):
     return [e for e in entries if not isinstance(e, dict) or e.get('display') is not False]
 
 
+def attention_entries(entries):
+    return [e for e in display_entries(entries) if not isinstance(e, dict) or not e.get('informational_only')]
+
+
 def safety_entries(raw, displayed=()):
     """Retain anything the display parser did not represent, without guessing."""
     represented = {(e['attr'], e['raw_code']) for e in displayed}
@@ -25,6 +29,6 @@ def has_display_entries(value):
         return False
     try:
         entries = json.loads(value)
-        return bool(display_entries(entries)) if isinstance(entries, list) else True
+        return bool(attention_entries(entries)) if isinstance(entries, list) else True
     except (TypeError, ValueError):
         return True

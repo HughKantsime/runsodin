@@ -88,7 +88,7 @@ def _graph(conn, printer_id, tags, uuids=(), trays=()):
              **{'uuid:' + row[2]: row[0] for row in matches if row[2]}}, repairs, candidates)
 
 
-def sync_ams_inventory(conn, printer_id, units):
+def sync_ams_inventory(conn, printer_id, units, *, h3c=False):
     """No commit: caller rolls back failure and advances throttle after commit.
 
     Existing rows are locked and rechecked; late absent RFID matches are never
@@ -97,7 +97,7 @@ def sync_ams_inventory(conn, printer_id, units):
     """
     rfid = rfid_identity()
     from modules.printers.telemetry.bambu.ams_identity import ams_trays_by_slot, is_rfid_tag, reported_color
-    identified = ams_trays_by_slot(units, strict=True)
+    identified = ams_trays_by_slot(units, strict=True, h3c=h3c)
     identified = [(number, {**tray, 'tag_uid': rfid.identity(tray.get('tag_uid')),
                             'tray_uuid': rfid.identity(tray.get('tray_uuid'))}) for number, tray in identified]
     for _, tray in identified:
@@ -118,6 +118,8 @@ def sync_ams_inventory(conn, printer_id, units):
                   if material_reported(tray)]
     trays = [tray for _, tray in identified]
     if not trays and had_trays:
+        return 0
+    if not trays and h3c:
         return 0
     if not trays:
         # An empty AMS list still means every HT unit is unplugged.
@@ -249,8 +251,11 @@ def sync_ams_inventory(conn, printer_id, units):
     # Persist observations only after all departures and destination writes.
     for number, tray in identified:
         identifier = conn.execute('SELECT id FROM filament_slots WHERE printer_id=? AND slot_number=?', (printer_id, number)).fetchone()[0]
-        observe(qmark_runner(conn), identifier, states[number] if number in states else advance({}, tray)[0])
-    if not material_incomplete:
+        state = states[number] if number in states else advance({}, tray)[0]
+        if h3c:
+            state['ams_unit'] = 32
+        observe(qmark_runner(conn), identifier, state)
+    if not material_incomplete and not h3c:
         _clear_unplugged_ht(conn, printer_id, reported_slots)
     return len(trays)
 

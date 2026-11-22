@@ -258,7 +258,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
       {plugOutcome && <p role="status" className="px-3 py-1 text-xs text-[var(--brand-text-secondary)]">{plugOutcome}</p>}
       <PauseCause printer={printer} />
       <ExperimentalOptIn printer={printer} />
-      {rack && !foundry && <InstalledNozzles rack nozzles={printer.installed_nozzles} slots={printer.filament_slots} />}
+      {rack && !foundry && <InstalledNozzles rack feedingSlot={isActivePrintState(printer.gcode_state) ? printer.feeding_slot : null} showOperatorSlots={false} nozzles={printer.installed_nozzles} slots={printer.filament_slots} />}
       <div className="filament-slot-container p-3 md:p-4">
         <div className="flex items-center gap-2 mb-3 flex-wrap">
           <Palette size={14} className="text-[var(--brand-text-muted)]" />

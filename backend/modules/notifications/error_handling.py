@@ -270,7 +270,7 @@ def process_hms_errors(
     printer_id: int, hms_data: list, observed_filename: str | None = None,
     expected_print_job_id: int | None = None,
     *, tray_evidence_incomplete: bool = False, mqtt_retained: bool = False,
-    withhold_row_writes: bool = False,
+    withhold_row_writes: bool = False, quiet_unknown: bool = False,
     report_age_seconds: float | None = None, live_state: str | None = None,
 ):
     """
@@ -286,12 +286,13 @@ def process_hms_errors(
         previous = display_entries(json.loads(row[1] or '[]') or []) if row else []
         # Old releases persisted raw packets. Compare identities, not old meanings.
         prior_codes = {e['code'] for e in parse_hms_errors(previous, prefix)}
-        prior_codes.update(e['code'] for e in previous if isinstance(e, dict) and isinstance(e.get('code'), str))
+        prior_codes.update(e['code'] for e in previous if isinstance(e, dict) and isinstance(e.get('code'), str) and not e.get('informational_only'))
     except Exception:
         log.error('Failed to read HMS state for printer %s; retry required', printer_id)
         return {'retryable': True}
-    errors = parse_hms_errors(hms_data, prefix)
+    errors = parse_hms_errors(hms_data, prefix, quiet_unknown=quiet_unknown)
     active = errors + safety_entries(hms_data, errors)
+    errors = [event for event in errors if not event.get('informational_only')]
     # Persist safety before classification/alert effects can fail or return early.
     # Keep previous display identities until success so retries still alert once.
     # An empty report replaces both sets atomically with [].
@@ -300,7 +301,7 @@ def process_hms_errors(
         conn.execute('UPDATE printers SET hms_errors=? WHERE id=?', (json.dumps(pending), printer_id))
         conn.commit()
     if not errors:
-        return {'errors': []}
+        return {'errors': display_entries(active)}
 
     from core.job_timeline import for_printer
     for error in errors:

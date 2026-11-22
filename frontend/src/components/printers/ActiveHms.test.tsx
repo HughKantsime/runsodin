@@ -1,6 +1,8 @@
 import { render, screen } from '@testing-library/react'
 import { describe, it, expect } from 'vitest'
 import ActiveHms from './ActiveHms'
+import { needsYou } from '../../utils/fleetCounts'
+import type { Printer } from '../../types/printer'
 import { hmsEvents, hmsFaults } from '../../utils/hms'
 import { printerBadgeStatus } from '../ui/StatusBadge'
 
@@ -23,6 +25,15 @@ describe('active Bambu notices', () => {
   expect(screen.getByText('Last seen code (history)')).toBeInTheDocument()
   expect(screen.queryByText('Stale AMS fault')).not.toBeInTheDocument()
   expect(screen.queryByText('Active faults')).not.toBeInTheDocument()
+ })
+ it('lists an undocumented running code as information on the printer page and leaves the card printing', () => {
+  const entries = [{code:'0300E400_00020007', raw_code:0x20007, severity:'info', informational_only:true,
+    message:'Printer code 0300-E400-0002-0007 (no description; the printer reports no error)'}]
+  render(<ActiveHms printer={{api_type:'bambu', hms_errors:JSON.stringify(entries)}} />)
+  expect(needsYou({gcode_state:'RUNNING', hms_errors:JSON.stringify(entries)} as Printer)).toBe(false)
+  expect(screen.getByText(entries[0].message)).toBeInTheDocument()
+  expect(screen.queryByText('Active faults')).not.toBeInTheDocument()
+  expect(printerBadgeStatus({gcode_state:'RUNNING', hms_errors:entries}, true)).toBe('RUNNING')
  })
  it('clears active notices without turning historical codes into faults', () => {
   const {rerender}=render(<ActiveHms printer={{api_type:'bambu',hms_errors:[notice]}} />)

@@ -268,11 +268,12 @@ def configured_recipe_key(printer_id, connection):
     return stable_configuration_key(_get_printer_info(printer_id, connection=connection), SECRET_KEY.encode())
 
 
-def bambu_tray_counts(report):
+def bambu_tray_counts(report, model=None):
     from modules.printers.telemetry.bambu.ams_identity import ams_connection_counts, ams_trays_by_slot
     root = report.get('ams')
     units = root.get('ams') if isinstance(root, dict) else None
-    return ams_connection_counts(units, (n for n, _ in ams_trays_by_slot(units)))
+    h3c = rack_model_identity(model) is True
+    return ams_connection_counts(units, (n for n, _ in ams_trays_by_slot(units, h3c=h3c)), h3c=h3c)
 
 
 def validate_bambu_slot_count(count):

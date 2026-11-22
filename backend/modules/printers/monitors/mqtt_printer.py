@@ -161,8 +161,15 @@ class PrinterMonitor:
         with self._lock:
             if generation != self._connection_generation or self._connection_retired:
                 return
+            newly_identified = not getattr(self, '_identified_h3c', False)
             self._reported_model = product
             rack = rack_model_identity(product)
+            if rack and newly_identified and getattr(self, '_inventory_ams_units', None):
+                from modules.printers.telemetry.bambu.ams_identity import inventory_report
+                ams = self._state.get('ams', {})
+                self._pending_ams_zones = {sample['unit_idx']: sample for sample in
+                                           parse_ams_env({'ams': self._inventory_ams_units}, h3c=True)}
+                self._note_ams_report(inventory_report(self._inventory_ams_units, ams.get('tray_exist_bits'), h3c=True))
             if rack is False:
                 self._unconfirmed_nozzle_report = None
             if rack or (rack is False and (self._rack_rows_stored or getattr(self, '_pending_rack_ids', None))):
@@ -518,6 +525,8 @@ class PrinterMonitor:
             # A held AMS list belongs to the previous connection; the printer
             # re-reports it after pushall.
             self._reset_pending_ams()
+            self._inventory_ams_units = []
+            self._pending_ams_zones = {}
             return self._connection_generation
 
     def _reset_live_connection(self, generation):

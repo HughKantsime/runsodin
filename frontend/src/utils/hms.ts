@@ -1,10 +1,11 @@
-export type HmsEvent = { code?: string; message?: string; severity?: string; wiki_url?: string; raw_code?: number }
+export type HmsEvent = { code?: string; message?: string; severity?: string; wiki_url?: string; raw_code?: number; informational_only?: boolean }
 export function hmsEvents(value: unknown): HmsEvent[] {
   if (typeof value === 'string') { try { value = JSON.parse(value) } catch { return [] } }
   return Array.isArray(value) ? value.filter(e => e?.display !== false) : []
 }
 export function hmsFaults(value: unknown): HmsEvent[] {
   return hmsEvents(value).filter(e => {
+    if (e?.informational_only) return false
     // Old/raw packets may still arrive during an upgrade.
     const raw = e?.raw_code ?? (typeof e?.code === 'number' ? e.code : undefined)
     if (typeof raw === 'number') return (raw >>> 16) === 1 || (raw >>> 16) === 2

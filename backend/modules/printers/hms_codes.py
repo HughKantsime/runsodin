@@ -27,7 +27,12 @@ def get_code_count(model_prefix=''):
     return sum(len(table) for table in load_bundle(model_prefix).values())
 
 
-def parse_hms_errors(hms_data, model_prefix=''):
+def printer_reports_no_error(print_error, state):
+    return ((type(print_error) is int and print_error == 0 or print_error == '0')
+            and bool(state) and state not in ('PAUSE', 'FAILED'))
+
+
+def parse_hms_errors(hms_data, model_prefix='', *, quiet_unknown=False):
     errors = {}
     for item in hms_data if isinstance(hms_data, list) else []:
         if not isinstance(item, dict):
@@ -43,4 +48,7 @@ def parse_hms_errors(hms_data, model_prefix=''):
         errors[full_code] = dict(code=full_code, attr=attr, raw_code=code,
             severity={1: 'critical', 2: 'error', 3: 'info', 4: 'info'}.get(level, 'unknown'),
             message=message, wiki_url=wiki_url(full_code))
+        if quiet_unknown and canonical(full_code) not in load_bundle(model_prefix).get('device_hms', {}):
+            errors[full_code].update(severity='info', informational_only=True,
+                                     message=message + ' (no description; the printer reports no error)')
     return list(errors.values())

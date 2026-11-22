@@ -53,5 +53,8 @@ def corroborate_retry(packet, raw, status, now):
     if (fresh_report(previous['mqtt_retained'], previous['report_age_seconds'])
             and fresh_report(getattr(status, 'mqtt_retained', False), getattr(status, 'report_age_seconds', None))
             and raw.get('gcode_state') in STOPPED_STATES and (not name or name == original_name)):
-        return dict(packet, gcode_state=raw['gcode_state'])
+        updated = dict(packet, gcode_state=raw['gcode_state'])
+        if raw['gcode_state'] in ('PAUSE', 'FAILED'):
+            updated['_quiet_unknown'] = False
+        return updated
     return packet

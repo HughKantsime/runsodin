@@ -528,7 +528,7 @@ def test_printer_connection(request: TestConnectionRequest, current_user: dict =
             return {
                 "success": True, "state": view.state,
                 "bed_temp": view.bed_temp, "nozzle_temp": view.nozzle_temp,
-                **bambu_tray_counts(section.model_dump(exclude_unset=True) if section else {}), "model": detected_model,
+                **bambu_tray_counts(section.model_dump(exclude_unset=True) if section else {}, detected_model), "model": detected_model,
             }
 
         # Legacy path

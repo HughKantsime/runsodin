@@ -36,7 +36,7 @@ from modules.printers.ams_humidity import humidity_scale, reported_percent
 from core.print_outcomes import PRINT_DID_NOT_COMPLETE_SQL, print_outcome
 from core.physical_print import pause_identity
 from core.display_names import display_names
-from core.hms_state import display_entries
+from core.hms_state import attention_entries
 from core.rbac import should_filter_org
 
 HIDDEN_ERROR_MESSAGE = "Details hidden (controlled work)"
@@ -176,6 +176,8 @@ def ams_environment(db, printer_ids, now):
         "GROUP BY printer_id, ams_unit) m ON m.latest = t.id ORDER BY t.printer_id, t.ams_unit"
     ).bindparams(bindparam("pids", expanding=True)), {"pids": list(printer_ids)}).all()
     result = {}
+    from modules.printers.ams_humidity import zone_labels
+    labels = zone_labels(db, {r[0] for r in rows}) if rows else {}
     for printer_id, unit, humidity, temperature, recorded_at, humidity_percent in rows:
         at = to_utc(recorded_at)
         if at is None or now - at > AMS_READING_MAX_AGE:
@@ -183,6 +185,7 @@ def ams_environment(db, printer_ids, now):
         level, index, grade, temperature = humidity_scale(humidity, temperature)
         result.setdefault(printer_id, []).append({
             "unit": int(unit),
+            **({"label": label} if (label := labels.get(printer_id, {}).get(str(unit))) else {}),
             "humidity_index": index,
             "grade": grade,
             "bambu_level": level,
@@ -381,6 +384,7 @@ def printer_slots(db, printers, actor):
             "color_hex": _color_hex(shown.color_hex),
             "name": slot_color_name(shown.color),
             "material": material_label(shown.filament_type),
+            **({"preset_id": shown.preset_id} if shown.preset_id else {}),
             "remaining_percent": _amount(shown.remaining) if owner else None,
             "remaining_g": _amount(shown.remaining_weight) if owner else None,
         })
@@ -802,7 +806,7 @@ class Floor:
 
     def _pause(self, printer, running, error_unresolved, redact):
         stored = _json(printer.hms_errors)
-        entries = [_entry(item) for item in display_entries(stored if isinstance(stored, list) else [])]
+        entries = [_entry(item) for item in attention_entries(stored if isinstance(stored, list) else [])]
         stage = printer.print_stage or ""
         vision = running is not None and running["id"] in self.vision_paused
         if vision or any(_is_spaghetti(a, c) for a, c, _ in entries) or _is_spaghetti(*_stage_code(stage)):

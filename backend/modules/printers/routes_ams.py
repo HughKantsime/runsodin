@@ -185,6 +185,10 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer or not check_org_access(current_user, printer.org_id):
         raise HTTPException(status_code=404, detail="Printer not found")
+    from modules.printers.printer_models import is_h3c_printer, rack_model_identity
+    h3c = is_h3c_printer(printer)
+    if h3c and not rack_model_identity(printer.model, printer.machine_type):
+        raise HTTPException(409, "Identify the printer model before syncing its rack slots.")
     ensure_local_filaments(printer_id)
 
     def authorize_spool(spool):
@@ -352,7 +356,8 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
     from modules.printers.bambu_slots import full_ams_slots, repair_phantom_slots
     repair_numbers = None
     received_at = None
-    if is_v2_enabled():
+    # The one-shot V2 reader only subscribes. The legacy connector requests status on connect.
+    if h3c or is_v2_enabled():
         from modules.printers.telemetry.bambu.adapter import BambuAdapterConfig
         from modules.printers.telemetry.bambu.broker_policy import resolve_bambu_broker_config
         from modules.printers.telemetry.bambu.session import read_status_once
@@ -379,8 +384,11 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
         if not result.success:
             raise HTTPException(status_code=503, detail=result.error or "Failed to connect to printer")
 
-        slots = ams_slots_from_section(result.section) if result.section else []
-        if result.section and getattr(result, 'mqtt_retained', None) is False:
+        try:
+            slots = ams_slots_from_section(result.section, h3c=h3c) if result.section else []
+        except ValueError:
+            raise HTTPException(409, "The printer reported conflicting tray positions. Try syncing again.")
+        if not h3c and result.section and getattr(result, 'mqtt_retained', None) is False:
             repair_numbers = full_ams_slots(result.section.model_dump(exclude_unset=True))
             received_at = result.received_at
         if not slots:
@@ -427,6 +435,8 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
             raise HTTPException(status_code=503, detail="Printer connection error. Check printer IP and credentials.")
 
 
+    if not h3c and rack_model_identity(getattr(bambu_status, 'printer_type', None)):
+        raise HTTPException(409, "The printer model changed. Refresh its details and try syncing again.")
     # Normalize placeholders before authorization, graph matching or creation.
     trays = [rfid.slot_tray(slot) for slot in bambu_status.ams_slots]
     tags = [t['tag_uid'] for t in trays if t['tag_uid'] and t['tray_type']]
@@ -441,6 +451,8 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
 
     printer, locked_rfid = _lock_ams_mutation(
         db, printer_id, current_user, tags, acquired_connection, uuids, trays)
+    if h3c != is_h3c_printer(printer) or (h3c and not rack_model_identity(printer.model, printer.machine_type)):
+        raise HTTPException(409, "The printer model changed. Refresh its details and try syncing again.")
     sealed_rows = locked_rfid.candidates
     known = [rfid.match_id(locked_rfid, tray) for tray in trays if tray['tray_type']]
     known_ids = [spool.id for spool in known if spool is not None]
@@ -599,6 +611,8 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
                 "remaining_percent": None,
             })
         else:
+            if h3c:
+                db_slot.filament_type = FilamentType.EMPTY
             db_slot.color = None
             db_slot.color_hex = None
             updated_slots.append({
@@ -610,6 +624,8 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
     db.flush()
     for number, state in states.items():
         db_slot = db.query(FilamentSlot).filter_by(printer_id=printer_id, slot_number=number).one()
+        if h3c:
+            state['ams_unit'] = 32
         observe(sqlalchemy_runner(db), db_slot.id, state)
         db.refresh(db_slot)
 

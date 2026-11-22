@@ -26,7 +26,7 @@ it.each([
 ] as const)('shows partial printer filament reading %j', (fields, expected) => {
   const slot = { rack_filament: { id: 255, observed_at: '2026-11-21T19:40:00Z', ...fields } } as FilamentSlot
   render(<RackFilamentReading slot={slot} rawId={255} />)
-  expect(screen.getByText(`Printer reports: ${expected}`)).toHaveTextContent('ID 255')
+  expect(screen.getByText(`Hand-fed at the tool: ${expected}`)).toHaveTextContent('ID 255')
 })
 
 it('shows an unrecognized rack tool code as reported', () => {
@@ -34,7 +34,6 @@ it('shows an unrecognized rack tool code as reported', () => {
     virtual_slot_id: 251, diameter: null, material: null, flow: null, wear: null, observed_at: '2026-11-21T19:40:00Z' }]} />)
   const row = screen.getByRole('listitem')
   expect(row).toHaveTextContent('Position 5 · ZZ99 · Diameter unknown')
-  expect(row).toHaveTextContent('Nothing reported')
-  expect(row.querySelector('small')).toHaveTextContent('ID 251')
+  expect(row).not.toHaveTextContent('Hand-fed at the tool')
   expect(row).not.toHaveTextContent('In the tool head')
 })

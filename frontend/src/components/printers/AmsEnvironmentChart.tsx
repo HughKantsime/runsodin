@@ -20,6 +20,7 @@ interface FormattedDataPoint {
 
 export default function AmsEnvironmentChart({ printerId, onClose }: AmsEnvironmentChartProps) {
   const [units, setUnits] = useState<AmsEnvironmentData['units']>({})
+  const [labels, setLabels] = useState<Record<string, string>>({})
   const [selectedUnit, setSelectedUnit] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [humidityUnit, setHumidityUnit] = useState<'level' | 'unknown'>('unknown')
@@ -43,6 +44,7 @@ export default function AmsEnvironmentChart({ printerId, onClose }: AmsEnvironme
       if (requestGeneration !== generation.current) return
       const nextUnits = result?.units || {}
       setUnits(nextUnits)
+      setLabels(result?.labels || {})
       setHumidityUnit(result?.humidity_unit === 'level' ? 'level' : 'unknown')
       setSelectedUnit(previous => Object.prototype.hasOwnProperty.call(nextUnits, previous) ? previous : Object.keys(nextUnits).sort((a,b) => Number(a)-Number(b))[0] || '')
     } catch {
@@ -90,7 +92,7 @@ export default function AmsEnvironmentChart({ printerId, onClose }: AmsEnvironme
       {!loading && !error && Object.keys(units).length > 0 && (
         <label className="text-xs text-[var(--brand-text-secondary)]">AMS unit
           <select aria-label="AMS unit" value={selectedUnit} onChange={e => setSelectedUnit(e.target.value)} className="ml-2 bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-2 py-1">
-            {Object.keys(units).sort((a,b) => Number(a)-Number(b)).map(unit => <option key={unit} value={unit}>AMS {Number(unit)+1}</option>)}
+            {Object.keys(units).sort((a,b) => Number(a)-Number(b)).map(unit => <option key={unit} value={unit}>{labels[unit] || `AMS ${Number(unit)+1}`}</option>)}
           </select>
         </label>
       )}

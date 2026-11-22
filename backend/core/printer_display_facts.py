@@ -69,6 +69,8 @@ def observe(monitor, packet, *, retained=False):
                 tray = int(tray) if len(tray) < 5 else None
             # 254/255 are external/no AMS; HT uses hardware ids 128..135.
             slot = (tray + 1 if 0 <= tray < 16 else tray - 128 + 17 if 128 <= tray <= 135 else None) if type(tray) is int else None
+            if getattr(monitor, '_identified_h3c', False) and slot is not None and slot > 9:
+                slot = None
             put('feeding_slot', slot)
         if 'ams' in ams:
             from modules.printers.telemetry.bambu.ams_evidence import parse_raw_ams_facts

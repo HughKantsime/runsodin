@@ -11,6 +11,8 @@ pytestmark = pytest.mark.usefixtures("pro_license")
 
 def test_hms_same_code_preserves_distinct_messages(analytics_client, review_db):
     review_db.execute(text("INSERT INTO hms_error_history(printer_id,code,message,occurred_at) VALUES(9,'SYNTHETIC','Synthetic first',CURRENT_TIMESTAMP),(9,'SYNTHETIC','Synthetic second',CURRENT_TIMESTAMP),(9,'SYNTHETIC','Synthetic first',CURRENT_TIMESTAMP)"))
+    review_db.execute(text("INSERT INTO hms_error_history(printer_id,code,message,source,severity) "
+                           "VALUES(9,'SYNTHETIC','Unknown code without a printer error','bambu_notice','info')"))
     review_db.commit()
     response=analytics_client.get('/analytics/failures')
     assert response.status_code==200

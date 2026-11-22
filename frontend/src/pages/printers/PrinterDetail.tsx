@@ -197,7 +197,7 @@ export default function PrinterDetail() {
 
       </DetailPresentation>
       <ExperimentalFeatures printer={printer} foundry={foundry} />
-      {(!foundry || !rack) && <InstalledNozzles rack={rack} nozzles={printer.installed_nozzles} slots={printer.filament_slots} showOperatorSlots={false} />}
+      {(!foundry || !rack) && <InstalledNozzles feedingSlot={isActivePrintState(printer.gcode_state) ? printer.feeding_slot : null} rack={rack} nozzles={printer.installed_nozzles} slots={printer.filament_slots} showOperatorSlots={false} />}
 
       {/* Telemetry */}
       {telemetry && Array.isArray(telemetry) && telemetry.length > 0 && (

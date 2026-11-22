@@ -15,6 +15,7 @@ import type { FilamentSlotUpdate } from '../../types/printer'
 
 // TODO: type this properly — runtime printer shape has extra MQTT fields
 interface PrinterLike {
+  installed_nozzles?: { position?: number | null }[] | null
   name: string
   nozzle_temp: number | null
   nozzle_target_temp: number | null
@@ -108,7 +109,7 @@ function RackSlotEditors({ printer }: { printer: PrinterLike }) {
         <FilamentSlotEditor printerId={printer.id} apiType={printer.api_type} slot={slot} label={`${slot.slot_number <= 9 ? 'Position' : 'Slot'} ${slot.slot_number}`}
           allFilaments={materials.data} spools={inventory.data}
           onSave={data => Object.keys(data).length ? save.mutate({ position: slot.slot_number, data: data as FilamentSlotUpdate }) : refresh()} />
-        {slot.slot_number <= 9 && <RackFilamentReading slot={slot} rawId={256 - slot.slot_number} />}
+        {slot.slot_number <= 9 && !printer.installed_nozzles?.some(n => n.position === slot.slot_number) && <RackFilamentReading slot={slot} rawId={256 - slot.slot_number} />}
       </div>)}
     </div>
   </section>

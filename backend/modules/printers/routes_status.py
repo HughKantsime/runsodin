@@ -55,9 +55,16 @@ def _fetch_printer_live_status(printer_id: int, db: Session) -> dict:
 
     # Route through V2 when ODIN_TELEMETRY_V2=1; legacy path otherwise.
     from modules.printers.telemetry.feature_flag import is_v2_enabled
-    if is_v2_enabled():
-        return _fetch_live_status_v2(printer_id, printer, serial, access_code)
-    return _fetch_live_status_legacy(printer_id, printer, serial, access_code)
+    fetch = _fetch_live_status_v2 if is_v2_enabled() else _fetch_live_status_legacy
+    status = fetch(printer_id, printer, serial, access_code)
+    from modules.printers.printer_models import rack_model_identity
+    if 'error' not in status and printer.api_type == 'bambu' and rack_model_identity(printer.model, printer.machine_type):
+        from modules.printers.schemas import FilamentSlotResponse
+        from core.printer_display_facts import read_facts
+        status['filament_slots'] = [FilamentSlotResponse.model_validate(slot).model_dump(mode='json')
+                                    for slot in printer.filament_slots]
+        status['feeding_slot'] = read_facts(db, [printer]).get(printer.id, {}).get('feeding_slot')
+    return status
 
 
 def _fetch_live_status_v2(printer_id, printer, serial, access_code) -> dict:
@@ -202,6 +209,8 @@ def get_hms_error_history(printer_id: int, days: int = Query(30, ge=1, le=90),
                 "severity": r[4], "source": r[5], "occurred_at": r[6]} for r in rows]
     freq = {}
     for e in entries:
+        if e["source"] == "bambu_notice":
+            continue
         key = e["code"]
         freq[key] = freq.get(key, 0) + 1
     return {"entries": entries, "frequency": freq, "total": len(entries)}

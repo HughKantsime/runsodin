@@ -185,7 +185,7 @@ class BambuV2StatusView:
         return self._v2.firmware_versions
 
 
-def ams_slots_from_section(section) -> list[AMSSlotCompat]:
+def ams_slots_from_section(section, *, h3c=False) -> list[AMSSlotCompat]:
     """Extract legacy-shaped AMS slot list from a BambuPrintSection.
 
     Routes that read `.ams_slots` on the legacy status can call this
@@ -196,7 +196,14 @@ def ams_slots_from_section(section) -> list[AMSSlotCompat]:
 
     slots: list[AMSSlotCompat] = []
     from modules.printers.telemetry.bambu.ams_identity import ams_trays_by_slot, tray_exists, is_rfid_tag, reported_color
-    for slot_number, raw_tray in ams_trays_by_slot([unit.model_dump() for unit in section.ams.ams]):
+    from modules.printers.telemetry.bambu.ams_identity import inventory_report
+    units = [unit.model_dump(exclude_unset=True) for unit in section.ams.ams]
+    if h3c:
+        units = inventory_report(units, section.ams.tray_exist_bits, h3c=True)
+    for slot_number, raw_tray in ams_trays_by_slot(units, h3c=h3c, strict=h3c):
+        exists = raw_tray.get('_exists') if h3c else tray_exists(section.ams.tray_exist_bits, slot_number)
+        if h3c and exists is not False and raw_tray.get('tray_type') is None:
+            continue
         color_hex = (raw_tray.get("tray_color") or "")[:6] if raw_tray.get("tray_color") else ""
         from modules.printers.monitors.ams_inventory import remaining_percent
         remaining = remaining_percent(raw_tray.get('remain')) if is_rfid_tag(raw_tray.get('tag_uid')) or is_rfid_tag(raw_tray.get('tray_uuid')) else None
@@ -211,8 +218,8 @@ def ams_slots_from_section(section) -> list[AMSSlotCompat]:
             tray_uuid=raw_tray.get("tray_uuid") or "",
             tray_id_name=raw_tray.get("tray_id_name") or "",
             sub_brand=raw_tray.get("tray_sub_brands") or "",
-            exists=tray_exists(section.ams.tray_exist_bits, slot_number),
+            exists=exists,
             preset=raw_tray.get("tray_info_idx") or "",
-            empty=(not raw_tray.get("tray_type") or tray_exists(section.ams.tray_exist_bits, slot_number) is False),
+            empty=(not raw_tray.get("tray_type") or exists is False),
         ))
     return slots

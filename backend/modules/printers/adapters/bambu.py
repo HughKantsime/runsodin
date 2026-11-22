@@ -625,15 +625,15 @@ class BambuPrinter:
             # Parse fan
             self._status.fan_speed = print_data.get("cooling_fan_speed", 0)
             
-            # Parse AMS state
-            ams_data = print_data.get("ams", {})
-            if ams_data:
-                self._parse_ams(ams_data)
-            
             # Capture printer_type (model code) from MQTT
             raw_pt = print_data.get("printer_type", "")
             if raw_pt:
                 self._status.printer_type = raw_pt
+
+            # Parse AMS state
+            ams_data = print_data.get("ams", {})
+            if ams_data:
+                self._parse_ams(ams_data)
 
             # Check for errors
             if print_data.get("print_error", 0) != 0:
@@ -655,7 +655,9 @@ class BambuPrinter:
         
         from modules.printers.telemetry.validators import coerce_int_or_raise
 
-        for slot_num, tray in ams_trays_by_slot(ams_units):
+        from modules.printers.printer_models import rack_model_identity
+        h3c = rack_model_identity(self._status.printer_type) is True
+        for slot_num, tray in ams_trays_by_slot(ams_units, h3c=h3c):
             remaining = None
             if tray.get("remain") is not None:
                 try:
@@ -672,8 +674,8 @@ class BambuPrinter:
                 color_hex=tray.get("tray_color", "")[:6] if tray.get("tray_color") else "",
                 reported_color_hex=reported_color(tray),
                 remaining_percent=remaining,
-                empty=tray.get("tray_type", "") == "" or tray_exists(ams_data.get("tray_exist_bits"), slot_num) is False,
-                exists=tray_exists(ams_data.get("tray_exist_bits"), slot_num),
+                empty=tray.get("tray_type", "") == "" or tray_exists(ams_data.get("tray_exist_bits"), slot_num, h3c=h3c) is False,
+                exists=tray_exists(ams_data.get("tray_exist_bits"), slot_num, h3c=h3c),
                 preset=tray.get("tray_info_idx") or "",
                 rfid_tag=tray.get("tag_uid", ""),
                 tray_uuid=tray.get("tray_uuid") or "",
@@ -682,7 +684,7 @@ class BambuPrinter:
             )
             self._status.ams_slots.append(slot)
         self._status.ams_counts = ams_connection_counts(
-            ams_units, (slot.slot_number for slot in self._status.ams_slots))
+            ams_units, (slot.slot_number for slot in self._status.ams_slots), h3c=h3c)
 
     def _send_gcode(self, gcode: str) -> bool:
         """Send G-code command to printer."""
