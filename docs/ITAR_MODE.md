@@ -23,7 +23,7 @@ With ITAR mode on, the server opens no connection to an address outside the loca
 
 Private (RFC 1918, loopback, link-local) destinations are unaffected.
 
-With ITAR mode on and no license server address set, online licence activation is off. Upload a licence file to activate. If you set `LICENSE_SERVER_URL` in the environment or in the server’s `.env` file, the address must be on the local network or O.D.I.N. will refuse to start.
+With ITAR mode on and no license server address set, online licence activation is off. Upload a licence file to activate. If you set `LICENSE_SERVER_URL` to an address, in the environment or in the server’s `.env` file, that address must be on the local network or O.D.I.N. will refuse to start. An empty value is the same as not setting it.
 
 ## What ITAR mode covers
 
