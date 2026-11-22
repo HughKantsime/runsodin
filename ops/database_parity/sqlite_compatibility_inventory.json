@@ -2746,7 +2746,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 131,
+      "line": 134,
       "path": "backend/modules/printers/monitors/nozzle_observations.py",
       "pattern": "qmark-parameter",
       "reason": "Monitor observation writes use the live database compatibility executor for qmark binding and JSON storage.",
@@ -2754,7 +2754,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 159,
+      "line": 162,
       "path": "backend/modules/printers/monitors/nozzle_observations.py",
       "pattern": "qmark-parameter",
       "reason": "Monitor observation writes use the live database compatibility executor for qmark binding and JSON storage.",
@@ -2762,7 +2762,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 168,
+      "line": 171,
       "path": "backend/modules/printers/monitors/nozzle_observations.py",
       "pattern": "qmark-parameter",
       "reason": "Monitor observation writes use the live database compatibility executor for qmark binding and JSON storage.",
@@ -2770,7 +2770,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 169,
+      "line": 172,
       "path": "backend/modules/printers/monitors/nozzle_observations.py",
       "pattern": "qmark-parameter",
       "reason": "Monitor observation writes use the live database compatibility executor for qmark binding and JSON storage.",
@@ -2778,7 +2778,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 174,
+      "line": 177,
       "path": "backend/modules/printers/monitors/nozzle_observations.py",
       "pattern": "qmark-parameter",
       "reason": "Monitor observation writes use the live database compatibility executor for qmark binding and JSON storage.",
@@ -2786,7 +2786,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 189,
+      "line": 186,
       "path": "backend/modules/printers/monitors/nozzle_observations.py",
       "pattern": "qmark-parameter",
       "reason": "Monitor observation writes use the live database compatibility executor for qmark binding and JSON storage.",
