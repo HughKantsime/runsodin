@@ -35,6 +35,30 @@ def rack_slot_id(position):
     return 256 - position
 
 
+def rack_rows_with_mounted_tool(rows):
+    """Map the head's ID 0 back to the missing rack ID in a rack-only report."""
+    if not isinstance(rows, list) or len(rows) < 2:
+        return rows, None
+    parked = set()
+    mounted = None
+    for row in rows:
+        identifier = row.get('id') if isinstance(row, dict) else None
+        if type(identifier) is not int:
+            return rows, None
+        if 16 <= identifier <= 24:
+            parked.add(identifier)
+        elif identifier == 0 and mounted is None:
+            address = row.get('addr_id')
+            if type(address) is not int or not 0 <= address <= 8:
+                return rows, None
+            mounted = 16 + address
+        else:
+            return rows, None
+    if mounted is None or mounted in parked:
+        return rows, None
+    return [dict(row, id=mounted) if row['id'] == 0 else row for row in rows], mounted
+
+
 def installed_nozzles(packet, *, dual=False, include_rack=False, observed_at=None):
     """Parse one packet, never copy top-level primary data to a second nozzle."""
     stamp = observed_at or datetime.now(timezone.utc).isoformat()
@@ -48,9 +72,12 @@ def installed_nozzles(packet, *, dual=False, include_rack=False, observed_at=Non
                 if not dual and ('nozzle_type' in packet or 'nozzle_diameter' in packet) else [])
     dual = dual or any(isinstance(row, dict) and row.get('id') == 1 for row in rows)
     source = nozzle.get('src_id') if include_rack and isinstance(nozzle, dict) else None
+    rows, mounted = rack_rows_with_mounted_tool(rows) if include_rack else (rows, None)
+    if mounted is not None:
+        source = mounted
     if type(exist) is int or type(source) is int:
         ids = {row.get('id') for row in rows if isinstance(row, dict) and type(row.get('id')) is int}
-        expected = list(range(2 if dual else 1)) if type(exist) is int else []
+        expected = list(range(2 if dual else 1)) if type(exist) is int and mounted is None else []
         if include_rack:
             expected.extend(range(16, 25))
         rows = rows + [{'id': index} for index in expected if index not in ids]
@@ -76,7 +103,9 @@ def installed_nozzles(packet, *, dual=False, include_rack=False, observed_at=Non
         code = row.get('type')
         material, flow = decode_type(code) if isinstance(code, str) else (None, None)
         present = bool(exist & (1 << identifier)) if type(exist) is int else None
-        if identity['side'] == 'rack' and type(exist) is int and exist < 0:
+        if identifier == mounted:
+            present = True
+        elif identity['side'] == 'rack' and type(exist) is int and exist < 0:
             present = None
         result.append({**identity, 'diameter': number(row.get('diameter'), positive=True),
                        'flow': flow, 'material': material, 'wear': number(row.get('wear')), 'present': present,
