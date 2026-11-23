@@ -94,8 +94,15 @@ it('F10-10.1-02 renders actual cost/revenue bars and chronological date ticks', 
   expect(ticks).toEqual(['Oct 1','Oct 2'])
 })
 it('F10-10.1-03 displays model rankings by value per hour, preserving service order', async () => {
+  api.analytics.mockResolvedValue({
+    ...analytics,
+    summary: { ...analytics.summary, avg_value_per_hour: 10 / 3 },
+    top_by_hour: [{ ...analytics.top_by_hour[0], value_per_hour: 50 / 3 }, analytics.top_by_hour[1]],
+  })
   show(<Analytics />); await screen.findByRole('heading',{name:'Top Performers'})
   const ranking = panel('Top Performers'); expect(ranking).toHaveTextContent('Value per hour')
+  expect(within(ranking).getByText('EUR 16.67/hr')).toBeVisible()
+  expect(screen.getByText('EUR 3.33')).toBeVisible()
   expect(ranking.textContent!.indexOf('High hourly low count')).toBeLessThan(ranking.textContent!.indexOf('Low hourly high count'))
 })
 it('F10-10.1-03 CLAIM GAP: model rankings are ordered and labeled by job count', async () => {

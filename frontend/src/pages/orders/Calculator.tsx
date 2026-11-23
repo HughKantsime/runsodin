@@ -380,7 +380,7 @@ export default function CalculatorPage() {
               <InputField label="Spool Cost" value={spoolCost} onChange={markChanged(setSpoolCost)} suffix={currency ?? undefined} />
               <InputField label="Spool Weight" value={spoolWeight} onChange={markChanged(setSpoolWeight)} suffix="g" />
             </div>
-            <div className="text-xs text-[var(--brand-muted)]">Cost per gram: {money(costPerGram, '—', 'rate')}</div>
+            <div className="text-xs text-[var(--brand-muted)]">Cost per gram: {money(costPerGram, '—', 3)}</div>
           </CostSection>
 
           {/* Labor Costs */}

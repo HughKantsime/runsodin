@@ -18,7 +18,8 @@ def seed(db):
 @pytest.mark.parametrize('case,source,expected', [
     ('single','spool',[('PLA',3)]), ('several','spool',[('PLA',3),('PETG-CF',4)]),
     ('foreign','file',[('PETG-CF',5)]), ('file','file',[('PETG-CF',5)]),
-    ('job','job',[('ABS',None)]), ('custom','file',[('PEEK',None)]), ('long','file',[('S'*128,None)]), ('none',None,[])])
+    ('job','job',[('ABS',None)]), ('custom','file',[('PEEK',None)]), ('long','file',[('S'*128,None)]),
+    ('control','job',[('ABS',None)]), ('none',None,[])])
 def test_material_resolves_consistently(reprint_client, review_db, monkeypatch, case, source, expected):
     from modules.archives.routes import archives_crud
     monkeypatch.setattr(archives_crud, 'require_feature', lambda *args: None)
@@ -29,6 +30,10 @@ def test_material_resolves_consistently(reprint_client, review_db, monkeypatch, 
         usage.append({'spool_id':502,'grams_used':4})
     if case == 'foreign':
         usage.append({'spool_id':503,'grams_used':99})
+    if case == 'control':
+        labels = ['PE\nEK', 'PLA\t', 'PETG\x85', 'X' * 128 + '\x00']
+        review_db.execute(text("UPDATE print_files SET filaments_json=:f WHERE id=101"),
+                          {'f': json.dumps([{'type': label} for label in labels])})
     if case in ('custom', 'long'):
         label = ' peek ' if case == 'custom' else 'ß' * 200
         review_db.execute(text("UPDATE print_files SET filaments_json=:f WHERE id=101"),

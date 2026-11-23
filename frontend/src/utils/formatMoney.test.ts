@@ -55,3 +55,16 @@ it('keeps rate precision even for zero-minor-unit currencies', () => {
   expect(formatMoney(0.14567, 'EUR', 'rate')).toBe('EUR 0.14567')
   expect(formatMoney(0.145, 'JPY', 'rate')).toBe('JPY 0.145')
 })
+
+it('caps stored rates at six decimal places while keeping currency padding', () => {
+  expect(formatMoney(0.1 + 0.2, 'EUR', 'rate')).toBe('EUR 0.30')
+  expect(formatMoney('0.12345678', 'JPY', 'rate')).toBe('JPY 0.123457')
+})
+
+it('accepts only plain decimal strings', () => {
+  expect(formatMoney('-12.50', 'EUR')).toBe('EUR -12.50')
+  expect(formatMoney('0', 'EUR')).toBe('EUR 0.00')
+  for (const input of ['0x10', '1e3', '', '+1', '.5', '1.', ' 1', '1\n', '1,000']) {
+    expect(formatMoney(input, 'EUR', undefined, '—')).toBe('—')
+  }
+})

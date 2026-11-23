@@ -29,6 +29,11 @@ beforeEach(() => { vi.clearAllMocks() })
 afterEach(cleanup)
 
 describe('Pricing Calculator', () => {
+  it('rounds computed cost per gram to three decimal places', async () => {
+    await show({ ...SAVED, spool_cost: 20, spool_weight: 750 })
+    expect(await screen.findByText('Cost per gram: EUR 0.027')).toBeInTheDocument()
+  })
+
   it('a configuration saved before this change shows the price it always showed', async () => {
     await show()
     // 50 g of a $25/kg spool, 2 h, defaults: cost 5.99, +50% = 8.98 (unchanged from 2.2.0).

@@ -23,8 +23,10 @@ def _entries(value):
 def _group(pairs):
     totals = {}
     for raw, grams in pairs:
+        if not isinstance(raw, str) or not raw.isprintable():
+            continue
         material = canonical_reported_material(raw)
-        if material is None and isinstance(raw, str):
+        if material is None:
             # A library can name a material outside the printer protocol's vocabulary.
             label = fact_text(raw.upper())
             if label and label not in {"UNKNOWN", "EMPTY", "OTHER", "NONE", "N/A"}:

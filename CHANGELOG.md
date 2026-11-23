@@ -4,6 +4,7 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+- The calculator shows cost per gram to three decimal places, and Analytics shows hourly values to two. Saved rates show up to six decimal places. Print archives and CSV exports skip material names that contain control characters.
 - Older jobs with a readable print file can be repeated. Library checks skip unsupported files, cost views preserve fractional rates, and Settings shows where the display currency comes from.
 - In the model library’s Plates view, choose a completed print to queue it again with its saved printer, plate and filament slots.
 - Slice details are available for plain G-code. The library explains missing details, and platform administrators can check older files from Settings → System.

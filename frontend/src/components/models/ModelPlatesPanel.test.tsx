@@ -112,7 +112,9 @@ it('stacks the plate card on a phone and puts it beside the picture from sm up',
 it.each(Object.entries(unavailableReasons))('explains %s for a visible file', async (reason, message) => {
   api.facts.mockResolvedValue({ status: 'not_available', reason, file_hash: null })
   mount()
-  expect(await screen.findByText(message)).toHaveClass('text-sm', 'text-[var(--brand-muted)]')
+  const explanation = await screen.findByText(message)
+  expect(explanation).toBeVisible()
+  expect(explanation).toHaveClass('text-sm', 'text-[var(--brand-muted)]')
 })
 
 it('repeats the selected completed job through the queue and reports a hold', async () => {

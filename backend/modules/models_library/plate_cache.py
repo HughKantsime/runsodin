@@ -565,7 +565,7 @@ def objects_for_row(row, *, timeout=30):
     cached = read_objects(row.file_hash)
     if cached is not None:
         return cached
-    from core.print_payload_snapshot import PayloadChanged, PayloadUnavailable, stage_payload
+    from core.print_payload_snapshot import PayloadUnavailable, stage_payload
     from modules.models_library.mesh_isolation import plate_objects_blocking
     try:
         with stage_payload(row.stored_path, row.file_hash) as snapshot:
