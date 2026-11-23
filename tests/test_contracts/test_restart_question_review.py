@@ -211,8 +211,9 @@ def test_no_claim_packet_outcomes_match_57329df9_byte_for_byte(case, monkeypatch
     import ast
     import sqlite3
     import subprocess
+    import sys
     from datetime import datetime, timezone
-    from types import MethodType
+    from types import MethodType, ModuleType
     from modules.printers.monitors import mqtt_printer, mqtt_job_lifecycle
     from modules.notifications import event_dispatcher
     from modules.archives import archive
@@ -237,6 +238,9 @@ def test_no_claim_packet_outcomes_match_57329df9_byte_for_byte(case, monkeypatch
         db.connection.driver_connection.backup(snapshot)
     base_source = subprocess.check_output(['git', 'show', '57329df9:backend/modules/printers/monitors/mqtt_printer.py'], text=True)
     base_status = subprocess.check_output(['git', 'show', '57329df9:backend/modules/printers/monitors/mqtt_status.py'], text=True)
+    base_nozzles = subprocess.check_output(['git', 'show', '57329df9:backend/modules/printers/monitors/nozzle_observations.py'], text=True)
+    nozzle_module = ModuleType('modules.printers.monitors.nozzle_observations')
+    exec(compile(base_nozzles, '<base nozzle observations>', 'exec'), vars(nozzle_module))
     namespace = dict(vars(mqtt_printer))
     methods = next(n for n in ast.parse(base_source).body if isinstance(n, ast.ClassDef) and n.name == 'PrinterMonitor')
     for method in methods.body:
@@ -259,8 +263,13 @@ def test_no_claim_packet_outcomes_match_57329df9_byte_for_byte(case, monkeypatch
         namespace['get_db'] = mqtt_printer.get_db
         def deliver(**fields):
             status = SimpleNamespace(raw_data={'print': fields})
-            if baseline: status_namespace['handle_status'](monitor, status, None, mqtt_printer)
-            else: monitor._on_status(status)
+            if baseline:
+                # The historical handler imports its nozzle helper inside the callback.
+                with monkeypatch.context() as replay:
+                    replay.setitem(sys.modules, nozzle_module.__name__, nozzle_module)
+                    status_namespace['handle_status'](monitor, status, None, mqtt_printer)
+            else:
+                monitor._on_status(status)
         deliver(gcode_state='RUNNING', subtask_name='bracket', mc_percent=37, layer_num=17)
         deliver(gcode_state='PAUSE')
         deliver(gcode_state='RUNNING', mc_percent=44)

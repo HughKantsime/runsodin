@@ -63,8 +63,12 @@ def test_async_callers_connect_only_to_validated_address(monkeypatch, caller, pr
         elif caller == "classroom":
             await _json_request("GET", url)
         else:
+            from core import config
             from modules.system.routes_health import _fetch_license_challenge
-            await _fetch_license_challenge(url, "test-installation")
+
+            monkeypatch.setenv("LICENSE_SERVER_URL", url)
+            monkeypatch.setattr(config, "settings", config.Settings(_env_file=None))
+            await _fetch_license_challenge(config.settings.license_server_url, "test-installation")
 
     expected = ClassroomError if caller == "classroom" else (httpx.ConnectError, ValueError, HTTPException)
     with pytest.raises(expected) as caught:

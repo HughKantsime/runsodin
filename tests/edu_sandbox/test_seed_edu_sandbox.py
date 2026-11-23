@@ -188,7 +188,7 @@ def test_edu_bambu_replay_uses_internal_synthetic_config_not_printer_credentials
     with engine.begin() as connection:
         connection.execute(text(
             "CREATE TABLE printers (id INTEGER PRIMARY KEY, name TEXT, model TEXT, api_type TEXT, "
-            "api_host TEXT, api_key TEXT, is_active BOOLEAN)"
+            "machine_type VARCHAR(20), installed_nozzles JSON, api_host TEXT, api_key TEXT, is_active BOOLEAN)"
         ))
         connection.execute(text(
             "INSERT INTO printers (id, name, api_type, api_host, api_key, is_active) "
