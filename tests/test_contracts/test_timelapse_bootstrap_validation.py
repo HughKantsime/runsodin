@@ -600,21 +600,50 @@ def test_adopted_case_insensitive_keys_preserve_requested_nonce(old_walk):
         engine.dispose()
 
 
+PG_COLLATIONS = ((FRAME, 'source_nonce', 'POSIX'), (VERSION, 'version_nonce', 'C'),
+                 (FRAME, 'operation_id', 'POSIX'), (FACT, 'operation_id', 'C'))
+
+
+def adopt_pg_collations(sql):
+    for table, key, collation in PG_COLLATIONS:
+        if sql.lstrip().startswith(f'CREATE TABLE {table} ('):
+            definition = rf'\b{key} VARCHAR\(64\)(?: COLLATE "{collation}")? NOT NULL'
+            sql, count = re.subn(definition, f'{key} VARCHAR(64) COLLATE "{collation}" NOT NULL', sql)
+            assert count == 1, (table, key)
+    return sql
+
+
+@pytest.mark.parametrize('table,columns,expected', [
+    (FRAME, 'operation_id VARCHAR(64) NOT NULL, source_nonce VARCHAR(64) NOT NULL',
+     'operation_id VARCHAR(64) COLLATE "POSIX" NOT NULL, source_nonce VARCHAR(64) COLLATE "POSIX" NOT NULL'),
+    (VERSION, 'version_nonce VARCHAR(64) NOT NULL', 'version_nonce VARCHAR(64) COLLATE "C" NOT NULL'),
+    (FACT, 'operation_id VARCHAR(64) NOT NULL', 'operation_id VARCHAR(64) COLLATE "C" NOT NULL'),
+    (REF, 'version_nonce VARCHAR(64) NOT NULL', 'version_nonce VARCHAR(64) NOT NULL'),
+])
+def test_adopt_pg_collations_is_idempotent(table, columns, expected):
+    sql = f'CREATE TABLE {table} ({columns})'
+    rewritten = adopt_pg_collations(sql)
+    assert rewritten == f'CREATE TABLE {table} ({expected})'
+    assert adopt_pg_collations(rewritten) == rewritten
+
+
 @pytest.mark.parametrize('native_engine', [pytest.param('postgresql', marks=pytest.mark.postgresql)], indirect=True)
 @pytest.mark.parametrize('kind', ['encode', 'retired'])
 def test_pg_joins_use_lookup_column_collation(native_engine, old_walk, kind):
     @event.listens_for(native_engine, 'before_cursor_execute', retval=True)
     def adopted_collations(conn, cursor, sql, params, context, many):
-        for table, key, collation in ((FRAME, 'source_nonce', 'POSIX'), (VERSION, 'version_nonce', 'C'),
-                                      (FRAME, 'operation_id', 'POSIX'), (FACT, 'operation_id', 'C')):
-            if f'CREATE TABLE {table} (' in sql:
-                definition = key + ' VARCHAR(64) NOT NULL'
-                assert definition in sql
-                sql = sql.replace(definition, f'{key} VARCHAR(64) COLLATE "{collation}" NOT NULL')
-        return sql, params
+        return adopt_pg_collations(sql), params
 
-    history(native_engine, kind)
+    try:
+        history(native_engine, kind)
+    finally:
+        event.remove(native_engine, 'before_cursor_execute', adopted_collations)
     with native_engine.begin() as db:
+        collations = db.exec_driver_sql(
+            "SELECT table_name, column_name, collation_name FROM information_schema.columns "
+            "WHERE table_schema = 'public' AND collation_name IS NOT NULL"
+        )
+        assert set(PG_COLLATIONS) <= set(collations)
         equivalent(db, old_walk)
         assert verdict(M.validate, db) is None
         db.exec_driver_sql(fact('output', 'byte_count=17'))
