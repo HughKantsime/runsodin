@@ -232,6 +232,7 @@ def test_next_unassigned_is_capped_at_five_in_queue_order(ha_client, review_db):
 
 @pytest.mark.parametrize('state,hms,layer,cause,reason', [
     ('PAUSE', '[]', 12, 'planned', 'Planned pause at layer 12'),
+    ('PAUSE', json.dumps([{'severity': 'info', 'message': 'Clean the rails'}]), 12, 'planned', 'Planned pause at layer 12'),
     ('PAUSE', json.dumps([{'attr': 0x0C000300, 'code': 0x00030008, 'raw_code': 0x00030008}]), 12, 'spaghetti', None),
     ('PAUSE', json.dumps([{'attr': 1, 'code': 2, 'raw_code': 2}]), 12, 'error', 'Printer error 00000001_00000002'),
 ])

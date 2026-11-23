@@ -19,7 +19,7 @@ describe('active Bambu notices', () => {
  })
  it('shows one maintenance notice, a wiki link and explicitly separate history', () => {
   render(<ActiveHms printer={{api_type:'bambu',hms_errors:JSON.stringify([notice,notice]),last_error_code:'old',last_error_message:'Stale AMS fault'}} />)
-  expect(screen.getByText('Maintenance due / notices')).toBeInTheDocument()
+  expect(screen.getByText('Printer notices')).toBeInTheDocument()
   expect(screen.getAllByText('Lubricate threaded rods')).toHaveLength(1)
   expect(screen.getByRole('link')).toHaveAttribute('href',notice.wiki_url)
   expect(screen.getByText('Last seen code (history)')).toBeInTheDocument()
@@ -42,7 +42,8 @@ describe('active Bambu notices', () => {
   expect(screen.getByText('No active printer notices.')).toBeInTheDocument()
  })
  it('keeps common/info out of fleet fault counts and badges', () => {
-  expect(hmsFaults([notice,{code:0x40001}])).toEqual([])
+  expect(hmsFaults([notice])).toEqual([])
+  expect(hmsFaults([{code:0x40001}, {raw_code:0x40001, severity:'unknown'}])).toHaveLength(2)
   expect(printerBadgeStatus({gcode_state:'FINISH',hms_errors:[notice]},true)).toBe('FINISH')
   expect(hmsFaults([{code:0x10001},{code:0x20001}])).toHaveLength(2)
   expect(hmsFaults('[]')).toEqual([])

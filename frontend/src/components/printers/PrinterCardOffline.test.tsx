@@ -24,6 +24,22 @@ it('shows persisted offline immediately and restores after a persisted valid rep
  view.rerender(<PrinterCard printer={{ ...printer, gcode_state: 'IDLE', print_stage: 'Idle', last_seen: '2026-10-11T12:00:00Z' }} {...props} />)
  expect(screen.getByTestId('printer-status')).toHaveTextContent('Online')
 })
+it('shows linked printer notices and restores the attention badge when a fault appears', () => {
+ document.documentElement.dataset.themeFamily = 'foundry'
+ const notice = { code: '05010400_00030002', severity: 'info', message: 'Lubricate the rods',
+   wiki_url: 'https://wiki.bambulab.com/en/x1/troubleshooting/hmscode/0501_0400_0003_0002' }
+ const idle = { ...printer, api_type: 'bambu', gcode_state: 'FINISH', hms_errors: JSON.stringify([notice]) } as Printer
+ const card = (p: Printer) => <MemoryRouter><FoundryPrinterCard printer={p} /></MemoryRouter>
+ const view = render(card(idle))
+ expect(screen.getByRole('heading', {name: 'Printer notices'})).toBeVisible()
+ expect(screen.getByText(notice.message)).toBeVisible()
+ expect(screen.getByRole('link', {name: 'Bambu troubleshooting'})).toHaveAttribute('href', notice.wiki_url)
+ expect(screen.getByText('Ready')).toHaveAttribute('data-status', 'ready')
+ view.rerender(card({...idle, hms_errors: JSON.stringify([notice, {severity:'error', code:'fault'}])}))
+ expect(screen.getByText('Needs you')).toHaveAttribute('data-status', 'needsYou')
+ expect(screen.getByText(notice.message)).toBeVisible()
+})
+
 it('expires a silent printer at the heartbeat boundary regardless of retained print state', () => {
  render(<PrinterCard printer={{ ...printer, gcode_state: 'RUNNING', last_seen: '2026-10-11T11:58:30Z' }} {...props} />)
  expect(screen.getByTestId('printer-status')).toHaveTextContent('Offline')

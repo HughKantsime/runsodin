@@ -4,11 +4,5 @@ export function hmsEvents(value: unknown): HmsEvent[] {
   return Array.isArray(value) ? value.filter(e => e?.display !== false) : []
 }
 export function hmsFaults(value: unknown): HmsEvent[] {
-  return hmsEvents(value).filter(e => {
-    if (e?.informational_only) return false
-    // Old/raw packets may still arrive during an upgrade.
-    const raw = e?.raw_code ?? (typeof e?.code === 'number' ? e.code : undefined)
-    if (typeof raw === 'number') return (raw >>> 16) === 1 || (raw >>> 16) === 2
-    return !e?.severity || ['critical', 'error', 'warning'].includes(e.severity)
-  })
+  return hmsEvents(value).filter(e => e?.informational_only !== true && e?.severity !== 'info')
 }

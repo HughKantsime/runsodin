@@ -253,6 +253,24 @@ def test_undescribed_level_one_alerts_with_or_without_bundle(inventory, monkeypa
     assert [alert['alert_type'] for alert in alerts] == ['printer_error']
 
 
+def test_printer_list_and_detail_return_described_notices(inventory, offline_store, monkeypatch):
+    from modules.printers import hms_codes
+    send, view, alerts = inventory
+    monkeypatch.setattr(hms_codes, 'load_bundle', lambda _: {'device_hms': {
+        '0501040000030002': 'Lubricate the rods', '0501040000030004': 'Clean the rails'}})
+    send({'hms': [{'attr': 0x05010400, 'code': code} for code in (0x30002, 0x30004)],
+          'gcode_state': 'FINISH', 'print_error': 0})
+    offline_store.execute(text("UPDATE printers SET tags='[\"notices\"]' WHERE id=199"))
+    offline_store.commit()
+    listed, = view('/printers?tag=notices')
+    for printer in (listed, view()):
+        notices = json.loads(printer['hms_errors'])
+        assert [e['message'] for e in notices] == ['Lubricate the rods', 'Clean the rails']
+        assert all(e['informational_only'] and e['severity'] == 'info' and e['wiki_url'] for e in notices)
+        assert printer['last_error_code'] is None
+    assert alerts == []
+
+
 def test_hms_notices_return_separately_and_parse_failure_retries(inventory, monkeypatch):
     from modules.notifications import error_handling
     raw = [{'attr': 0x0300E400, 'code': 0x00020007}]

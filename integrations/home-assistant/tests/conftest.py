@@ -73,6 +73,7 @@ STATUS_NEXT["printers"][0]["next_job"].update({
     "ready": False,
 })
 STATUS_NEXT["printers"][0].update({
+    "notices": 2,
     "last_completed_at": "2026-11-08T22:10:00Z",
     "last_error_at": "2026-11-08T21:00:00Z",
     "finished_at": None,
@@ -87,6 +88,7 @@ STATUS_NEXT["printers"][0].update({
     ],
 })
 STATUS_NEXT["printers"][1].update({
+    "notices": 0,
     "last_completed_at": None,
     "last_error_at": "2026-11-08T23:36:50Z",
     "finished_at": "2026-11-08T20:15:00Z",

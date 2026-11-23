@@ -1,3 +1,4 @@
+import ActiveHms from './ActiveHms'
 import PlateCleared from './PlateCleared'
 import { materialLabel } from '../../utils/shared'
 import PrinterNumber from '../ui/PrinterNumber'
@@ -266,6 +267,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
           {canDo('printers.delete') && <Button variant="ghost" size="icon" icon={Trash2} onClick={() => onDelete(printer.id)} className="text-[var(--brand-text-muted)] hover:text-red-400 hover:bg-red-900/50" aria-label="Delete printer" />}
         </div>
       </div>
+      {!foundry && <ActiveHms printer={printer} noticesOnly />}
       {!foundry && <PlateCleared printer={printer} />}
       {printer.plug_type && plugStates?.[printer.id] === undefined && <p className="px-3 text-xs text-[var(--brand-text-muted)]">State unknown</p>}
       {plugOutcome && <p role="status" className="px-3 py-1 text-xs text-[var(--brand-text-secondary)]">{plugOutcome}</p>}

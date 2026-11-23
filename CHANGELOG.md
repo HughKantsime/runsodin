@@ -4,6 +4,10 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Printers that report only notices, such as maintenance reminders, now keep their normal status. The notices and their troubleshooting links stay visible on the printer card and printer page.
+
 ## [2.6.0] - 2026-11-22
 
 

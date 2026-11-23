@@ -1,3 +1,4 @@
+import ActiveHms from '../../components/printers/ActiveHms'
 import { hmsFaults } from '../../utils/hms'
 import PrinterNumber from '../../components/ui/PrinterNumber'
 import { useFoundry } from '../../hooks/themePreferences'
@@ -68,7 +69,7 @@ export function PrinterCard({ printer, hasCamera, onCameraClick, activeJob, onCl
   return (
     <div
       className={clsx("dashboard-printer-card bg-[var(--brand-card-bg)] rounded-md border overflow-hidden h-fit cursor-pointer hover:border-[var(--brand-card-border)] transition-colors", hasLowSpool ? "border-amber-600/50" : "border-[var(--brand-card-border)]")}
-      onClick={event => { if (!(event.target as Element).closest('button')) onClick() }}
+      onClick={event => { if (!(event.target as Element).closest('button, a')) onClick() }}
     >
       <div className="p-3 md:p-4">
         <div className="flex items-center justify-between mb-3">
@@ -87,6 +88,7 @@ export function PrinterCard({ printer, hasCamera, onCameraClick, activeJob, onCl
             )}
           </div>
         </div>
+        <ActiveHms printer={printer} noticesOnly />
         {isActivePrintState(printer.gcode_state) && (
           <div className="mb-3 bg-[var(--brand-input-bg)] rounded-md p-3">
             <div className="flex items-center justify-between mb-2">

@@ -881,7 +881,9 @@ def paused_prints(db, now):
         timing = floor.pause_timing(printer)
         if timing['paused_long'] is not True:
             continue
-        cause, reason = floor._pause(printer, row, unresolved_error(printer.last_error_at, row['started_at'] if row else None), False)
+        unresolved = unresolved_error(printer.last_error_at, row['started_at'] if row else None,
+                                      bambu_code=printer.last_error_code if printer.api_type == 'bambu' else None)
+        cause, reason = floor._pause(printer, row, unresolved, False)
         if row is None:
             context = episode.get('context', {})
             row = {'scheduled_job_id': None, 'filename': context.get('filename'), 'job_name': context.get('job_name')}

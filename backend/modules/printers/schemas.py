@@ -271,17 +271,16 @@ class PrinterResponse(PrinterBase):
     @field_serializer('hms_errors')
     def _active_hms(self, value):
         import json
-        from modules.printers.hms_codes import parse_hms_errors
+        from modules.printers.hms_codes import display_hms_errors
         from core.hms_state import display_entries
         try:
             stored = json.loads(value or '[]')
+            if not isinstance(stored, list):
+                return '[]' if self.api_type == 'bambu' else value
             entries = display_entries(stored)
             if self.api_type != 'bambu':
                 return value if entries == stored else json.dumps(entries)
-            quiet = any(isinstance(e, dict) and e.get('informational_only') for e in entries)
-            raw = [dict(attr=e['attr'], code=e.get('raw_code', e['code'])) for e in entries]
-            shown = parse_hms_errors(raw, self.hms_model_prefix, quiet_unknown=quiet)
-            return json.dumps(shown)
+            return json.dumps(display_hms_errors(entries, self.hms_model_prefix))
         except (ValueError, KeyError, TypeError):
             return '[]' if self.api_type == 'bambu' else value
 

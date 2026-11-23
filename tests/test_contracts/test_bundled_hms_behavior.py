@@ -17,6 +17,17 @@ def test_each_severity_alerts_without_failing_job(hms_boundary, level, alerts):
     assert len(active)==1
 
 
+def test_notice_survives_without_replacing_a_recorded_fault(hms_boundary):
+    db, handler, _, outgoing = hms_boundary
+    handler.process_hms_errors(9, [{'attr': 1, 'code': 0x20001}])
+    before = db.execute(text('SELECT last_error_code, last_error_at FROM printers WHERE id=9')).one()
+    notice = {'attr': 0x05010400, 'code': 0x30002}
+    result = handler.process_hms_errors(9, [notice])
+    assert result['errors'] == [] and result['notices'][0]['raw_code'] == notice['code']
+    assert len(outgoing) == 1
+    assert db.execute(text('SELECT last_error_code, last_error_at FROM printers WHERE id=9')).one() == before
+
+
 def test_reconnect_and_restart_repeat_persists_until_explicit_clear(hms_boundary):
     db, handler, _, outgoing = hms_boundary
     event=[{'attr':0x03003100,'code':0x00010001}]
