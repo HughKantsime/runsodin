@@ -59,6 +59,9 @@ def test_embedded_printer_wire_matches_current_route_without_capture_dependency(
     embedded = json.loads(re.search(r"const WIRE: any = (\{.*?\})\n// WIRE-END", source, re.S)[1])
     for printer in embedded['printers_list']:
         assert sorted(printer) == sorted(live)
+        for slot in printer['filament_slots']:
+            assert slot.keys() == live['filament_slots'][0].keys()
+            assert slot['rack_filament'] == live['filament_slots'][0]['rack_filament']
         assert printer['installed_nozzles'] == live['installed_nozzles']
         assert printer['maintenance'] == live['maintenance']
         assert printer['plate_clear'] == live['plate_clear']

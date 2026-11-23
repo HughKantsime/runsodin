@@ -38,6 +38,7 @@ it('F04-4.8-01 one Gantt row per captured printer; each captured slot sits only 
     expect(printer).toMatchObject({
       telemetry_at: null, mc_percent: null, mc_remaining_time: null, layer_num: null, total_layer_num: null,
       speed_level: null, speed_percent: null, pending_control: null, unavailable_controls: [], unproven_controls: [],
+      support_source: expect.any(String), unidentified_rack: false,
     })
   }
   expect(rows).toEqual(wire.printers.map((p: any) => String(p.id)))

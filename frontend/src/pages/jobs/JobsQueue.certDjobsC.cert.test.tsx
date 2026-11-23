@@ -270,7 +270,7 @@ it('accepts the tray-identity printer wire without inventing material or blockin
   for (const printer of wire.printers) {
     for (const slot of printer.filament_slots) {
       expect(slot).toMatchObject({ observed_state: null, preset: null, brand: null,
-        spool_change_pending: false, remaining: null, remaining_weight: null })
+        spool_change_pending: false, remaining: null, remaining_weight: null, rack_filament: null })
     }
   }
   await mount()

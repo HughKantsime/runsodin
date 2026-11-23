@@ -17,7 +17,7 @@
       "nozzle_target_temp": 220.0,
       "gcode_state": "RUNNING",
       "print_stage": "Idle",
-      "hms_errors": "[{\"code\": \"05010400_00030004\", \"attr\": 83952640, \"raw_code\": 196612, \"severity\": \"info\", \"message\": \"Printer code 0501-0400-0003-0004\", \"wiki_url\": \"https://wiki.bambulab.com/en/x1/troubleshooting/hmscode/0501_0400_0003_0004\"}, {\"code\": \"05000600_000200A0\", \"attr\": 83887616, \"raw_code\": 131232, \"severity\": \"error\", \"message\": \"Printer code 0500-0600-0002-00A0\", \"wiki_url\": \"https://wiki.bambulab.com/en/x1/troubleshooting/hmscode/0500_0600_0002_00A0\"}, {\"code\": \"05010400_00030002\", \"attr\": 83952640, \"raw_code\": 196610, \"severity\": \"info\", \"message\": \"Printer code 0501-0400-0003-0002\", \"wiki_url\": \"https://wiki.bambulab.com/en/x1/troubleshooting/hmscode/0501_0400_0003_0002\"}, {\"code\": \"05000200_0003000A\", \"attr\": 83886592, \"raw_code\": 196618, \"severity\": \"info\", \"message\": \"Printer code 0500-0200-0003-000A\", \"wiki_url\": \"https://wiki.bambulab.com/en/x1/troubleshooting/hmscode/0500_0200_0003_000A\"}, {\"code\": \"0C000100_00020017\", \"attr\": 201326848, \"raw_code\": 131095, \"severity\": \"error\", \"message\": \"Printer code 0C00-0100-0002-0017\", \"wiki_url\": \"https://wiki.bambulab.com/en/x1/troubleshooting/hmscode/0C00_0100_0002_0017\"}]",
+      "hms_errors": "[{\"code\": \"05010400_00030004\", \"attr\": 83952640, \"raw_code\": 196612, \"severity\": \"info\", \"message\": \"Printer code 0501-0400-0003-0004 (no description; the printer reports no error)\", \"wiki_url\": \"https://wiki.bambulab.com/en/x1/troubleshooting/hmscode/0501_0400_0003_0004\", \"informational_only\": true}, {\"code\": \"05000600_000200A0\", \"attr\": 83887616, \"raw_code\": 131232, \"severity\": \"info\", \"message\": \"Printer code 0500-0600-0002-00A0 (no description; the printer reports no error)\", \"wiki_url\": \"https://wiki.bambulab.com/en/x1/troubleshooting/hmscode/0500_0600_0002_00A0\", \"informational_only\": true}, {\"code\": \"05010400_00030002\", \"attr\": 83952640, \"raw_code\": 196610, \"severity\": \"info\", \"message\": \"Printer code 0501-0400-0003-0002 (no description; the printer reports no error)\", \"wiki_url\": \"https://wiki.bambulab.com/en/x1/troubleshooting/hmscode/0501_0400_0003_0002\", \"informational_only\": true}, {\"code\": \"05000200_0003000A\", \"attr\": 83886592, \"raw_code\": 196618, \"severity\": \"info\", \"message\": \"Printer code 0500-0200-0003-000A (no description; the printer reports no error)\", \"wiki_url\": \"https://wiki.bambulab.com/en/x1/troubleshooting/hmscode/0500_0200_0003_000A\", \"informational_only\": true}, {\"code\": \"0C000100_00020017\", \"attr\": 201326848, \"raw_code\": 131095, \"severity\": \"info\", \"message\": \"Printer code 0C00-0100-0002-0017 (no description; the printer reports no error)\", \"wiki_url\": \"https://wiki.bambulab.com/en/x1/troubleshooting/hmscode/0C00_0100_0002_0017\", \"informational_only\": true}]",
       "lights_on": false,
       "installed_nozzles": [
         {
@@ -39,9 +39,9 @@
       "total_print_count": null,
       "hours_since_maintenance": null,
       "prints_since_maintenance": null,
-      "last_error_code": "0C000100_00020017",
-      "last_error_message": "Printer code 0C00-0100-0002-0017",
-      "last_error_at": "2026-10-14T10:21:00",
+      "last_error_code": null,
+      "last_error_message": null,
+      "last_error_at": null,
       "camera_discovered": null,
       "tags": [
         "farm-a"
@@ -74,8 +74,8 @@
         "set_at": null
       },
       "id": 301,
-      "created_at": "2026-10-14T10:22:00",
-      "updated_at": "2026-10-14T10:23:00",
+      "created_at": "2026-10-14T10:21:00",
+      "updated_at": "2026-10-14T10:22:00",
       "filament_slots": [
         {
           "slot_number": 1,
@@ -91,11 +91,12 @@
           "do_not_feed_note": null,
           "id": 3,
           "printer_id": 301,
-          "loaded_at": "2026-10-14T10:24:00",
+          "loaded_at": "2026-10-14T10:23:00",
           "remaining": null,
           "remaining_weight": null,
           "spool_change_pending": false,
           "observed_state": "00000000000000000000000000000001",
+          "rack_filament": null,
           "preset": "preset: Bambu PETG",
           "brand": null,
           "material_type": "PETG",
@@ -117,11 +118,12 @@
           "do_not_feed_note": null,
           "id": 4,
           "printer_id": 301,
-          "loaded_at": "2026-10-14T10:25:00",
+          "loaded_at": "2026-10-14T10:24:00",
           "remaining": null,
           "remaining_weight": null,
           "spool_change_pending": false,
           "observed_state": "00000000000000000000000000000002",
+          "rack_filament": null,
           "preset": "preset: Bambu PETG",
           "brand": null,
           "material_type": "PETG",
@@ -143,11 +145,12 @@
           "do_not_feed_note": null,
           "id": 5,
           "printer_id": 301,
-          "loaded_at": "2026-10-14T10:26:00",
+          "loaded_at": "2026-10-14T10:25:00",
           "remaining": null,
           "remaining_weight": null,
           "spool_change_pending": false,
           "observed_state": "00000000000000000000000000000003",
+          "rack_filament": null,
           "preset": "preset: Bambu PETG",
           "brand": null,
           "material_type": "PETG",
@@ -169,11 +172,12 @@
           "do_not_feed_note": null,
           "id": 6,
           "printer_id": 301,
-          "loaded_at": "2026-10-14T10:27:00",
+          "loaded_at": "2026-10-14T10:26:00",
           "remaining": 12.0,
           "remaining_weight": null,
           "spool_change_pending": false,
           "observed_state": "00000000000000000000000000000004",
+          "rack_filament": null,
           "preset": "preset: Bambu PETG HF",
           "brand": "Bambu Lab",
           "material_type": "PETG",
@@ -195,11 +199,12 @@
           "do_not_feed_note": null,
           "id": 7,
           "printer_id": 301,
-          "loaded_at": "2026-10-14T10:28:00",
+          "loaded_at": "2026-10-14T10:27:00",
           "remaining": 25.0,
           "remaining_weight": null,
           "spool_change_pending": false,
           "observed_state": "00000000000000000000000000000005",
+          "rack_filament": null,
           "preset": "preset: Bambu PETG HF",
           "brand": "Bambu Lab",
           "material_type": "PETG",
@@ -221,11 +226,12 @@
           "do_not_feed_note": null,
           "id": 8,
           "printer_id": 301,
-          "loaded_at": "2026-10-14T10:29:00",
+          "loaded_at": "2026-10-14T10:28:00",
           "remaining": 55.0,
           "remaining_weight": null,
           "spool_change_pending": false,
           "observed_state": "00000000000000000000000000000006",
+          "rack_filament": null,
           "preset": "preset: Bambu Support for PLA",
           "brand": "Bambu Lab",
           "material_type": "PLA_SUPPORT",
@@ -247,11 +253,12 @@
           "do_not_feed_note": null,
           "id": 9,
           "printer_id": 301,
-          "loaded_at": "2026-10-14T10:30:00",
+          "loaded_at": "2026-10-14T10:29:00",
           "remaining": 87.0,
           "remaining_weight": null,
           "spool_change_pending": false,
           "observed_state": "00000000000000000000000000000007",
+          "rack_filament": null,
           "preset": "preset: Bambu PLA Basic",
           "brand": "Bambu Lab",
           "material_type": "PLA",
@@ -273,11 +280,12 @@
           "do_not_feed_note": null,
           "id": 10,
           "printer_id": 301,
-          "loaded_at": "2026-10-14T10:31:00",
+          "loaded_at": "2026-10-14T10:30:00",
           "remaining": 100.0,
           "remaining_weight": null,
           "spool_change_pending": false,
           "observed_state": "00000000000000000000000000000008",
+          "rack_filament": null,
           "preset": "preset: Bambu PLA Matte",
           "brand": "Bambu Lab",
           "material_type": "PLA",
@@ -295,10 +303,12 @@
       "camera_enabled": false,
       "camera_source": "auto",
       "experimental_actions_enabled": false,
+      "unidentified_rack": false,
       "pending_control": null,
       "unproven_controls": [],
       "unavailable_controls": [],
-      "support_level": "supported"
+      "support_level": "supported",
+      "support_source": "Bambu Lab LAN-mode MQTT and FTPS. Skipping objects was verified on a P2S. Other supported controls were verified on real hardware."
     },
     {
       "name": "Cert Voron",
@@ -364,8 +374,8 @@
         "set_at": null
       },
       "id": 401,
-      "created_at": "2026-10-14T10:32:00",
-      "updated_at": "2026-10-14T10:33:00",
+      "created_at": "2026-10-14T10:31:00",
+      "updated_at": "2026-10-14T10:32:00",
       "filament_slots": [],
       "filament_source": null,
       "filament_source_status": null,
@@ -376,10 +386,12 @@
       "camera_enabled": true,
       "camera_source": "configured",
       "experimental_actions_enabled": false,
+      "unidentified_rack": false,
       "pending_control": null,
       "unproven_controls": [],
       "unavailable_controls": [],
-      "support_level": "supported"
+      "support_level": "supported",
+      "support_source": "Moonraker REST API; verified on real hardware"
     },
     {
       "name": "Cert MK4",
@@ -443,8 +455,8 @@
         "set_at": null
       },
       "id": 402,
-      "created_at": "2026-10-14T10:34:00",
-      "updated_at": "2026-10-14T10:35:00",
+      "created_at": "2026-10-14T10:33:00",
+      "updated_at": "2026-10-14T10:34:00",
       "filament_slots": [],
       "filament_source": null,
       "filament_source_status": null,
@@ -455,10 +467,12 @@
       "camera_enabled": true,
       "camera_source": "configured",
       "experimental_actions_enabled": false,
+      "unidentified_rack": false,
       "pending_control": null,
       "unproven_controls": [],
       "unavailable_controls": [],
-      "support_level": "supported"
+      "support_level": "supported",
+      "support_source": "PrusaLink REST API; verified on real hardware"
     },
     {
       "name": "Cert Centauri",
@@ -522,8 +536,8 @@
         "set_at": null
       },
       "id": 403,
-      "created_at": "2026-10-14T10:36:00",
-      "updated_at": "2026-10-14T10:37:00",
+      "created_at": "2026-10-14T10:35:00",
+      "updated_at": "2026-10-14T10:36:00",
       "filament_slots": [],
       "filament_source": null,
       "filament_source_status": null,
@@ -534,15 +548,17 @@
       "camera_enabled": true,
       "camera_source": null,
       "experimental_actions_enabled": false,
+      "unidentified_rack": false,
       "pending_control": null,
       "unproven_controls": [],
       "unavailable_controls": [],
-      "support_level": "supported"
+      "support_level": "supported",
+      "support_source": "Elegoo SDCP (port 3030); monitoring, pause, resume, speed and stop; job sending is Experimental (public SDCP documentation, not verified on real hardware) and need the per-printer opt-in"
     }
   ],
   "telemetry_301": [
     {
-      "recorded_at": "2026-10-14T10:38:00",
+      "recorded_at": "2026-10-14T10:37:00",
       "bed_temp": 22.125,
       "nozzle_temp": 24.03125,
       "bed_target": 65.0,
@@ -550,7 +566,7 @@
       "fan_speed": 0
     },
     {
-      "recorded_at": "2026-10-14T10:39:00",
+      "recorded_at": "2026-10-14T10:38:00",
       "bed_temp": 45.5625,
       "nozzle_temp": 217.03125,
       "bed_target": 65.0,
@@ -558,7 +574,7 @@
       "fan_speed": 0
     },
     {
-      "recorded_at": "2026-10-14T10:40:00",
+      "recorded_at": "2026-10-14T10:39:00",
       "bed_temp": 65.0,
       "nozzle_temp": 241.625,
       "bed_target": 65.0,
@@ -566,7 +582,7 @@
       "fan_speed": 5
     },
     {
-      "recorded_at": "2026-10-14T10:41:00",
+      "recorded_at": "2026-10-14T10:40:00",
       "bed_temp": 63.9375,
       "nozzle_temp": 168.46875,
       "bed_target": 65.0,
@@ -574,7 +590,7 @@
       "fan_speed": 14
     },
     {
-      "recorded_at": "2026-10-14T10:42:00",
+      "recorded_at": "2026-10-14T10:41:00",
       "bed_temp": 64.75,
       "nozzle_temp": 139.90625,
       "bed_target": 65.0,
@@ -582,7 +598,7 @@
       "fan_speed": 0
     },
     {
-      "recorded_at": "2026-10-14T10:43:00",
+      "recorded_at": "2026-10-14T10:42:00",
       "bed_temp": 65.0625,
       "nozzle_temp": 218.90625,
       "bed_target": 65.0,
@@ -590,7 +606,7 @@
       "fan_speed": 0
     },
     {
-      "recorded_at": "2026-10-14T10:44:00",
+      "recorded_at": "2026-10-14T10:43:00",
       "bed_temp": 64.8125,
       "nozzle_temp": 220.0625,
       "bed_target": 65.0,
@@ -598,7 +614,7 @@
       "fan_speed": 0
     },
     {
-      "recorded_at": "2026-10-14T10:45:00",
+      "recorded_at": "2026-10-14T10:44:00",
       "bed_temp": 65.09375,
       "nozzle_temp": 219.96875,
       "bed_target": 65.0,
@@ -606,7 +622,7 @@
       "fan_speed": 0
     },
     {
-      "recorded_at": "2026-10-14T10:46:00",
+      "recorded_at": "2026-10-14T10:45:00",
       "bed_temp": 65.03125,
       "nozzle_temp": 219.4375,
       "bed_target": 65.0,
@@ -614,7 +630,7 @@
       "fan_speed": 0
     },
     {
-      "recorded_at": "2026-10-14T10:47:00",
+      "recorded_at": "2026-10-14T10:46:00",
       "bed_temp": 64.5625,
       "nozzle_temp": 220.28125,
       "bed_target": 65.0,
@@ -622,7 +638,7 @@
       "fan_speed": 9
     },
     {
-      "recorded_at": "2026-10-14T10:48:00",
+      "recorded_at": "2026-10-14T10:47:00",
       "bed_temp": 64.90625,
       "nozzle_temp": 219.6875,
       "bed_target": 65.0,
@@ -630,7 +646,7 @@
       "fan_speed": 14
     },
     {
-      "recorded_at": "2026-10-14T10:49:00",
+      "recorded_at": "2026-10-14T10:48:00",
       "bed_temp": 64.875,
       "nozzle_temp": 219.9375,
       "bed_target": 65.0,
@@ -638,7 +654,7 @@
       "fan_speed": 9
     },
     {
-      "recorded_at": "2026-10-14T10:50:00",
+      "recorded_at": "2026-10-14T10:49:00",
       "bed_temp": 64.65625,
       "nozzle_temp": 220.65625,
       "bed_target": 65.0,
@@ -646,7 +662,7 @@
       "fan_speed": 11
     },
     {
-      "recorded_at": "2026-10-14T10:51:00",
+      "recorded_at": "2026-10-14T10:50:00",
       "bed_temp": 65.0,
       "nozzle_temp": 220.25,
       "bed_target": 65.0,
@@ -654,7 +670,7 @@
       "fan_speed": 11
     },
     {
-      "recorded_at": "2026-10-14T10:52:00",
+      "recorded_at": "2026-10-14T10:51:00",
       "bed_temp": 64.8125,
       "nozzle_temp": 220.8125,
       "bed_target": 65.0,
@@ -662,7 +678,7 @@
       "fan_speed": 11
     },
     {
-      "recorded_at": "2026-10-14T10:53:00",
+      "recorded_at": "2026-10-14T10:52:00",
       "bed_temp": 65.03125,
       "nozzle_temp": 219.71875,
       "bed_target": 65.0,
@@ -670,7 +686,7 @@
       "fan_speed": 11
     },
     {
-      "recorded_at": "2026-10-14T10:54:00",
+      "recorded_at": "2026-10-14T10:53:00",
       "bed_temp": 65.0,
       "nozzle_temp": 220.6875,
       "bed_target": 65.0,
@@ -678,7 +694,7 @@
       "fan_speed": 11
     },
     {
-      "recorded_at": "2026-10-14T10:55:00",
+      "recorded_at": "2026-10-14T10:54:00",
       "bed_temp": 64.84375,
       "nozzle_temp": 220.84375,
       "bed_target": 65.0,
@@ -686,7 +702,7 @@
       "fan_speed": 11
     },
     {
-      "recorded_at": "2026-10-14T10:56:00",
+      "recorded_at": "2026-10-14T10:55:00",
       "bed_temp": 65.09375,
       "nozzle_temp": 220.15625,
       "bed_target": 65.0,
@@ -694,7 +710,7 @@
       "fan_speed": 11
     },
     {
-      "recorded_at": "2026-10-14T10:57:00",
+      "recorded_at": "2026-10-14T10:56:00",
       "bed_temp": 65.09375,
       "nozzle_temp": 219.59375,
       "bed_target": 65.0,
@@ -702,7 +718,7 @@
       "fan_speed": 11
     },
     {
-      "recorded_at": "2026-10-14T10:58:00",
+      "recorded_at": "2026-10-14T10:57:00",
       "bed_temp": 65.09375,
       "nozzle_temp": 219.90625,
       "bed_target": 65.0,
@@ -710,7 +726,7 @@
       "fan_speed": 11
     },
     {
-      "recorded_at": "2026-10-14T10:59:00",
+      "recorded_at": "2026-10-14T10:58:00",
       "bed_temp": 65.03125,
       "nozzle_temp": 220.46875,
       "bed_target": 65.0,
@@ -718,7 +734,7 @@
       "fan_speed": 11
     },
     {
-      "recorded_at": "2026-10-14T11:00:00",
+      "recorded_at": "2026-10-14T10:59:00",
       "bed_temp": 64.90625,
       "nozzle_temp": 220.71875,
       "bed_target": 65.0,
@@ -726,7 +742,7 @@
       "fan_speed": 11
     },
     {
-      "recorded_at": "2026-10-14T11:01:00",
+      "recorded_at": "2026-10-14T11:00:00",
       "bed_temp": 65.15625,
       "nozzle_temp": 219.96875,
       "bed_target": 65.0,
@@ -734,7 +750,7 @@
       "fan_speed": 11
     },
     {
-      "recorded_at": "2026-10-14T11:02:00",
+      "recorded_at": "2026-10-14T11:01:00",
       "bed_temp": 65.0,
       "nozzle_temp": 219.65625,
       "bed_target": 65.0,
@@ -748,55 +764,49 @@
         "id": 1,
         "printer_id": 301,
         "code": "05010400_00030004",
-        "message": "Printer code 0501-0400-0003-0004",
+        "message": "Printer code 0501-0400-0003-0004 (no description; the printer reports no error)",
         "severity": "info",
-        "source": "bambu_hms",
-        "occurred_at": "2026-10-14T11:03:00"
+        "source": "bambu_notice",
+        "occurred_at": "2026-10-14T11:02:00"
       },
       {
         "id": 2,
         "printer_id": 301,
         "code": "05000600_000200A0",
-        "message": "Printer code 0500-0600-0002-00A0",
-        "severity": "error",
-        "source": "bambu_hms",
-        "occurred_at": "2026-10-14T11:04:00"
+        "message": "Printer code 0500-0600-0002-00A0 (no description; the printer reports no error)",
+        "severity": "info",
+        "source": "bambu_notice",
+        "occurred_at": "2026-10-14T11:03:00"
       },
       {
         "id": 3,
         "printer_id": 301,
         "code": "05010400_00030002",
-        "message": "Printer code 0501-0400-0003-0002",
+        "message": "Printer code 0501-0400-0003-0002 (no description; the printer reports no error)",
         "severity": "info",
-        "source": "bambu_hms",
-        "occurred_at": "2026-10-14T11:05:00"
+        "source": "bambu_notice",
+        "occurred_at": "2026-10-14T11:04:00"
       },
       {
         "id": 4,
         "printer_id": 301,
         "code": "05000200_0003000A",
-        "message": "Printer code 0500-0200-0003-000A",
+        "message": "Printer code 0500-0200-0003-000A (no description; the printer reports no error)",
         "severity": "info",
-        "source": "bambu_hms",
-        "occurred_at": "2026-10-14T11:06:00"
+        "source": "bambu_notice",
+        "occurred_at": "2026-10-14T11:05:00"
       },
       {
         "id": 5,
         "printer_id": 301,
         "code": "0C000100_00020017",
-        "message": "Printer code 0C00-0100-0002-0017",
-        "severity": "error",
-        "source": "bambu_hms",
-        "occurred_at": "2026-10-14T11:07:00"
+        "message": "Printer code 0C00-0100-0002-0017 (no description; the printer reports no error)",
+        "severity": "info",
+        "source": "bambu_notice",
+        "occurred_at": "2026-10-14T11:06:00"
       }
     ],
-    "frequency": {
-      "05010400_00030004": 1,
-      "05000600_000200A0": 1,
-      "05010400_00030002": 1,
-      "05000200_0003000A": 1,
-      "0C000100_00020017": 1
-    },
+    "frequency": {},
     "total": 5
   },
   "ams_environment_301": {
@@ -808,7 +818,7 @@
           "humidity": 5.0,
           "humidity_percent": 0,
           "temperature": 23.7,
-          "time": "2026-10-14T11:08:00"
+          "time": "2026-10-14T11:07:00"
         }
       ],
       "1": [
@@ -816,7 +826,7 @@
           "humidity": 3.0,
           "humidity_percent": 32,
           "temperature": 24.0,
-          "time": "2026-10-14T11:09:00"
+          "time": "2026-10-14T11:08:00"
         }
       ]
     },
@@ -828,7 +838,7 @@
     "notes": "",
     "id": 1,
     "printer_id": 301,
-    "installed_at": "2026-10-14T11:10:00",
+    "installed_at": "2026-10-14T11:09:00",
     "removed_at": null,
     "print_hours_accumulated": 12.5,
     "print_count": 3
@@ -840,7 +850,7 @@
       "notes": "",
       "id": 1,
       "printer_id": 301,
-      "installed_at": "2026-10-14T11:11:00",
+      "installed_at": "2026-10-14T11:10:00",
       "removed_at": null,
       "print_hours_accumulated": 12.5,
       "print_count": 3

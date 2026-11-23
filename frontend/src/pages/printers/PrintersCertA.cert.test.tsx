@@ -191,12 +191,29 @@ it('telemetry panel renders inline in its card with the stored 60s snapshots', a
   expect(within(card(401)).queryByRole('heading', { name: 'Print Telemetry' })).toBeNull()
 })
 
-it('HMS panel lists translated captured H2D errors and Clear Errors sends the reset', async () => {
+it('HMS panel lists the five captured notices without counting them as recurring errors', async () => {
   await page()
   fireEvent.click(within(card(301)).getByRole('button', { name: 'HMS error history' }))
   const panel = within(card(301))
-  expect(await panel.findByText(`Top Recurring (${w.hms_301.total} total)`)).toBeInTheDocument()
-  expect(panel.getAllByText(w.hms_301.entries[0].message).length).toBeGreaterThan(0)
+  await panel.findByText('Recent printer codes')
+  expect(w.printers.find((p: any) => p.id === 301).last_error_at).toBeNull()
+  expect(panel.getAllByText('info')).toHaveLength(5)
+  for (const entry of w.hms_301.entries) {
+    expect(entry.source).toBe('bambu_notice')
+    expect(panel.getByText(entry.message)).toBeInTheDocument()
+  }
+  expect(panel.queryByText(/Top Recurring/)).toBeNull()
+})
+
+it('HMS panel counts a recurring error and Clear Errors sends the reset', async () => {
+  const error = { id: 1, printer_id: 301, code: 'test-error', message: 'Filament feed stopped',
+    severity: 'error', source: 'bambu_hms', occurred_at: '2026-10-14T11:00:00' }
+  state.api.hms.mockResolvedValue({ entries: [error], frequency: { [error.code]: 1 }, total: 1 })
+  await page()
+  fireEvent.click(within(card(301)).getByRole('button', { name: 'HMS error history' }))
+  const panel = within(card(301))
+  expect(await panel.findByText('Top Recurring (1 total)')).toBeInTheDocument()
+  expect(panel.getAllByText(error.message)).toHaveLength(2)
   fireEvent.click(panel.getByRole('button', { name: 'Clear Errors' }))
   await waitFor(() => expect(state.api.clearErrors).toHaveBeenCalledWith(301))
 })
