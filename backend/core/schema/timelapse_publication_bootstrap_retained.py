@@ -30,6 +30,16 @@ def _rows(db, statement):
             yield dict(zip(keys, row))
 
 
+def _lookup(db, column, argument):
+    # A pinned lookup binds a string, so the searched column supplies the
+    # collation. SQLite already prefers the left column. On PostgreSQL the
+    # cstring returned by textout has no collation; textin restores the same
+    # text with the implicit default collation of a bound parameter.
+    if db.dialect.name == 'postgresql':
+        argument = func.pg_catalog.textin(func.pg_catalog.textout(argument))
+    return column == argument
+
+
 def _result_counts():
     return (select(publications.c.result_nonce, func.count().label('count'))
             .where(publications.c.kind != 'frame').group_by(publications.c.result_nonce).subquery())
@@ -62,7 +72,7 @@ def _authority(db):
                           requested(namespaces.c.lifetime_nonce))
     owner_keys = arguments('owner_keys', requested(version_keys.c.nonce), requested(life_keys.c.nonce))
     referenced = select(anchors, owner_keys.c.nonce).select_from(
-        owner_keys.outerjoin(anchors, anchors.c.operation_id == owner_keys.c.nonce))
+        owner_keys.outerjoin(anchors, _lookup(db, anchors.c.operation_id, owner_keys.c.nonce)))
     for owner in _rows(db, referenced):
         nonce = owner['nonce']
         _component(nonce)
@@ -78,9 +88,9 @@ def _authority(db):
                 number(owner[key], 1)
 
     initial = (
-        life_keys.outerjoin(lifetimes, lifetimes.c.lifetime_nonce == life_keys.c.nonce)
-        .outerjoin(versions, versions.c.version_nonce == life_keys.c.nonce)
-        .outerjoin(anchors, anchors.c.operation_id == life_keys.c.nonce)
+        life_keys.outerjoin(lifetimes, _lookup(db, lifetimes.c.lifetime_nonce, life_keys.c.nonce))
+        .outerjoin(versions, _lookup(db, versions.c.version_nonce, life_keys.c.nonce))
+        .outerjoin(anchors, _lookup(db, anchors.c.operation_id, life_keys.c.nonce))
     )
     for root in _rows(db, select(life_keys.c.nonce, lifetimes, versions.c.lifetime_nonce.label('initial_life'),
                                  anchors.c.timelapse_id, anchors.c.printer_id).select_from(initial)):
@@ -95,11 +105,11 @@ def _authority(db):
     base = anchors.alias('base')
     counts = _result_counts()
     version_graph = (
-        version_keys.outerjoin(versions, versions.c.version_nonce == version_keys.c.nonce)
-        .outerjoin(anchors, anchors.c.operation_id == version_keys.c.nonce)
-        .outerjoin(lifetimes, lifetimes.c.lifetime_nonce == versions.c.lifetime_nonce)
-        .outerjoin(base, base.c.operation_id == versions.c.lifetime_nonce)
-        .outerjoin(counts, counts.c.result_nonce == version_keys.c.nonce)
+        version_keys.outerjoin(versions, _lookup(db, versions.c.version_nonce, version_keys.c.nonce))
+        .outerjoin(anchors, _lookup(db, anchors.c.operation_id, version_keys.c.nonce))
+        .outerjoin(lifetimes, _lookup(db, lifetimes.c.lifetime_nonce, versions.c.lifetime_nonce))
+        .outerjoin(base, _lookup(db, base.c.operation_id, versions.c.lifetime_nonce))
+        .outerjoin(counts, _lookup(db, counts.c.result_nonce, version_keys.c.nonce))
     )
     identity = ('timelapse_id', *PROVENANCE)
     statement = select(version_keys.c.nonce, versions, lifetimes.c.lifetime_nonce.label('root'), counts.c.count,
@@ -110,7 +120,7 @@ def _authority(db):
         if row['nonce'] != row['lifetime_nonce'] and row['count'] != 1:
             refuse()
 
-    namespace_graph = namespaces.outerjoin(lifetimes, lifetimes.c.lifetime_nonce == namespaces.c.lifetime_nonce)
+    namespace_graph = namespaces.outerjoin(lifetimes, _lookup(db, lifetimes.c.lifetime_nonce, namespaces.c.lifetime_nonce))
     statement = select(namespaces, *(lifetimes.c['root_' + k] for k in STABLE)).select_from(namespace_graph)
     for space in _rows(db, statement):
         name = space['namespace_id']
@@ -131,7 +141,7 @@ def _authority(db):
         elif space['phase'] not in ('planned', 'blocked'):
             refuse()
 
-    binding_graph = bindings.outerjoin(namespaces, namespaces.c.namespace_id == bindings.c.namespace_id)
+    binding_graph = bindings.outerjoin(namespaces, _lookup(db, namespaces.c.namespace_id, bindings.c.namespace_id))
     statement = select(bindings, namespaces.c.lifetime_nonce.label('space_life'), namespaces.c.phase).select_from(binding_graph)
     for binding in _rows(db, statement):
         number(binding['next_number'], 1)
@@ -149,16 +159,16 @@ def _operations(db):
     # unique key, so the application holds one operation regardless of the
     # number of distinct lifetimes, edits or retained versions in the journal.
     graph = (
-        publications.outerjoin(versions, versions.c.version_nonce == op.source_nonce)
-        .outerjoin(result_version, result_version.c.version_nonce == op.result_nonce)
-        .outerjoin(anchors, anchors.c.operation_id == op.source_nonce)
-        .outerjoin(result, result.c.operation_id == op.result_nonce)
-        .outerjoin(lifetimes, lifetimes.c.lifetime_nonce == op.source_lifetime)
-        .outerjoin(result_root, result_root.c.lifetime_nonce == op.result_lifetime)
-        .outerjoin(counts, and_(op.kind != 'frame', counts.c.result_nonce == op.result_nonce))
-        .outerjoin(bindings, bindings.c.lifetime_nonce == op.source_lifetime)
-        .outerjoin(namespaces, namespaces.c.namespace_id == bindings.c.namespace_id)
-        .outerjoin(retained, and_(op.kind == 'trim', op.phase == 'complete', retained.c.version_nonce == op.source_nonce))
+        publications.outerjoin(versions, _lookup(db, versions.c.version_nonce, op.source_nonce))
+        .outerjoin(result_version, _lookup(db, result_version.c.version_nonce, op.result_nonce))
+        .outerjoin(anchors, _lookup(db, anchors.c.operation_id, op.source_nonce))
+        .outerjoin(result, _lookup(db, result.c.operation_id, op.result_nonce))
+        .outerjoin(lifetimes, _lookup(db, lifetimes.c.lifetime_nonce, op.source_lifetime))
+        .outerjoin(result_root, _lookup(db, result_root.c.lifetime_nonce, op.result_lifetime))
+        .outerjoin(counts, and_(op.kind != 'frame', _lookup(db, counts.c.result_nonce, op.result_nonce)))
+        .outerjoin(bindings, _lookup(db, bindings.c.lifetime_nonce, op.source_lifetime))
+        .outerjoin(namespaces, _lookup(db, namespaces.c.namespace_id, bindings.c.namespace_id))
+        .outerjoin(retained, and_(op.kind == 'trim', op.phase == 'complete', _lookup(db, retained.c.version_nonce, op.source_nonce)))
     )
     return _rows(db, select(
         publications, versions.c.lifetime_nonce.label('mapped_source'), result_version.c.lifetime_nonce.label('mapped_result'),
@@ -319,12 +329,12 @@ def _encode_sources(db):
     encoded_source = and_(op.kind == 'encode', source.role == 'source')
     number = cast(case((encoded_source, stem)), BigInteger)
     proof = (
-        publications.join(facts, source.operation_id == op.operation_id)
-        .join(bindings, bindings.c.lifetime_nonce == op.source_lifetime)
-        .join(namespaces, namespaces.c.namespace_id == bindings.c.namespace_id)
-        .outerjoin(frame, and_(frame.c.kind == 'frame', frame.c.frame_namespace_id == namespaces.c.namespace_id,
+        publications.join(facts, _lookup(db, source.operation_id, op.operation_id))
+        .join(bindings, _lookup(db, bindings.c.lifetime_nonce, op.source_lifetime))
+        .join(namespaces, _lookup(db, namespaces.c.namespace_id, bindings.c.namespace_id))
+        .outerjoin(frame, and_(frame.c.kind == 'frame', _lookup(db, frame.c.frame_namespace_id, namespaces.c.namespace_id),
                                frame.c.frame_number == number))
-        .outerjoin(output, and_(output.c.operation_id == frame.c.operation_id, output.c.role == 'output'))
+        .outerjoin(output, and_(_lookup(db, output.c.operation_id, frame.c.operation_id), output.c.role == 'output'))
     )
     keys = STABLE + ('link_count', 'byte_count', 'mtime_ns', 'digest_sha256')
     query = select(facts, frame.c.phase, frame.c.payload_byte_count, frame.c.payload_digest_sha256,
@@ -344,18 +354,18 @@ def _retirements(db):
     retired = ref.state.collate('C' if db.dialect.name == 'postgresql' else 'BINARY') == 'retired'
     # Load retirement evidence only for the exact object referenced by the trim.
     graph = (
-        retained.outerjoin(publications, publications.c.operation_id == ref.retained_by_operation)
-        .outerjoin(versions, versions.c.version_nonce == ref.version_nonce)
-        .outerjoin(anchors, anchors.c.operation_id == ref.version_nonce)
-        .outerjoin(intent, and_(retired, intent.c.operation_id == ref.retire_operation_id))
-        .outerjoin(retirement_version, retirement_version.c.version_nonce == intent.c.operation_id)
-        .outerjoin(current, current.c.operation_id == intent.c.operation_id)
-        .outerjoin(lifetimes, lifetimes.c.lifetime_nonce == retirement_version.c.lifetime_nonce)
-        .outerjoin(objects, and_(objects.c.operation_id == intent.c.operation_id, objects.c.relative_path == ref.filename))
-        .outerjoin(facts, and_(facts.c.operation_id == ref.retained_by_operation, facts.c.role == 'source', facts.c.relative_path == ref.filename))
+        retained.outerjoin(publications, _lookup(db, publications.c.operation_id, ref.retained_by_operation))
+        .outerjoin(versions, _lookup(db, versions.c.version_nonce, ref.version_nonce))
+        .outerjoin(anchors, _lookup(db, anchors.c.operation_id, ref.version_nonce))
+        .outerjoin(intent, and_(retired, _lookup(db, intent.c.operation_id, ref.retire_operation_id)))
+        .outerjoin(retirement_version, _lookup(db, retirement_version.c.version_nonce, ref.retire_operation_id))
+        .outerjoin(current, _lookup(db, current.c.operation_id, ref.retire_operation_id))
+        .outerjoin(lifetimes, _lookup(db, lifetimes.c.lifetime_nonce, retirement_version.c.lifetime_nonce))
+        .outerjoin(objects, and_(_lookup(db, objects.c.operation_id, ref.retire_operation_id), _lookup(db, objects.c.relative_path, ref.filename)))
+        .outerjoin(facts, and_(_lookup(db, facts.c.operation_id, publications.c.operation_id), facts.c.role == 'source', _lookup(db, facts.c.relative_path, ref.filename)))
     )
     for receipt in (moves, unlinks):
-        graph = graph.outerjoin(receipt, and_(receipt.c.operation_id == objects.c.operation_id, receipt.c.object_index == objects.c.object_index))
+        graph = graph.outerjoin(receipt, and_(_lookup(db, receipt.c.operation_id, ref.retire_operation_id), receipt.c.object_index == objects.c.object_index))
     statement = select(retained, publications.c.kind, publications.c.phase, publications.c.source_nonce,
                        publications.c.source_lifetime, versions.c.lifetime_nonce, anchors.c.filename, intent,
                        retirement_version.c.lifetime_nonce, current, lifetimes.c.root_device, lifetimes.c.root_inode,
@@ -393,7 +403,7 @@ def validate_retained(db):
         # Two ordered index scans bound memory to one operation's manifest.
         # Ignore orphan facts here as 019 does; its _table checks foreign keys.
         linked_facts = select(publications.c.operation_id.label('publication_key'), facts).select_from(
-            publications.join(facts, facts.c.operation_id == publications.c.operation_id)
+            publications.join(facts, _lookup(db, facts.c.operation_id, publications.c.operation_id))
         ).order_by(publications.c.operation_id)
         fact_rows = _rows(db, linked_facts)
         groups = groupby(fact_rows, itemgetter('publication_key'))

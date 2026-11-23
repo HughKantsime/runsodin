@@ -475,6 +475,7 @@ def apply_migration_file(
 
 def apply_publication_migration_group(connection: Connection) -> list[str]:
     """Reuse 019 only inside the uninterrupted 019..023 bootstrap sequence."""
+    group_transaction = connection.get_transaction()
     applied = []
     publication_transaction = None
     for name, migration_id in (
@@ -494,7 +495,7 @@ def apply_publication_migration_group(connection: Connection) -> list[str]:
             # Applied 021/022 only read economic data and schema. On PostgreSQL,
             # 020's temporary DDL can fire database-wide event triggers in this
             # transaction, even with SHARE locks. Repeat 019 there.
-            publication_transaction = connection.get_transaction()
+            publication_transaction = group_transaction
     return applied
 
 

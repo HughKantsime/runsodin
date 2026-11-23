@@ -1,9 +1,12 @@
 """Differential and scale checks against the released publication contracts."""
+# Two of the 66 pinned refusal sites cannot be reached through validate_retained:
+# line 68: both directory() callers supply a directory or check the kind first.
+# line 139: recipe_from_row() rejects an unknown operation kind before dispatch.
 import importlib
+import re
 import subprocess
 from contextlib import contextmanager
 from pathlib import Path
-from time import perf_counter
 
 import pytest
 from sqlalchemy import event, text
@@ -41,6 +44,7 @@ def seed(engine):
 
 def generate_frames(db, count):
     """Copy the complete fixture with distinct frame identities and manifests."""
+    db.execute(text('UPDATE timelapse_frame_bindings SET next_number=:n'), {'n': count + 1})
     sequence = """WITH RECURSIVE seq(n) AS (
         SELECT 2 UNION ALL SELECT n+1 FROM seq WHERE n < :count
     ) """
@@ -55,7 +59,6 @@ def generate_frames(db, count):
         values = [replacements.get(key, key) for key in columns]
         db.execute(text(sequence + f"INSERT INTO {table.name} ({', '.join(columns)}) SELECT {', '.join(values)} "
                         f"FROM seq CROSS JOIN {table.name} WHERE operation_id='frame-op'"), {'count': count})
-    db.execute(text('UPDATE timelapse_frame_bindings SET next_number=:n'), {'n': count + 1})
 
 
 @contextmanager
@@ -86,44 +89,33 @@ def equivalent(db, old_walk):
         assert verdict(lambda c: check(module, c), db) == verdict(module.validate, db)
 
 
-@pytest.mark.parametrize('native_engine', BOTH, indirect=True)
-def test_publication_history_scale(native_engine):
-    engine = native_engine
+def check_history_scale(engine, sizes):
     bootstrap_database(engine)
     seed(engine)
     phase_fixture(engine, 'complete')
     # Settle the synthetic historical job ID before measuring a repeat boot.
     assert bootstrap_database(engine)['applied'] == []
-    # The CI budget is SQL statements. Timings are observations on the host.
-    sizes = (1000, 120000) if engine.dialect.name == 'sqlite' else (10, 100)
     budgets = []
     for size in sizes:
         with engine.begin() as db:
-            with db.begin_nested() as history:
-                generate_frames(db, size)
-                assert db.exec_driver_sql('SELECT count(*) FROM timelapse_publications').scalar_one() == size
-                assert db.exec_driver_sql('SELECT count(*) FROM timelapse_publication_facts').scalar_one() == 6 * size
-                with statements(engine) as count:
-                    start = perf_counter()
-                    fast.validate_retained(db)
-                    elapsed = perf_counter() - start
-                budgets.append(count[0])
-                if size == sizes[0]:
-                    from core.timelapse_publication_validation import validate_retained
-                    with statements(engine) as old:
-                        validate_retained(db)
-                    print(f'pinned retained walk: {old[0]} statements at {size} operations')
-                seed_sealed_retirement(db)
-                start = perf_counter()
-                M.validate_retained(db)
-                print(f'{size} operations: {budgets[-1]} statements, retained {elapsed:.3f}s, membership {perf_counter()-start:.3f}s')
-                if size == sizes[0]:
-                    history.rollback()
-        if size == sizes[-1]:
-            start = perf_counter()
-            assert bootstrap_database(engine)['applied'] == []
-            print(f'repeat bootstrap: {perf_counter()-start:.3f}s')
-    assert budgets[0] == budgets[1] <= 30
+            generate_frames(db, size)
+            assert db.exec_driver_sql('SELECT count(*) FROM timelapse_publications').scalar_one() == size
+            assert db.exec_driver_sql('SELECT count(*) FROM timelapse_publication_facts').scalar_one() == 6 * size
+            with statements(engine) as count:
+                fast.validate_retained(db)
+            budgets.append(count[0])
+            seed_sealed_retirement(db)
+            M.validate_retained(db)
+            if size != sizes[-1]:
+                db.rollback()
+    assert max(budgets) <= 30
+    assert len(set(budgets)) == 1
+    assert bootstrap_database(engine)['applied'] == []
+
+
+@pytest.mark.parametrize('native_engine', BOTH, indirect=True)
+def test_publication_history_scale(native_engine):
+    check_history_scale(native_engine, (300, 3000))
 
 
 def another_capture(db):
@@ -374,6 +366,41 @@ def test_duplicate_authority_without_unique_constraints(native_engine, old_walk)
 
 
 @pytest.mark.parametrize('native_engine', BOTH, indirect=True)
+def test_duplicate_frame_number_refused_before_retained_walk(native_engine, old_walk):
+    def drop_unique(db, name):
+        if db.dialect.name == 'postgresql':
+            db.exec_driver_sql(f'ALTER TABLE {FRAME} DROP CONSTRAINT {name}')
+            return
+        # SQLite can only remove a UNIQUE constraint by rebuilding its table.
+        rows = db.execute(publications.select()).mappings().all()
+        ddl = db.execute(text("SELECT sql FROM sqlite_master WHERE name=:name"), {'name': FRAME}).scalar_one()
+        ddl, n = re.subn(rf',\s*CONSTRAINT {name} UNIQUE \([^)]*\)', '', ddl)
+        assert n == 1
+        db.exec_driver_sql(f'DROP TABLE {FRAME}')
+        db.exec_driver_sql(ddl)
+        db.execute(publications.insert(), rows)
+
+    history(native_engine, 'encode')
+    with native_engine.begin() as db:
+        generate_frames(db, 2)
+        drop_unique(db, 'tp_frame')
+        db.exec_driver_sql(change(FRAME, 'frame_number=1', "operation_id='frame-2'"))
+        assert db.exec_driver_sql(f"SELECT count(*) FROM {FRAME} WHERE phase='complete' AND "
+                                  "frame_namespace_id='namespace' AND frame_number=1").scalar_one() == 2
+        for module, check in ((P, fast.validate_publications), (M, fast.validate_membership)):
+            assert verdict(module.validate, db) == verdict(lambda c: check(module, c), db) == 'Publication indexes differ'
+
+        # A second independent key protects destination_path. Remove it too so
+        # both complete frames can have exactly the path the retained walk accepts.
+        drop_unique(db, 'tp_destination')
+        db.exec_driver_sql(change(FRAME, "frame_number=1,destination_path='frames_namespace/frame_000001.jpg'",
+                                 "operation_id='frame-2'"))
+        assert verdict(old_walk, db) is None
+        equivalent(db, old_walk)
+        assert verdict(P.validate, db) == 'Publication indexes differ'
+
+
+@pytest.mark.parametrize('native_engine', BOTH, indirect=True)
 def test_schema_and_trigger_verdicts(native_engine, old_walk):
     history(native_engine, 'complete')
     with native_engine.begin() as db:
@@ -467,6 +494,69 @@ def test_reuse_stops_at_bootstrap_and_first_apply(native_engine, monkeypatch):
     assert len(walks) == 2 * per_run + 5
 
 
+@pytest.mark.parametrize('native_engine', ['sqlite'], indirect=True)
+def test_applied_sql_between_publication_and_membership_proofs(native_engine, monkeypatch):
+    from core.schema.migrator import apply_publication_migration_group
+
+    bootstrap_database(native_engine)
+    sql = []
+    validate_publications = fast.validate_publications
+    validate_membership = fast.validate_membership
+
+    def start_trace(module, db):
+        validate_publications(module, db)
+        db.connection.driver_connection.set_trace_callback(sql.append)
+
+    def stop_trace(module, db, proof):
+        db.connection.driver_connection.set_trace_callback(None)
+        assert proof is db.get_transaction()
+        validate_membership(module, db, proof)
+
+    monkeypatch.setattr(fast, 'validate_publications', start_trace)
+    monkeypatch.setattr(fast, 'validate_membership', stop_trace)
+    with native_engine.begin() as db:
+        try:
+            assert apply_publication_migration_group(db) == []
+        finally:
+            db.connection.driver_connection.set_trace_callback(None)
+
+    # Includes ensure_ledger and the 023 ledger lookup preceding its validator.
+    ledger_ids = [s.split("migration_id = '")[1].split("'")[0] for s in sql if "migration_id = '" in s]
+    assert ledger_ids == ['python:020-ams-evidence', 'python:021-economic-identity',
+                          'python:022-economic-source-lifetimes', M.MIGRATION_ID]
+    # Only read-only queries, temporary schema probes and a zero-row UPDATE
+    # may intervene. The latter cannot fire SQLite's row-level triggers.
+    for statement in sql:
+        stmt = ' '.join(statement.lower().split())
+        if stmt.startswith('select ') or re.fullmatch(
+            r'pragma (?:main\.|temp\.)?(?:table_x?info|index_list|index_info|foreign_key_list|'
+            r'integrity_check|foreign_key_check)(?:\([^)]+\))?', stmt
+        ):
+            continue
+        assert (stmt == 'update printers set id=id where 0'
+                or re.match(r'create temporary table _odin_ams_contract_[0-9a-f]+ \(', stmt)
+                or re.fullmatch(r'drop table _odin_ams_contract_[0-9a-f]+', stmt)), statement
+
+
+@pytest.mark.parametrize('native_engine', ['sqlite'], indirect=True)
+def test_group_entered_without_transaction_repeats_publication_walk(native_engine, monkeypatch):
+    from core.schema.migrator import apply_publication_migration_group
+
+    bootstrap_database(native_engine)
+    walk = fast.validate_retained
+    walks = []
+
+    def counted(db):
+        walks.append(db.get_transaction())
+        walk(db)
+
+    monkeypatch.setattr(fast, 'validate_retained', counted)
+    with native_engine.connect() as db:
+        assert db.get_transaction() is None
+        assert apply_publication_migration_group(db) == []
+        assert walks == [db.get_transaction(), db.get_transaction()]
+
+
 @pytest.mark.parametrize('native_engine', BOTH, indirect=True)
 def test_nested_destination_requires_each_parent(native_engine, old_walk):
     history(native_engine, 'trim')
@@ -508,6 +598,48 @@ def test_adopted_case_insensitive_keys_preserve_requested_nonce(old_walk):
             assert verdict(M.validate, db) == 'Publication retained authority differs'
     finally:
         engine.dispose()
+
+
+@pytest.mark.parametrize('native_engine', [pytest.param('postgresql', marks=pytest.mark.postgresql)], indirect=True)
+@pytest.mark.parametrize('kind', ['encode', 'retired'])
+def test_pg_joins_use_lookup_column_collation(native_engine, old_walk, kind):
+    @event.listens_for(native_engine, 'before_cursor_execute', retval=True)
+    def adopted_collations(conn, cursor, sql, params, context, many):
+        for table, key, collation in ((FRAME, 'source_nonce', 'POSIX'), (VERSION, 'version_nonce', 'C'),
+                                      (FRAME, 'operation_id', 'POSIX'), (FACT, 'operation_id', 'C')):
+            if f'CREATE TABLE {table} (' in sql:
+                definition = key + ' VARCHAR(64) NOT NULL'
+                assert definition in sql
+                sql = sql.replace(definition, f'{key} VARCHAR(64) COLLATE "{collation}" NOT NULL')
+        return sql, params
+
+    history(native_engine, kind)
+    with native_engine.begin() as db:
+        equivalent(db, old_walk)
+        assert verdict(M.validate, db) is None
+        db.exec_driver_sql(fact('output', 'byte_count=17'))
+        equivalent(db, old_walk)
+        assert verdict(M.validate, db) == 'Publication retained authority differs'
+
+
+@pytest.mark.parametrize('native_engine', ['sqlite'], indirect=True)
+@pytest.mark.parametrize('fact_collation,expected', [('NOCASE', None), ('BINARY', 'Publication retained authority differs')])
+def test_sqlite_operation_id_uses_fact_lookup_collation(native_engine, old_walk, fact_collation, expected):
+    @event.listens_for(native_engine, 'before_cursor_execute', retval=True)
+    def adopted_collations(conn, cursor, sql, params, context, many):
+        for table, collation in ((FRAME, 'NOCASE'), (FACT, fact_collation)):
+            if f'CREATE TABLE {table} (' in sql:
+                sql = sql.replace('operation_id VARCHAR(64) NOT NULL',
+                                  f'operation_id VARCHAR(64) COLLATE {collation} NOT NULL')
+        return sql, params
+
+    history(native_engine, 'encode')
+    with native_engine.begin() as db:
+        # Some facts use a different spelling. The scans must group and order
+        # by the matched publication's ID while looking it up via the fact key.
+        db.exec_driver_sql(fact('root', "operation_id='FRAME-OP'"))
+        equivalent(db, old_walk)
+        assert verdict(M.validate, db) == expected
 
 
 def test_cold_source_check_precedes_loading_retained_code():

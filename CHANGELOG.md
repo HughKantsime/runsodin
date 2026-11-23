@@ -6,7 +6,7 @@ All notable changes to O.D.I.N. are documented here.
 
 ### Fixed
 
-- Starting or updating ODIN now checks long timelapse histories in seconds. Every timelapse record still receives the same checks.
+- Starting or updating ODIN no longer takes minutes on installs with a long timelapse history; the startup check of timelapse records does the same checks in seconds.
 
 ## [2.6.0] - 2026-11-22
 
