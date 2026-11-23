@@ -62,7 +62,7 @@ const ACTION_GROUPS = [
   { label: 'Jobs', actions: ['jobs.submit', 'jobs.create', 'jobs.edit', 'jobs.cancel', 'jobs.delete', 'jobs.start', 'jobs.complete'] },
   { label: 'Approval', actions: ['jobs.approve', 'jobs.reject', 'jobs.resubmit'] },
   { label: 'Printers', actions: ['printers.answer_restart_question', 'printers.dispatch_recovery', 'printers.add', 'printers.edit', 'printers.delete', 'printers.slots', 'printers.reorder', 'printers.plug'] },
-  { label: 'Models', actions: ['models.plates', 'models.backfill', 'models.create', 'models.edit', 'models.delete'] },
+  { label: 'Models', actions: ['models.plates', 'models.create', 'models.edit', 'models.delete'] },
   { label: 'Spools', actions: ['spools.edit', 'spools.delete'] },
   { label: 'Archives', actions: ['archives.settle_filament'] },
   { label: 'Orders', actions: ['orders.create', 'orders.edit', 'orders.delete', 'orders.ship'] },

@@ -117,9 +117,6 @@
       "admin",
       "operator"
     ],
-    "models.backfill": [
-      "admin"
-    ],
     "models.create": [
       "admin",
       "operator"

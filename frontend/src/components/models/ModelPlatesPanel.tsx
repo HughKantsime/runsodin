@@ -97,7 +97,7 @@ export default function ModelPlatesPanel({ modelId, modelName, onClose }: { mode
       : status === 429
         ? <div role="alert" className="text-sm"><p className="text-amber-400 mb-2">3MF analysis is busy. Try again shortly.</p><button className="px-3 py-1.5 bg-[var(--brand-primary)] rounded-md text-sm" onClick={() => platesQuery.refetch()}>Retry</button></div>
         : <p role="alert" className="text-sm text-red-400">Could not load plate details.</p>
-  } else if (platesQuery.data?.status === 'not_available') body = <p>{unavailableReasons[platesQuery.data.reason] ?? unavailableReasons.parse_failed}</p>
+  } else if (platesQuery.data?.status === 'not_available') body = <p className="text-sm text-[var(--brand-muted)]">{unavailableReasons[platesQuery.data.reason] ?? unavailableReasons.parse_failed}</p>
   else if (!platesQuery.data || platesQuery.data.plates.length === 0) body = <p className="text-sm text-[var(--brand-muted)]">This file has no plates.</p>
   else body = (
     <>

@@ -26,7 +26,7 @@ CREATED = '2026-10-01 08:00:00'
 THUMBNAIL_PNG = 'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAIUlEQVR4nGP8z0AaYCJRPcOoBmIAE1GqkMCoBmIAyaEEAEAuAR9UPEsJAAAAAElFTkSuQmCC'
 
 
-def seed(db):
+def seed(db, stored_file):
     # Raw fixture printers lack ORM defaults; give them the values the create route would.
     db.execute(text("UPDATE printers SET slot_count=COALESCE(slot_count,1),tags=COALESCE(tags,'[]'),"
                     "timelapse_enabled=COALESCE(timelapse_enabled,0),shared=COALESCE(shared,0)"))
@@ -34,7 +34,8 @@ def seed(db):
     db.execute(text("INSERT INTO orders(id,order_number,status) VALUES(901,'CERTC-901','pending')"))
     db.execute(text("INSERT INTO order_items(id,order_id,product_id,quantity) VALUES(901,901,901,1)"))
     db.execute(text("INSERT INTO print_files(id,model_id,filename,original_filename,stored_path,org_id,thumbnail_b64) "
-                    "VALUES(301,101,'certc.3mf','certc.3mf','/opaque/certc.3mf',1,:image)"), {'image': THUMBNAIL_PNG})
+                    "VALUES(301,101,'certc.3mf','certc.3mf',:path,1,:image)"),
+               {'path': str(stored_file), 'image': THUMBNAIL_PNG})
     rows = [
         # id, name, status, printer, due, sched_start, sched_end, act_start, act_end, order_item, created, duration, file
         (201, 'CertC adhoc pending A', 'pending', None, '2026-10-10 00:00:00', None, None, None, None, None, '2026-10-01 08:00:00', 2.0, None),
@@ -76,7 +77,7 @@ def wire_client(reprint_client, review_db):  # noqa: F811
     from fastapi import FastAPI
     from fastapi.responses import JSONResponse
     from fastapi.testclient import TestClient
-    base, identity, _ = reprint_client
+    base, identity, source = reprint_client
     # Production order: the jobs package registers static paths before /jobs/{job_id}.
     app = FastAPI()
     for router in (jobs_router, scheduler_routes.router, routes_crud.router, analytics.router, exports.router,
@@ -86,7 +87,9 @@ def wire_client(reprint_client, review_db):  # noqa: F811
     # Same envelope handler core/app.py registers for agent-surface routes (cancel).
     app.add_exception_handler(OdinError, lambda request, exc: JSONResponse(status_code=exc.status, content=exc.to_envelope()))
     client = TestClient(app, raise_server_exceptions=False)
-    seed(review_db)
+    stored_file = source.with_name('certc.3mf')
+    stored_file.write_bytes(source.read_bytes())
+    seed(review_db, stored_file)
     return client, identity, review_db
 
 

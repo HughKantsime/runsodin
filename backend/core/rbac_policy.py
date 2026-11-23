@@ -68,7 +68,6 @@ RBAC_DEFAULT_ACTION_ACCESS = {
     "printers.slots": ["admin", "operator"],
     "printers.reorder": ["admin", "operator"],
     "models.create": ["admin", "operator"],
-    "models.backfill": ["admin"],
     "models.edit": ["admin", "operator"],
     "models.delete": ["admin"],
     "archives.settle_filament": ["admin", "operator"],

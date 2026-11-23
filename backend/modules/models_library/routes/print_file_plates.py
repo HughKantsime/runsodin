@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from core.audit import audit_download
 from core.db import get_db
-from core.rbac import require_action, require_role, require_superadmin
+from core.rbac import require_role, require_superadmin
 
 router = APIRouter()
 
@@ -24,7 +24,7 @@ def get_print_file_plates(file_id: int, current_user: dict = Depends(require_rol
                             headers={"Retry-After": str(busy.retry_after)}) from None
     if facts is None:
         return {"status": "not_available", "reason": reason, "file_hash": row.file_hash}
-    return {"status": "available", **facts}
+    return {**facts, "status": "available", "reason": None}
 
 
 @router.get("/print-files/{file_id}/plates/{plate}/thumbnail", tags=["Print Files"])
@@ -58,8 +58,7 @@ def backfill_status(current_user=Depends(require_superadmin(scope="read:models")
     return status()
 
 
-@router.post("/print-files/plates/backfill", tags=["Print Files"],
-             dependencies=[Depends(require_action("models.backfill", scope="write:models"))])
+@router.post("/print-files/plates/backfill", tags=["Print Files"])
 def start_backfill(current_user=Depends(require_superadmin(scope="write:models")), db=Depends(get_db)):
     from modules.models_library.plate_backfill import start
     return start(db, current_user)

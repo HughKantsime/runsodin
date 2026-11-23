@@ -223,7 +223,6 @@ CASES = {
     "printers.slots": lambda u: ("patch", f"/api/printers/{printer()}/slots/1", {"json": {"color": "blue"}}),
     "printers.reorder": lambda u: ("post", "/api/printers/reorder", {"json": {"printer_ids": [printer(), printer()]}}),
     "printers.plug": lambda u: ("post", f"/api/printers/{plug_printer()}/plug/on", {}),
-    "models.backfill": lambda u: ("post", "/api/print-files/plates/backfill", {}),
     "models.plates": lambda u: ("get", f"/api/models/{model()}/plates", {}),
     "models.create": lambda u: ("post", "/api/models", {"json": {"name": f"MX model new {next(SEQ)}"}}),
     "models.edit": lambda u: ("patch", f"/api/models/{model()}", {"json": {"name": f"MX model renamed {next(SEQ)}"}}),
@@ -380,7 +379,7 @@ def test_every_action_key_has_a_behaviour_case(matrix):
 @pytest.mark.parametrize("key", KEYS)
 def test_default_matrix_allows_the_holder(matrix, key):
     r = matrix["results"][key]
-    if key in {"users.restore_superadmin", "models.backfill"}:
+    if key == "users.restore_superadmin":
         # An action key never promotes a school admin to a platform admin.
         assert r["default_allowed"]["status"] == 403, r
         assert r["default_allowed"]["detail"]["detail"] == "Superadmin access required", r
@@ -416,7 +415,7 @@ def test_widening_the_key_admits_the_previously_refused_role(matrix, key):
     r = matrix["results"][key]
     if key == "education.roster_manage":
         assert r["widened_refused"]["status"] == 403, r
-    elif key in {"users.restore_superadmin", "models.backfill", "printers.dispatch_recovery", "printers.answer_restart_question"}:
+    elif key in {"users.restore_superadmin", "printers.dispatch_recovery", "printers.answer_restart_question"}:
         # Recovery retains its independent admin floor. Widening the matrix must not bypass the independent Super Admin guard.
         assert _denied(r["widened_refused"]), r
     else:

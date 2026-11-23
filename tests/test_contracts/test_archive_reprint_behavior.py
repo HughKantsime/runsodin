@@ -362,11 +362,14 @@ def test_reprint_capability_preflight_readiness_seam(reprint_client, plate_numbe
     assert gate.refusal is None
 
 
-@pytest.mark.parametrize('change', ['hashless', 'missing', 'changed', 'education_upload'])
+@pytest.mark.parametrize('change', ['hashless_missing', 'hashless_unreadable', 'missing', 'changed', 'education_upload'])
 def test_repeat_refuses_unverified_or_missing_file(reprint_client, review_db, change):
     client, _, source = reprint_client
     original = client.post('/archives/101/reprint', json={'printer_id': 9}).json()['job_id']
-    if change == 'hashless':
+    if change.startswith('hashless'):
+        source.unlink()
+        if change == 'hashless_unreadable':
+            source.mkdir()
         review_db.execute(text('UPDATE jobs SET payload_sha256=NULL WHERE id=:id'), {'id': original})
         review_db.commit()
     elif change == 'education_upload':
@@ -380,3 +383,29 @@ def test_repeat_refuses_unverified_or_missing_file(reprint_client, review_db, ch
     before = review_db.execute(text('SELECT count(*) FROM jobs')).scalar_one()
     assert client.post(f'/jobs/{original}/repeat').status_code == 409
     assert review_db.execute(text('SELECT count(*) FROM jobs')).scalar_one() == before
+
+
+def test_repeat_legacy_file_without_hash_and_verify_off_event_loop(reprint_client, review_db, monkeypatch):
+    import asyncio
+    from modules.jobs import repeat
+    client, _, _ = reprint_client
+    original = client.post('/archives/101/reprint', json={'printer_id': 9}).json()['job_id']
+    verify = repeat.verify_repeat_file
+    checked = []
+
+    def check_thread(expected, payload):
+        with pytest.raises(RuntimeError, match="no running event loop"):
+            asyncio.get_running_loop()
+        checked.append(expected)
+        return verify(expected, payload)
+
+    monkeypatch.setattr(repeat, 'verify_repeat_file', check_thread)
+    assert client.post(f'/jobs/{original}/repeat').status_code == 200
+    review_db.execute(text('UPDATE jobs SET payload_sha256=NULL WHERE id=:id'), {'id': original})
+    review_db.commit()
+    result = client.post(f'/jobs/{original}/repeat')
+    assert result.status_code == 200, result.text
+    assert len(checked) == 2 and checked[0] and checked[1] is None
+    clone = review_db.execute(text('SELECT print_file_id,payload_sha256 FROM jobs WHERE id=:id'),
+                              {'id': result.json()['new_job_id']}).one()
+    assert tuple(clone) == (101, None)

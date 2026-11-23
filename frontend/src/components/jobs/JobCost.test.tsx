@@ -1,4 +1,5 @@
-import { render, screen, fireEvent } from '@testing-library/react'
+import { screen, fireEvent } from '@testing-library/react'
+import { renderWithCurrency as render } from '../../test/renderWithCurrency'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { beforeEach, expect, it, vi } from 'vitest'
 import JobCost, { PricingConfigured } from './JobCost'
@@ -44,31 +45,31 @@ beforeEach(() => {
 it('shows estimate, actual and the difference, with the breakdown on click', async () => {
   mount()
   const panel = await screen.findByRole('region', { name: 'Print cost' })
-  expect(panel).toHaveTextContent('Estimate 7.50, actual 11.65')
-  expect(panel).toHaveTextContent('4.15 more than the estimate')
+  expect(panel).toHaveTextContent('Estimate EUR 7.50, actual EUR 11.65')
+  expect(panel).toHaveTextContent('EUR 4.15 more than the estimate')
   expect(panel).not.toHaveTextContent('Filament used')
   fireEvent.click(screen.getByRole('button', { name: 'Show breakdown' }))
-  expect(panel).toHaveTextContent('Acme Black PLA (spool 71): 60 g, printer reading1.20')
-  expect(panel).toHaveTextContent('Spool (spool 72): 30 g, printer reading1.20')
+  expect(panel).toHaveTextContent('Acme Black PLA (spool 71): 60 g, printer readingEUR 1.20')
+  expect(panel).toHaveTextContent('Spool (spool 72): 30 g, printer readingEUR 1.20')
   expect(panel).toHaveTextContent('Machine time (recorded hours, at current rates)')
-  expect(panel).toHaveTextContent('3 h at 0.25 per hour0.75')
+  expect(panel).toHaveTextContent('3 h at EUR 0.25 per hourEUR 0.75')
   expect(panel).toHaveTextContent('From settings (not measured, at current rates)')
-  expect(panel).toHaveTextContent('Labour6.00')
-  expect(panel).toHaveTextContent('Failed attempt, 1 h0.45')
+  expect(panel).toHaveTextContent('LabourEUR 6.00')
+  expect(panel).toHaveTextContent('Failed attempt, 1 hEUR 0.45')
   expect(panel).toHaveTextContent(/failure allowance is not added/)
 })
 
 it('says less than the estimate when the print came in under it', async () => {
   vi.mocked(jobCost.get).mockResolvedValue({ ...complete, total: 7, difference: -0.5 })
   mount()
-  expect(await screen.findByRole('region', { name: 'Print cost' })).toHaveTextContent('0.50 less than the estimate')
+  expect(await screen.findByRole('region', { name: 'Print cost' })).toHaveTextContent('EUR 0.50 less than the estimate')
 })
 
 it('shows a partial total as "at least" with the reason and no difference', async () => {
   vi.mocked(jobCost.get).mockResolvedValue(partial)
   mount()
   const panel = await screen.findByRole('region', { name: 'Print cost' })
-  expect(panel).toHaveTextContent('Estimate 7.50, actual at least 5.75')
+  expect(panel).toHaveTextContent('Estimate EUR 7.50, actual at least EUR 5.75')
   expect(panel).toHaveTextContent('Not the full cost.')
   expect(panel).toHaveTextContent('A spool had no purchase price when the print started')
   expect(panel).not.toHaveTextContent('than the estimate')
@@ -80,7 +81,7 @@ it('says no usage was recorded for a job without print attempts', async () => {
   vi.mocked(jobCost.get).mockResolvedValue({ job_id: 801, configured: true, finished: true, state: 'none', estimate: 7.5, difference: null, pieces: 1 })
   mount()
   const panel = await screen.findByRole('region', { name: 'Print cost' })
-  expect(panel).toHaveTextContent('Estimate 7.50. No usage recorded, so there is no actual cost.')
+  expect(panel).toHaveTextContent('Estimate EUR 7.50. No usage recorded, so there is no actual cost.')
   expect(screen.queryByRole('button', { name: 'Show breakdown' })).toBeNull()
 })
 
@@ -112,7 +113,7 @@ it('in a row, loads the cost only when the Cost toggle is opened and shows the b
   fireEvent.click(toggle)
   const panel = await screen.findByRole('region', { name: 'Print cost' })
   expect(jobCost.get).toHaveBeenCalledWith(801)
-  expect(panel).toHaveTextContent('Estimate 7.50, actual 11.65')
+  expect(panel).toHaveTextContent('Estimate EUR 7.50, actual EUR 11.65')
   expect(panel).toHaveTextContent('Filament used (recorded)')
   fireEvent.click(screen.getByRole('button', { name: 'Hide cost' }))
   expect(screen.queryByRole('region', { name: 'Print cost' })).toBeNull()
@@ -140,7 +141,7 @@ it('explains that sliced quantities do not enter the actual lower bound', async 
   })
   mount()
   const panel = await screen.findByRole('region', { name: 'Print cost' })
-  expect(panel).toHaveTextContent('actual at least 5.75')
+  expect(panel).toHaveTextContent('actual at least EUR 5.75')
   expect(panel).toHaveTextContent('Filament use was estimated from the sliced file, not measured')
   fireEvent.click(screen.getByRole('button', { name: 'Show breakdown' }))
   expect(panel).toHaveTextContent('Spool (spool 71): 50 g, from the sliced fileunknown')

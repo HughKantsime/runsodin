@@ -675,7 +675,8 @@ async def repeat_job(job_id: int, current_user: dict = Depends(require_action("j
         if not payload or payload.model_id != original.model_id:
             raise HTTPException(400, "Original print file not available for repeat")
         from modules.jobs.repeat import verify_repeat_file
-        verify_repeat_file(original, payload)
+        from fastapi.concurrency import run_in_threadpool
+        await run_in_threadpool(verify_repeat_file, original.payload_sha256, payload)
     from modules.jobs.ams_mapping import checked_repeat_mapping, mapping_audit_details
     mapping, held_for_planned_load = checked_repeat_mapping(db, current_user, original)
     from modules.jobs.repeat import build_repeated_job

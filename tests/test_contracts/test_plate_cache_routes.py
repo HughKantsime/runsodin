@@ -413,11 +413,11 @@ def test_sweep_keeps_a_cache_another_present_file_shares(env):
 
 
 @pytest.mark.parametrize('case,reason', [
-    ('binary', 'binary_gcode'), ('unsupported', 'unsupported_type'), ('missing', 'file_missing'),
+    ('empty_gcode', 'no_slicer_facts'), ('binary', 'binary_gcode'), ('unsupported', 'unsupported_type'), ('missing', 'file_missing'),
     ('changed', 'hash_mismatch'), ('project', 'not_sliced'), ('invalid', 'parse_failed'), ('large', 'parse_refused'), ('failed', 'parse_failed'),
 ])
 def test_visible_file_explains_missing_facts(env, case, reason, monkeypatch):
-    suffix = {'binary':'.bgcode','unsupported':'.stl'}.get(case, '.3mf')
+    suffix = {'empty_gcode':'.gcode','binary':'.bgcode','unsupported':'.stl'}.get(case, '.3mf')
     path = env.tmp / ('file' + suffix)
     data = b'GCDE\x01\x00' if case == 'binary' else b'no package'
     if case == 'project':
@@ -436,3 +436,27 @@ def test_visible_file_explains_missing_facts(env, case, reason, monkeypatch):
     result = env.client.get(f'/print-files/{env.file_id}/plates', headers=env.issue(['read:models']))
     assert result.status_code == 200
     assert result.json() == {'status':'not_available','reason':reason,'file_hash':digest}
+
+
+def test_preexisting_project_only_cache_serves_picture_and_thumbnail(env, monkeypatch):
+    from modules.models_library import mesh_isolation
+    picture = png(COLORS[1])
+    path = env.tmp / 'picture.3mf'
+    with zipfile.ZipFile(path, 'w') as package:
+        package.writestr('3D/3dmodel.model', '<model/>')
+        package.writestr('Metadata/plate_1.png', picture)
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    env.db.execute(text('UPDATE print_files SET file_hash=:h,stored_path=:p WHERE id=:id'),
+                   {'h': digest, 'p': str(path), 'id': env.file_id})
+    env.db.commit()
+    url = f'/print-files/{env.file_id}/plates'
+    headers = env.issue(['read:models'])
+    response = env.client.get(url, headers=headers)
+    assert response.json()['plates'][0]['has_thumbnail']
+    entry = plate_cache.entry_dir(digest) / 'facts.json'
+    old = json.loads(entry.read_bytes())
+    del old['status'], old['reason']
+    entry.write_text(json.dumps(old))
+    monkeypatch.setattr(mesh_isolation, 'plate_facts_blocking', lambda *a, **kw: pytest.fail('reparsed cache'))
+    assert env.client.get(url, headers=headers).json() == {**old, 'status': 'available', 'reason': None}
+    assert env.client.get(url + '/1/thumbnail', headers=headers).content == picture

@@ -768,13 +768,13 @@ def plate_summaries(zf: zipfile.ZipFile) -> list:
 # --------------------------------------------------------------------------- per-plate facts
 # Read by the bounded 3MF child (mesh_worker mode "platefacts") and cached by plate_cache.
 # Only the members named here are opened, each with a hard read cap whatever the archive declares.
+from core.fact_text import fact_text as _fact_text
 from core.thumbnail_check import MAX_THUMBNAIL_BYTES, thumbnail_kind  # noqa: E402
 
 MAX_FACT_PLATES = 64
 MAX_SLICE_INFO_BYTES = 4 * 2**20
 MAX_GCODE_HEADER_BYTES = 64 * 1024
 MAX_TOTAL_THUMBNAIL_BYTES = 8 * 2**20      # all plates together, keeps the child's output frame bounded
-_MAX_FACT_TEXT = 128
 _MAX_PLATE_FILAMENTS = 64
 _MAX_PLATE_WARNINGS = 32
 _PLATE_MEMBER = re.compile(r"Metadata/plate_([1-9][0-9]{0,3})\.(gcode|json|png)")
@@ -784,13 +784,6 @@ _SLICER_HEADER = re.compile(
 _FACT_COLOR = re.compile(r"#[0-9A-Fa-f]{6}(?:[0-9A-Fa-f]{2})?")
 # X-BBL-Client-Type is a role ("slicer"), not a product name.
 _GENERIC_CLIENT_NAMES = {"slicer": "Bambu Studio (or compatible)"}
-
-
-def _fact_text(value):
-    if type(value) is not str:
-        return None
-    cleaned = "".join(ch for ch in value if ch.isprintable()).strip()[:_MAX_FACT_TEXT]
-    return cleaned or None
 
 
 def _fact_number(value, high=1e7, digits=2):

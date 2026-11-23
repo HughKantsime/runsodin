@@ -3,7 +3,8 @@ import math
 import re
 from pathlib import Path
 
-from .threemf_parser import MAX_GCODE_HEADER_BYTES, _FACT_COLOR, _SLICER_HEADER, _fact_text
+from core.fact_text import fact_text
+from .threemf_parser import MAX_GCODE_HEADER_BYTES, _FACT_COLOR, _SLICER_HEADER
 
 _SUMMARY = re.compile(r"^;\s*(filament_type|filament_colou?r|filament used \[g\]|total filament weight \[g\])\s*[:=]\s*(.*)$", re.I)
 
@@ -51,11 +52,13 @@ def read_facts(path):
     filaments = []
     for i in range(max(len(materials), len(colors), len(weights))):
         color = colors[i] if i < len(colors) else ""
-        filaments.append({"slot": i + 1, "type": (_fact_text(materials[i]) if i < len(materials) else None) or "Unknown",
+        filaments.append({"slot": i + 1, "type": (fact_text(materials[i]) if i < len(materials) else None) or "Unknown",
                           "color": color if _FACT_COLOR.fullmatch(color) else None,
                           "grams": weights[i] if i < len(weights) else None})
     weight = _grams(fields.get("total filament weight [g]", [None])[0])
     if weight is None and weights and None not in weights:
         weight = _grams(sum(weights))
+    if slicer is None and not filaments and weight is None:
+        return "no_slicer_facts", None
     return "ok", {"slicer": slicer, "plates": [{"index": 1, "warnings": None, "thumbnail": None,
                   "layer_height": None, "print_time_seconds": None, "weight_grams": weight, "filaments": filaments}]}

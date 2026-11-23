@@ -300,8 +300,8 @@ and browser reachability check. Cellular and native-device validation is owner-r
 ## 5. Model Library
 
 ### 5.1 Upload & Metadata
-- Plates shows slice facts for sliced 3MF and plain G-code, including text-header BGCODE. G-code summaries use the first and last 64 KiB of the verified file. Platform administrators can read older files in Settings → System.
-- The Plates view lists the latest 20 visible completed jobs explicitly linked to a file. Print again uses the original job’s verified file, printer, plate and filament mapping.
+- Plates shows slice facts for sliced 3MF and plain G-code, including text-header BGCODE. G-code summaries use the first and last 64 KiB of the verified file. Platform administrators can read older files in Settings → System. The progress counts cover supported file types only.
+- The Plates view lists the latest 20 visible completed jobs explicitly linked to a file. Print again uses the original job’s file, printer, plate and filament mapping. It checks the file against its recorded fingerprint when one exists.
 - .3mf file upload with automatic metadata extraction: print time estimate, filament usage (grams per material), target printer model, thumbnail
 - Object checklist — individual objects in the build plate with checkboxes
 - Wipe tower auto-unchecked

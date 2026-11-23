@@ -54,7 +54,7 @@ function Breakdown({ cost }: { cost: Cost }) {
     </div>
     {cost.machine && <div>
       <div className="font-medium">Machine time (recorded hours, at current rates)</div>
-      <ul><Line label={`${hours(cost.machine.hours)}${cost.machine.rate_per_hour != null ? ` at ${money(cost.machine.rate_per_hour)} per hour` : ''}`}
+      <ul><Line label={`${hours(cost.machine.hours)}${cost.machine.rate_per_hour != null ? ` at ${money(cost.machine.rate_per_hour, 'Unknown', 'rate')} per hour` : ''}`}
         value={cost.machine.complete ? money(cost.machine.amount) : cost.machine.amount > 0 ? `at least ${money(cost.machine.amount)}` : 'unknown'} /></ul>
     </div>}
     {settings && <div>

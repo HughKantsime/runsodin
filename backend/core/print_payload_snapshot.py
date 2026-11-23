@@ -17,6 +17,10 @@ class PayloadUnavailable(RuntimeError):
     pass
 
 
+class PayloadChanged(PayloadUnavailable):
+    pass
+
+
 @dataclass(frozen=True)
 class PayloadSnapshot:
     path: str=field(repr=False)
@@ -57,8 +61,14 @@ def _copy_hash(source,initial,destination=None):
         digest.update(chunk)
         if destination is not None:destination.write(chunk)
     if size!=initial.st_size or _signature(os.fstat(source.fileno()))!=_signature(initial):
-        raise PayloadUnavailable('Print payload changed while being read; no command was sent')
+        raise PayloadChanged('Print payload changed while being read; no command was sent')
     return digest.hexdigest()
+
+
+def check_payload_readable(path):
+    with _regular_source(path) as (source, _):
+        if not source.read(1):
+            raise PayloadUnavailable("Print file could not be read")
 
 
 def hash_regular_payload(path):
@@ -78,7 +88,7 @@ def stage_payload(path,expected_sha256):
         with os.fdopen(descriptor,'wb') as destination:
             with _regular_source(path) as (source,info):digest=_copy_hash(source,info,destination)
         if not hmac.compare_digest(digest,expected_sha256):
-            raise PayloadUnavailable('Print payload changed before staging; no command was sent')
+            raise PayloadChanged('Print payload changed before staging; no command was sent')
         os.chmod(staged,0o400)
         yield PayloadSnapshot(staged,digest)
     finally:

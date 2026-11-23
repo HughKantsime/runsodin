@@ -8,7 +8,7 @@ vi.mock('../api/system', () => ({ config: { get: vi.fn() } }))
 afterEach(cleanup)
 function Amount() {
   const money = useMoney()
-  return <output>{money(12.5)}</output>
+  return <output>{money('12.50')}</output>
 }
 it('refreshes displayed amounts when the server setting is saved or cleared', async () => {
   vi.mocked(config.get).mockResolvedValue({ currency: 'CAD' })

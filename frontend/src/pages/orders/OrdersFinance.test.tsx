@@ -1,6 +1,7 @@
 import React from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
+import { renderWithCurrency as render } from '../../test/renderWithCurrency'
 import Orders from './Orders'
 import { MemoryRouter } from 'react-router-dom'
 import { orders } from '../../api'
@@ -20,7 +21,7 @@ beforeEach(()=>{
 
 it('shows recorded zero revenue in the order list',async()=>{
   render(<MemoryRouter initialEntries={['/orders']}><Orders /></MemoryRouter>)
-  await waitFor(()=>expect(screen.getAllByText('0.00').length).toBeGreaterThan(0))
+  await waitFor(()=>expect(screen.getAllByText('EUR 0.00').length).toBeGreaterThan(0))
 })
 
 it('creates a free catalog item with an explicit zero price',async()=>{
@@ -109,7 +110,7 @@ it('submits the selected nondefault platform when creating an order',async()=>{
   await waitFor(()=>expect(orders.create).toHaveBeenCalledWith(expect.objectContaining({platform:'wholesale'})))
 })
 
-it.each([[12.99,0,'12.99'],[12.99,null,'Unknown'],[0,0,'0.00'],[1e308,1e308,'Unknown'],[NaN,1,'Unknown'],[Infinity,1,'Unknown'],[0,-1,'-1.00']])('shows complete order revenue with cents and zero (%s,%s)',async(first,second,total)=>{
+it.each([[12.99,0,'EUR 12.99'],[12.99,null,'Unknown'],[0,0,'EUR 0.00'],[1e308,1e308,'Unknown'],[NaN,1,'Unknown'],[Infinity,1,'Unknown'],[0,-1,'EUR -1.00']])('shows complete order revenue with cents and zero (%s,%s)',async(first,second,total)=>{
  vi.mocked(orders.list).mockResolvedValue([
   {id:1,order_number:'Synthetic first revenue',status:'pending',revenue:first},
   {id:2,order_number:'Synthetic second revenue',status:'shipped',revenue:second},
@@ -150,11 +151,11 @@ it('keeps global order statistics when the visible status filter changes',async(
  render(<MemoryRouter initialEntries={['/orders']}><Orders/></MemoryRouter>)
  await screen.findAllByText('Synthetic global shipped')
  const value=(text:string)=>screen.getAllByText(text,{exact:true}).find(element=>element.tagName==='SPAN')!.parentElement!.nextElementSibling!.textContent
- expect(value('Total Orders')).toBe('3');expect(value('Revenue')).toBe('12.99')
+ expect(value('Total Orders')).toBe('3');expect(value('Revenue')).toBe('EUR 12.99')
  fireEvent.change(screen.getByRole('option',{name:'Pending',exact:true}).closest('select')!,{target:{value:'pending'}})
  await waitFor(()=>expect(screen.queryAllByText('Synthetic global shipped')).toHaveLength(0))
  expect(screen.getAllByText('Synthetic global pending').length).toBeGreaterThan(0)
- expect(value('Total Orders')).toBe('3');expect(value('Revenue')).toBe('12.99')
+ expect(value('Total Orders')).toBe('3');expect(value('Revenue')).toBe('EUR 12.99')
  expect(value('Pending')).toBe('1');expect(value('Shipped')).toBe('1')
 })
 

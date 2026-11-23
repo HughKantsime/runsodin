@@ -1,6 +1,7 @@
 import { StrictMode } from 'react'
 import { beforeEach, expect, test, vi } from 'vitest'
-import { render, screen, fireEvent, act } from '@testing-library/react'
+import { screen, fireEvent, act } from '@testing-library/react'
+import { renderWithCurrency as render } from '../../test/renderWithCurrency'
 import EnergyWidget from './EnergyWidget'
 import { getEnergyRate, setEnergyRate } from '../../api'
 vi.mock('../../api', () => ({ getEnergyRate: vi.fn(), setEnergyRate: vi.fn() }))
@@ -17,27 +18,27 @@ beforeEach(() => {
 test('stored zero renders zero cost and remains zero in editor', async () => {
   vi.mocked(getEnergyRate).mockResolvedValue({energy_cost_per_kwh:0})
   render(<EnergyWidget jobs={jobs}/>)
-  fireEvent.click(await screen.findByRole('button',{name:/0.00\/kWh/}))
-  expect(screen.getByText('0.00')).toBeInTheDocument()
+  fireEvent.click(await screen.findByRole('button',{name:/EUR 0\.00\/kWh/}))
+  expect(screen.getByText('EUR 0.00')).toBeInTheDocument()
   expect(screen.getByRole('spinbutton')).toHaveValue(0)
 })
 test('load failure shows unavailable cost and allows retry', async () => {
   vi.mocked(getEnergyRate).mockRejectedValueOnce(new Error('Synthetic unavailable'))
   render(<EnergyWidget jobs={jobs}/>)
   expect(await screen.findByText('Energy rate unavailable')).toBeInTheDocument()
-  expect(screen.queryByText('0.24')).not.toBeInTheDocument()
+  expect(screen.queryByText('EUR 0.24')).not.toBeInTheDocument()
   fireEvent.click(screen.getByRole('button',{name:'Retry'}))
-  expect(await screen.findByRole('button',{name:/0.12\/kWh/})).toBeInTheDocument()
+  expect(await screen.findByRole('button',{name:/EUR 0\.12\/kWh/})).toBeInTheDocument()
 })
 test('save failure keeps editor and saved rate with visible feedback', async () => {
   vi.mocked(setEnergyRate).mockRejectedValue(new Error('Synthetic save failed'))
   render(<EnergyWidget jobs={jobs}/>)
-  fireEvent.click(await screen.findByRole('button',{name:/0.12\/kWh/}))
+  fireEvent.click(await screen.findByRole('button',{name:/EUR 0\.12\/kWh/}))
   fireEvent.change(screen.getByRole('spinbutton'),{target:{value:'0.30'}})
   fireEvent.click(screen.getByRole('button',{name:'Save'}))
   expect(await screen.findByText('Could not save energy rate')).toBeInTheDocument()
   expect(screen.getByRole('spinbutton')).toBeInTheDocument()
-  expect(screen.getByText('0.24')).toBeInTheDocument()
+  expect(screen.getByText('EUR 0.24')).toBeInTheDocument()
   expect(setEnergyRate).toHaveBeenCalledWith(0.3)
 })
 
@@ -45,20 +46,20 @@ test.each([NaN, Infinity, -1, '0', null])('invalid API rate %s does not become a
   vi.mocked(getEnergyRate).mockResolvedValue({energy_cost_per_kwh:value} as any)
   render(<EnergyWidget jobs={jobs}/>)
   expect(await screen.findByText('Energy rate unavailable')).toBeInTheDocument()
-  expect(screen.queryByText('0.24')).not.toBeInTheDocument()
+  expect(screen.queryByText('EUR 0.24')).not.toBeInTheDocument()
 })
 test('saving zero uses the confirmed response', async () => {
   render(<EnergyWidget jobs={jobs}/>)
-  fireEvent.click(await screen.findByRole('button',{name:/0.12\/kWh/}))
+  fireEvent.click(await screen.findByRole('button',{name:/EUR 0\.12\/kWh/}))
   fireEvent.change(screen.getByRole('spinbutton'),{target:{value:'0'}})
   fireEvent.click(screen.getByRole('button',{name:'Save'}))
-  expect(await screen.findByRole('button',{name:/0.00\/kWh/})).toBeInTheDocument()
+  expect(await screen.findByRole('button',{name:/EUR 0\.00\/kWh/})).toBeInTheDocument()
   expect(setEnergyRate).toHaveBeenCalledWith(0)
-  expect(screen.getByText('0.00')).toBeInTheDocument()
+  expect(screen.getByText('EUR 0.00')).toBeInTheDocument()
 })
 test('empty editor does not submit a guessed zero', async () => {
   render(<EnergyWidget jobs={jobs}/>)
-  fireEvent.click(await screen.findByRole('button',{name:/0.12\/kWh/}))
+  fireEvent.click(await screen.findByRole('button',{name:/EUR 0\.12\/kWh/}))
   fireEvent.change(screen.getByRole('spinbutton'),{target:{value:''}})
   fireEvent.click(screen.getByRole('button',{name:'Save'}))
   expect(await screen.findByText('Enter a finite nonnegative energy rate')).toBeInTheDocument()
@@ -67,30 +68,30 @@ test('empty editor does not submit a guessed zero', async () => {
 test('invalid save response leaves confirmed cost and editor intact', async () => {
   vi.mocked(setEnergyRate).mockResolvedValue({energy_cost_per_kwh:Infinity})
   render(<EnergyWidget jobs={jobs}/>)
-  fireEvent.click(await screen.findByRole('button',{name:/0.12\/kWh/}))
+  fireEvent.click(await screen.findByRole('button',{name:/EUR 0\.12\/kWh/}))
   fireEvent.change(screen.getByRole('spinbutton'),{target:{value:'0.3'}})
   fireEvent.click(screen.getByRole('button',{name:'Save'}))
   expect(await screen.findByText('Could not save energy rate')).toBeInTheDocument()
-  expect(screen.getByText('0.24')).toBeInTheDocument()
+  expect(screen.getByText('EUR 0.24')).toBeInTheDocument()
 })
 
 test('obsolete load cannot overwrite a confirmed save', async () => {
   let completeOld!: (value: any) => void
   vi.mocked(getEnergyRate).mockImplementationOnce(() => new Promise(resolve => {completeOld=resolve}))
   render(<StrictMode><EnergyWidget jobs={jobs}/></StrictMode>)
-  fireEvent.click(await screen.findByRole('button',{name:/0.12\/kWh/}))
+  fireEvent.click(await screen.findByRole('button',{name:/EUR 0\.12\/kWh/}))
   fireEvent.change(screen.getByRole('spinbutton'),{target:{value:'0'}})
   fireEvent.click(screen.getByRole('button',{name:'Save'}))
-  expect(await screen.findByRole('button',{name:/0.00\/kWh/})).toBeInTheDocument()
+  expect(await screen.findByRole('button',{name:/EUR 0\.00\/kWh/})).toBeInTheDocument()
   await act(async () => completeOld({energy_cost_per_kwh:9}))
-  expect(screen.getByRole('button',{name:/0.00\/kWh/})).toBeInTheDocument()
-  expect(screen.getByText('0.00')).toBeInTheDocument()
+  expect(screen.getByRole('button',{name:/EUR 0\.00\/kWh/})).toBeInTheDocument()
+  expect(screen.getByText('EUR 0.00')).toBeInTheDocument()
 })
 test('pending save disables duplicate submission and cancel', async () => {
   let completeSave!: (value: any) => void
   vi.mocked(setEnergyRate).mockImplementation(() => new Promise(resolve => {completeSave=resolve}))
   render(<EnergyWidget jobs={jobs}/>)
-  fireEvent.click(await screen.findByRole('button',{name:/0.12\/kWh/}))
+  fireEvent.click(await screen.findByRole('button',{name:/EUR 0\.12\/kWh/}))
   fireEvent.click(screen.getByRole('button',{name:'Save'}))
   const pending=screen.getByRole('button',{name:'Saving...'})
   expect(pending).toBeDisabled()
@@ -99,5 +100,12 @@ test('pending save disables duplicate submission and cancel', async () => {
   fireEvent.click(pending)
   expect(setEnergyRate).toHaveBeenCalledTimes(1)
   await act(async () => completeSave({energy_cost_per_kwh:0.12}))
-  expect(screen.getByRole('button',{name:/0.12\/kWh/})).toBeInTheDocument()
+  expect(screen.getByRole('button',{name:/EUR 0\.12\/kWh/})).toBeInTheDocument()
+})
+
+test('displays the stored fractional rate alongside the rounded charge', async () => {
+  vi.mocked(getEnergyRate).mockResolvedValue({energy_cost_per_kwh: 0.145})
+  render(<EnergyWidget jobs={jobs}/>)
+  expect(await screen.findByRole('button', {name: 'EUR 0.145/kWh'})).toBeVisible()
+  expect(screen.getByText('EUR 0.29')).toBeVisible()
 })

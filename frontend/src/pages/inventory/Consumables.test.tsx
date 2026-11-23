@@ -1,6 +1,7 @@
 import React from 'react'
 import {afterEach,beforeEach,expect,it,vi} from 'vitest'
-import {act,cleanup,fireEvent,render,within,screen,waitFor} from '@testing-library/react'
+import { act, cleanup, fireEvent, within, screen, waitFor } from '@testing-library/react'
+import { renderWithCurrency as render } from '../../test/renderWithCurrency'
 import {QueryClient,QueryClientProvider} from '@tanstack/react-query'
 import Consumables from './Consumables'
 import {consumables} from '../../api'
@@ -83,7 +84,7 @@ it('preserves an unknown unit cost during an unchanged edit',async()=>{
 it('shows and preserves an explicit zero unit cost',async()=>{
  vi.mocked(consumables.update).mockResolvedValue(item as any)
  mount();await screen.findByText('Synthetic packaging')
- expect(within(screen.getByText('Synthetic packaging').closest('tr')!).getByText('0.00')).toBeTruthy()
+ expect(within(screen.getByText('Synthetic packaging').closest('tr')!).getByText('EUR 0.00')).toBeTruthy()
  fireEvent.click(await screen.findByTitle('Edit'))
  expect((screen.getAllByRole('spinbutton')[0] as HTMLInputElement).value).toBe('0')
  fireEvent.click(screen.getByRole('button',{name:'Save',exact:true}))

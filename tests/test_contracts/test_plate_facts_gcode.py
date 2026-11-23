@@ -31,3 +31,32 @@ def test_binary_refusal_and_bambu_total(tmp_path):
     assert read_facts(path)[1]['plates'][0]['weight_grams'] == 7.25
     path.write_bytes(b'; filament_type = PLA\nG1\x00\xff')
     assert read_facts(path)[1]['plates'][0]['filaments'][0]['type'] == 'PLA'
+
+
+@pytest.mark.parametrize('changed,reason', [(True, 'hash_mismatch'), (False, 'parse_refused')])
+def test_snapshot_error_is_identified_by_type(tmp_path, monkeypatch, changed, reason):
+    from core import print_payload_snapshot as snapshots
+    path = tmp_path / 'part.gcode'
+    path.write_bytes(b'G1 X1')
+    monkeypatch.setenv('PLATE_CACHE_ROOT', str(tmp_path / 'cache'))
+    def refuse(*args):
+        if changed:
+            raise snapshots.PayloadChanged('different bytes')
+        raise snapshots.PayloadUnavailable('unchanged file is unreadable')
+    monkeypatch.setattr(snapshots, 'stage_payload', refuse)
+    row = SimpleNamespace(stored_path=str(path), file_hash='a' * 64, blob_state='present')
+    assert facts_result(row) == (None, reason)
+
+
+def test_cached_empty_gcode_plate_has_no_slice_facts(tmp_path, monkeypatch):
+    from modules.models_library import plate_cache
+    path = tmp_path / 'part.gcode'
+    path.write_bytes(b'G1 X1\n')
+    monkeypatch.setenv('PLATE_CACHE_ROOT', str(tmp_path / 'cache'))
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    plate_cache.store(digest, {'slicer': None, 'plates': [{
+        'index': 1, 'warnings': None, 'thumbnail': None, 'layer_height': None,
+        'print_time_seconds': None, 'weight_grams': None, 'filaments': [],
+    }]})
+    row = SimpleNamespace(stored_path=str(path), file_hash=digest, blob_state='present')
+    assert facts_result(row) == (None, 'no_slicer_facts')

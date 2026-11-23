@@ -15,7 +15,7 @@ import {
   Printer,
   AlertTriangle,
   Box,
-  DollarSign,
+  Coins,
   Percent,
   TrendingUp,
   Save,
@@ -380,13 +380,13 @@ export default function CalculatorPage() {
               <InputField label="Spool Cost" value={spoolCost} onChange={markChanged(setSpoolCost)} suffix={currency ?? undefined} />
               <InputField label="Spool Weight" value={spoolWeight} onChange={markChanged(setSpoolWeight)} suffix="g" />
             </div>
-            <div className="text-xs text-[var(--brand-muted)]">Cost per gram: {money(costPerGram, '—', 3)}</div>
+            <div className="text-xs text-[var(--brand-muted)]">Cost per gram: {money(costPerGram, '—', 'rate')}</div>
           </CostSection>
 
           {/* Labor Costs */}
           <CostSection title="Labor Costs" icon={Clock} cost={laborCost}>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3">
-              <InputField label="Hourly Rate" value={hourlyRate} onChange={markChanged(setHourlyRate)} suffix={currency ? currency + "/hr" : "per hour"} icon={DollarSign} />
+              <InputField label="Hourly Rate" value={hourlyRate} onChange={markChanged(setHourlyRate)} suffix={currency ? currency + "/hr" : "per hour"} icon={Coins} />
               <InputField label="Post-Process" value={postProcessingMin} onChange={markChanged(setPostProcessingMin)} suffix="min" />
               <InputField label="Packing" value={packingMin} onChange={markChanged(setPackingMin)} suffix="min" />
               <InputField label="Support" value={supportMin} onChange={markChanged(setSupportMin)} suffix="min" />
@@ -437,7 +437,7 @@ export default function CalculatorPage() {
               <InputField label="Markup" value={margin} onChange={markChanged(setMargin)} suffix="%" icon={TrendingUp} hint="added on top of cost" />
               <InputField label="Target margin" value={targetMargin} onChange={setTargetMargin} suffix="%" icon={Percent} max={99.9} hint="the same setting, as a share of the price" />
               <InputField label="Selling fee" value={sellingFeePercent} onChange={markChanged(setSellingFeePercent)} suffix="%" icon={Percent} max={99.9} hint="card or marketplace share of the price" />
-              <InputField label="Fixed fee" value={sellingFeeFixed} onChange={markChanged(setSellingFeeFixed)} suffix={currency ?? undefined} icon={DollarSign} hint="per sale" />
+              <InputField label="Fixed fee" value={sellingFeeFixed} onChange={markChanged(setSellingFeeFixed)} suffix={currency ?? undefined} icon={Coins} hint="per sale" />
             </div>
             {!feePercentValid && <div role="alert" className="text-xs text-red-400">Selling fee must be under 100%.</div>}
             <div className="text-xs text-[var(--brand-muted)]">Markup and target margin are one setting: change either and the other follows. The price is raised so the selling fees are covered and your markup still applies to your cost.</div>

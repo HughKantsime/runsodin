@@ -5,6 +5,7 @@ from sqlalchemy import bindparam, text
 
 from core.controlled_parts import file_visibility, job_visibility
 from core.interfaces.education_policy import generic_archive_audience_sql
+from core.fact_text import fact_text
 from core.material_identity import canonical_reported_material
 from core.rbac import check_org_access
 from core.registry import registry
@@ -25,8 +26,8 @@ def _group(pairs):
         material = canonical_reported_material(raw)
         if material is None and isinstance(raw, str):
             # A library can name a material outside the printer protocol's vocabulary.
-            label = raw.strip().upper()
-            if label and label.isprintable() and label not in {"UNKNOWN", "EMPTY", "OTHER", "NONE", "N/A"}:
+            label = fact_text(raw.upper())
+            if label and label not in {"UNKNOWN", "EMPTY", "OTHER", "NONE", "N/A"}:
                 material = label
         if material:
             totals.setdefault(material, None)

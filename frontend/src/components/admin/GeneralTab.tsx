@@ -431,7 +431,7 @@ export default function GeneralTab() {
         )}
       </div>
 
-      {principal?.role === 'admin' && configData && <DisplayCurrencySetting key={configData.currency ?? ''} saved={configData.currency ?? null} global={principal.group_id == null} />}
+      {principal?.role === 'admin' && configData && <DisplayCurrencySetting key={`${configData.currency_basis}-${configData.currency}`} basis={configData.currency_basis ?? null} saved={configData.currency ?? null} global={principal.group_id == null} />}
       <FarmTimeZoneSetting config={configData} />
 
       {/* Scheduler Settings */}

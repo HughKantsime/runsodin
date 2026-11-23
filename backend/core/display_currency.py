@@ -1,6 +1,8 @@
 """Display labels for amounts without a recorded transaction currency."""
 from core.finance_currency import read_currency
 
+CURRENCY_MINOR_UNITS = {'USD': 2, 'EUR': 2, 'GBP': 2, 'CAD': 2, 'AUD': 2, 'JPY': 0, 'CHF': 2, 'NZD': 2}
+
 
 def display_currency(db, user):
     """The caller's current label for amounts without their own currency."""

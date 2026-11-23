@@ -134,9 +134,9 @@ export default function FilamentLibraryView() {
                   <span className="px-2 py-0.5 bg-[var(--brand-input-bg)] rounded-md text-xs text-[var(--brand-text-muted)] shrink-0">
                     {f.material ? materialLabel(f.material) : 'Unrecognised material'}
                   </span>
-                  {f.cost_per_gram && (
+                  {f.cost_per_gram != null && (
                     <span className="px-2 py-0.5 bg-green-900/50 rounded-md text-xs text-green-400 shrink-0">
-                      {money(f.cost_per_gram, '—', 3)}/g
+                      {money(f.cost_per_gram, '—', 'rate')}/g
                     </span>
                   )}
                 </div>

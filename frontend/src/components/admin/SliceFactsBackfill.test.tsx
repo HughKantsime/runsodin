@@ -21,7 +21,7 @@ it('starts a pass and shows progress without starting a second pass', async () =
 it('explains an empty pass', async () => {
   vi.mocked(fetchAPI).mockResolvedValue({state:'complete',total:0,done:0,not_available:0})
   mount()
-  expect(await screen.findByText('Every stored file has already been checked.')).toBeVisible()
+  expect(await screen.findByText('Every supported file has already been checked.')).toBeVisible()
 })
 it('keeps install-wide counts private for an organization admin', () => {
   actor.isAdmin = false

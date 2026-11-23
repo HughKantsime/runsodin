@@ -14,6 +14,8 @@ def test_superadmin_pass_skips_education_and_rejects_double_start(env, monkeypat
     for method in (env.client.get, env.client.post):
         assert method(path, headers=headers).status_code == 403
     env.db.execute(text('UPDATE users SET group_id=NULL WHERE id=3'))
+    env.db.execute(text("INSERT INTO print_files(id,filename,stored_path,org_id,blob_state) "
+                        "VALUES(99,'sample.stl','/sample.stl',1,'present')"))
     env.db.execute(text("UPDATE print_files SET blob_state='present' WHERE id=11"))
     env.db.commit()
     shutil.rmtree(plate_cache.entry_dir(env.digest))
@@ -46,7 +48,7 @@ def test_superadmin_pass_skips_education_and_rejects_double_start(env, monkeypat
             t.join(5)
     assert seen == [env.stored, env.stored]
     state = env.client.get(path, headers=headers).json()
-    assert state['done'] == 1 and state['state'] == 'complete'
+    assert (state['done'], state['total'], state['not_available'], state['state']) == (1, 1, 0, 'complete')
     audit = env.db.execute(text("SELECT details FROM audit_logs WHERE action='print_file.plates_backfill_started'")).scalar_one()
     assert json.loads(audit)['count'] == 1
 
@@ -75,3 +77,18 @@ def test_empty_pass_skips_existing_cache_and_status_survives_worker_exit(env, mo
     assert state['state'] == 'complete'
     plate_backfill._save({**state, 'state':'running'})
     assert env.client.get(path, headers=headers).json()['state'] == 'interrupted'
+
+
+def test_status_recovers_from_missing_lock_and_invalid_state(tmp_path, monkeypatch):
+    from modules.models_library import plate_backfill
+    monkeypatch.setenv('PLATE_CACHE_ROOT', str(tmp_path))
+    assert plate_backfill.status()['state'] == 'idle'
+    plate_backfill._save(dict(plate_backfill._IDLE, state='running', total=3))
+    assert plate_backfill.status() == dict(plate_backfill._IDLE, state='interrupted', total=3)
+    path = tmp_path / 'backfill.json'
+    for invalid in (b'', b'{', b'[]', b'{}', b'{"state":"running"}', b'\xff'):
+        path.write_bytes(invalid)
+        assert plate_backfill.status() == dict(plate_backfill._IDLE, state='interrupted')
+    path.unlink()
+    path.mkdir()
+    assert plate_backfill.status()['state'] == 'interrupted'

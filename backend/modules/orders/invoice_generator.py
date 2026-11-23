@@ -4,6 +4,7 @@ from decimal import Decimal, ROUND_HALF_UP, localcontext
 from math import isfinite
 from pathlib import Path
 
+from core.display_currency import CURRENCY_MINOR_UNITS
 from fpdf import FPDF
 from fpdf.fonts import FontFace
 
@@ -38,7 +39,7 @@ def _fmt(value, currency):
         return 'Not recorded'
     if not isfinite(value):
         raise InvoiceInvalidAmount('Invalid stored billing amount')
-    digits = 0 if currency == 'JPY' else 2
+    digits = CURRENCY_MINOR_UNITS.get(currency, 2)
     with localcontext() as context:
         context.rounding = ROUND_HALF_UP
         amount = f'{Decimal(str(value)):,.{digits}f}'

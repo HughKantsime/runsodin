@@ -1,4 +1,5 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, screen } from '@testing-library/react'
+import { renderWithCurrency as render } from '../../test/renderWithCurrency'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import JobRow, { JobCardList } from './JobRow'
@@ -32,7 +33,7 @@ it.each([false, true])('a completed row offers its cost and loads it only when o
   fireEvent.click(screen.getByRole('button', { name: 'Cost' }))
   const panel = await screen.findByRole('region', { name: 'Print cost' })
   expect(jobCost.get).toHaveBeenCalledWith(801)
-  expect(panel).toHaveTextContent('Estimate 7.50, actual at least 5.75')
+  expect(panel).toHaveTextContent('Estimate EUR 7.50, actual at least EUR 5.75')
   expect(panel).toHaveTextContent('Filament use was not recorded for a print attempt')
 })
 

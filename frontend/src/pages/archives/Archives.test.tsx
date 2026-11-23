@@ -1,4 +1,5 @@
-import { render, screen, cleanup, fireEvent, within } from '@testing-library/react'
+import { screen, cleanup, fireEvent, within } from '@testing-library/react'
+import { renderWithCurrency as render } from '../../test/renderWithCurrency'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import ArchivesPage from './Archives'
@@ -38,7 +39,7 @@ test('recorded zero filament stays visible in archive detail',()=>{
  state.data={items:[archivedPrint(0)],total:1};mount();fireEvent.click(screen.getByText('Synthetic measurement'));expect(within(screen.getByRole('dialog')).getByText('0.0g')).toBeInTheDocument()
 })
 test('comparison distinguishes recorded zero filament and cost from unknown',()=>{
- const a={...archivedPrint(0),cost_estimate:0};const b={...archivedPrint(null),id:10,print_name:'Synthetic unknown',cost_estimate:null};state.data={items:[a,b],total:2};state.compare={a,b,diff:{filament_used_grams:true,cost_estimate:true}};mount();screen.getAllByRole('checkbox').forEach(box=>fireEvent.click(box));fireEvent.click(screen.getByRole('button',{name:'Compare'}));const dialog=within(screen.getByRole('dialog'));expect(dialog.getByText('0.0g')).toBeInTheDocument();expect(dialog.getByText('0.00')).toBeInTheDocument()
+ const a={...archivedPrint(0),cost_estimate:0};const b={...archivedPrint(null),id:10,print_name:'Synthetic unknown',cost_estimate:null};state.data={items:[a,b],total:2};state.compare={a,b,diff:{filament_used_grams:true,cost_estimate:true}};mount();screen.getAllByRole('checkbox').forEach(box=>fireEvent.click(box));fireEvent.click(screen.getByRole('button',{name:'Compare'}));const dialog=within(screen.getByRole('dialog'));expect(dialog.getByText('0.0g')).toBeInTheDocument();expect(dialog.getByText('EUR 0.00')).toBeInTheDocument()
 })
 
 test('archive detail corrects the exact linked print outcome',async()=>{

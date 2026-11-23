@@ -113,7 +113,7 @@ export default function EnergyWidget({ jobs }: { jobs?: any[] }) {
             <span>{loading ? 'Loading energy rate...' : 'Rate unavailable'}</span>
           ) : (
             <button onClick={() => setEditing(true)} className="text-[var(--brand-text-muted)] hover:text-[var(--brand-text-primary)] transition-colors">
-              {money(rate)}/kWh <Pencil size={10} className="inline ml-1" />
+              {money(rate, 'Unknown', 'rate')}/kWh <Pencil size={10} className="inline ml-1" />
             </button>
           )}
         </div>

@@ -11,7 +11,7 @@ export default function CompletedFileJobs({ fileId }: { fileId: number }) {
   const client = useQueryClient()
   const history = useQuery({ queryKey: ['completed-file-jobs', fileId], queryFn: () => printFilePlates.completedJobs(fileId), enabled: permitted && open })
   const repeat = useMutation({
-    mutationFn: jobs.repeat,
+    mutationFn: (jobId: number) => jobs.repeat(jobId),
     onSuccess: () => client.invalidateQueries({ queryKey: ['jobs'] }),
   })
   if (!permitted) return null

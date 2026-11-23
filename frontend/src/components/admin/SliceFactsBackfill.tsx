@@ -21,7 +21,7 @@ export default function SliceFactsBackfill() {
     <h2 className="text-lg font-semibold">Library slice facts</h2>
     <Button onClick={() => start.mutate()} disabled={start.isPending || state?.state === 'running'}>Read slice facts for older files</Button>
     {state && state.state !== 'idle' && <p role="status">{state.state === 'complete' && !state.total
-      ? 'Every stored file has already been checked.' : `${state.state}: ${state.done} of ${state.total} files checked, ${state.not_available} unavailable.`}</p>}
+      ? 'Every supported file has already been checked.' : `${state.state}: ${state.done} of ${state.total} files checked, ${state.not_available} unavailable.`}</p>}
     {(start.error || progress.error) && <p role="alert">{(start.error || progress.error)?.message}</p>}
   </Card>
 }

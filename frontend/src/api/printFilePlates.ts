@@ -14,7 +14,8 @@ export interface PlateFacts {
   warnings: PlateWarning[] | null
 }
 export interface PrintFilePlates {
-  status?: "available"
+  status: "available"
+  reason: null
   version: number
   file_hash: string
   slicer: { name: string | null; version: string | null } | null
@@ -23,6 +24,7 @@ export interface PrintFilePlates {
 }
 
 export const unavailableReasons = {
+  no_slicer_facts: 'This G-code file has no recorded slice details.',
   binary_gcode: 'This binary G-code file has no readable slice summary.',
   unsupported_type: 'This file type does not contain supported slice facts.',
   not_sliced: 'This project has no sliced plates. Export a sliced 3MF to see slice facts.',

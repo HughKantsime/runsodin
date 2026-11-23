@@ -112,7 +112,7 @@ it('stacks the plate card on a phone and puts it beside the picture from sm up',
 it.each(Object.entries(unavailableReasons))('explains %s for a visible file', async (reason, message) => {
   api.facts.mockResolvedValue({ status: 'not_available', reason, file_hash: null })
   mount()
-  expect(await screen.findByText(message)).toBeVisible()
+  expect(await screen.findByText(message)).toHaveClass('text-sm', 'text-[var(--brand-muted)]')
 })
 
 it('repeats the selected completed job through the queue and reports a hold', async () => {
@@ -124,7 +124,7 @@ it('repeats the selected completed job through the queue and reports a hold', as
   fireEvent.click(await screen.findByRole('button', { name: 'Repeat job #7' }))
   expect(await screen.findByText(/Queued again as job #8.*On hold/)).toBeVisible()
   expect(api.history).toHaveBeenCalledWith(11)
-  expect(api.repeat.mock.calls[0][0]).toBe(7)
+  expect(api.repeat).toHaveBeenCalledWith(7)
 })
 
 it('explains empty linked history without guessing from the model name', async () => {

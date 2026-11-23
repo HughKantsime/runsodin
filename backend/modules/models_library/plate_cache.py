@@ -31,6 +31,7 @@ from modules.models_library.threemf_parser import MAX_FACT_PLATES, MAX_TOTAL_THU
 log = logging.getLogger("odin.api")
 
 FACTS_VERSION = 1
+FACTS_EXTENSIONS = frozenset({".3mf", ".gcode", ".bgcode"})
 MAX_PLATE_NUMBER = 9999
 MAX_FACTS_BYTES = 2**20
 _HASH = re.compile(r"[0-9a-f]{64}")
@@ -364,7 +365,7 @@ def facts_for_row(row, *, timeout: float = 30):
 
 def facts_result(row, *, timeout=30):
     """Return (document, reason). Keep project plates that have only pictures."""
-    from core.print_payload_snapshot import PayloadUnavailable, stage_payload
+    from core.print_payload_snapshot import PayloadChanged, PayloadUnavailable, stage_payload
     from modules.models_library.mesh_isolation import plate_facts_blocking
     from modules.models_library.gcode_facts import read_facts as read_gcode
 
@@ -374,7 +375,7 @@ def facts_result(row, *, timeout=30):
         return None, "file_missing"
     path = Path(row.stored_path)
     extension = path.suffix.lower()
-    if extension not in (".3mf", ".gcode", ".bgcode"):
+    if extension not in FACTS_EXTENSIONS:
         return None, "unsupported_type"
     if not path.is_file():
         return None, "file_missing"
@@ -393,17 +394,23 @@ def facts_result(row, *, timeout=30):
                             mark_unavailable(row.file_hash, reason)
                         else:
                             cached = store(row.file_hash, facts)
-            except PayloadUnavailable as exc:
+            except PayloadChanged:
+                return None, "hash_mismatch"
+            except PayloadUnavailable:
                 if not path.is_file():
                     return None, "file_missing"
-                return None, "hash_mismatch" if "changed" in str(exc) else "parse_refused"
+                return None, "parse_refused"
             except OSError:
                 return None, "parse_failed"
             reason = unavailable_reason(row.file_hash)
         if cached is None:
-            if reason == "binary_gcode":
+            if reason in {"binary_gcode", "no_slicer_facts"}:
                 return None, reason
             return None, "parse_refused" if reason in {"too_large", "too_many_members", "facts_too_large"} else "parse_failed"
+    if extension != ".3mf" and cached["plates"] and not cached.get("slicer") and not any(
+        p.get("filaments") or p.get("weight_grams") is not None for p in cached["plates"]
+    ):
+        return None, "no_slicer_facts"
     return (cached, None) if cached["plates"] else (None, "not_sliced")
 
 
@@ -558,7 +565,7 @@ def objects_for_row(row, *, timeout=30):
     cached = read_objects(row.file_hash)
     if cached is not None:
         return cached
-    from core.print_payload_snapshot import PayloadUnavailable, stage_payload
+    from core.print_payload_snapshot import PayloadChanged, PayloadUnavailable, stage_payload
     from modules.models_library.mesh_isolation import plate_objects_blocking
     try:
         with stage_payload(row.stored_path, row.file_hash) as snapshot:

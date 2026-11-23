@@ -4,6 +4,7 @@ import json
 import os
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 from threading import Thread
 
 from fastapi import HTTPException
@@ -37,21 +38,40 @@ def _save(state):
     plate_cache._atomic_write(plate_cache.cache_root(), "backfill.json", json.dumps(state).encode())
 
 
+def _read_state():
+    path = plate_cache.cache_root() / "backfill.json"
+    try:
+        path.lstat()
+        raw = plate_cache._read_regular(path, 1024)
+        state = json.loads(raw or b"")
+        if (isinstance(state, dict) and state.keys() == _IDLE.keys()
+                and state["state"] in ("idle", "running", "complete", "failed", "interrupted")
+                and all(type(state[key]) is int and state[key] >= 0 for key in ("total", "done", "not_available"))
+                and isinstance(state["started_at"], (str, type(None)))):
+            return state
+    except FileNotFoundError:
+        return dict(_IDLE)
+    except (OSError, ValueError, RecursionError):
+        pass
+    return dict(_IDLE, state="interrupted")
+
+
 def status():
-    raw = plate_cache._read_regular(plate_cache.cache_root() / "backfill.json", 1024)
-    state = json.loads(raw) if raw else dict(_IDLE)
+    state = _read_state()
     if state["state"] == "running":
-        # The writer owns an exclusive lock until it publishes the final state.
-        # A shared probe succeeds only after that writer exits.
-        with (plate_cache.cache_root() / "backfill.lock").open("rb") as handle:
-            try:
-                fcntl.flock(handle, fcntl.LOCK_SH | fcntl.LOCK_NB)
-            except BlockingIOError:
-                return state
-            latest = plate_cache._read_regular(plate_cache.cache_root() / "backfill.json", 1024)
-            state = json.loads(latest) if latest else dict(_IDLE)
-            if state["state"] == "running":
-                state["state"] = "interrupted"
+        # Re-read under a shared lock in case the worker finished after our first read.
+        try:
+            path = plate_cache.cache_root() / "backfill.lock"
+            with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), "rb") as handle:
+                try:
+                    fcntl.flock(handle, fcntl.LOCK_SH | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    return state
+                state = _read_state()
+        except OSError:
+            pass
+        if state["state"] == "running":
+            state["state"] = "interrupted"
     return state
 
 
@@ -85,8 +105,9 @@ def start(db, user):
     if lock is None:
         raise HTTPException(409, "A backfill is already running.")
     try:
-        ids = [r.id for r in db.execute(text("SELECT f.id,f.file_hash " + _CANDIDATES + " ORDER BY f.id"))
-               if not plate_cache.has_cached_result(r.file_hash)]
+        ids = [r.id for r in db.execute(text("SELECT f.id,f.file_hash,f.stored_path " + _CANDIDATES + " ORDER BY f.id"))
+               if Path(r.stored_path or "").suffix.lower() in plate_cache.FACTS_EXTENSIONS
+               and not plate_cache.has_cached_result(r.file_hash)]
         state = dict(_IDLE, state="running", total=len(ids), started_at=datetime.now(timezone.utc).isoformat())
         log_audit(db, "print_file.plates_backfill_started", "print_file", details={"user_id": user["id"], "count": len(ids)})
         db.commit()

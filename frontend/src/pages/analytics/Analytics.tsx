@@ -124,7 +124,7 @@ function ModelRankings({ topData, worstData, jobCountData = [] }) {
         <span className="text-sm flex-1 truncate">{item.name}</span>
         <div className="text-right shrink-0">
           <div className={`font-semibold text-sm tabular-nums ${isWorst ? 'text-red-400' : 'text-green-400'}`}>
-            {money(item.value_per_hour, '—')}/hr
+            {money(item.value_per_hour, '—', 'rate')}/hr
           </div>
           <div className="text-xs text-[var(--brand-text-muted)] tabular-nums">
             {money(item.value_per_bed, '—')}/bed &middot; {item.build_time_hours}h
@@ -524,7 +524,7 @@ export default function Analytics() {
         />
         <StatCard
           label="Average value per hour"
-          value={money(summary.avg_value_per_hour)}
+          value={money(summary.avg_value_per_hour, 'Unknown', 'rate')}
           subtitle="across all models"
           icon={TrendingUp}
           color="blue"

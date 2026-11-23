@@ -12,6 +12,6 @@ export function CurrencyProvider({ children }: { children: ReactNode }) {
 
 export function useMoney() {
   const currency = useContext(DisplayCurrency)
-  return (amount: unknown, unknown = 'Unknown', precision?: number) =>
-    typeof amount === 'number' && Number.isFinite(amount) ? formatMoney(amount, currency, precision) : unknown
+  return (amount: unknown, fallback = 'Unknown', precision?: number | 'rate') =>
+    formatMoney(amount, currency, precision, fallback)
 }

@@ -1,5 +1,6 @@
 // Mobile web pass, slice 3: the phone order card carries the same fields and actions as a table row.
-import { cleanup, render } from '@testing-library/react'
+import { cleanup } from '@testing-library/react'
+import { renderWithCurrency as render } from '../../test/renderWithCurrency'
 import { afterEach, expect, test, vi } from 'vitest'
 import OrderTable from './OrderTable'
 
@@ -18,7 +19,7 @@ test('card shows the same fields as the table row', () => {
   const card = container.querySelector('.md\\:hidden') as HTMLElement
   const row = container.querySelector('tbody tr') as HTMLElement
   const date = new Date(order.created_at).toLocaleDateString()
-  for (const text of ['ETSY-100', 'Ada', 'etsy', '12.50', date]) {
+  for (const text of ['ETSY-100', 'Ada', 'etsy', 'EUR 12.50', date]) {
     expect(card.textContent).toContain(text)
     expect(row.textContent).toContain(text)
   }

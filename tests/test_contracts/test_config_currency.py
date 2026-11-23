@@ -56,3 +56,16 @@ def test_web_has_no_dollar_template_for_money():
     src = Path(__file__).parents[2] / 'frontend' / 'src'
     assert not [str(p.relative_to(src)) for p in src.rglob('*') if p.suffix in ('.ts','.tsx')
                 and '.test.' not in p.name and '$${' in p.read_text()]
+
+
+def test_web_minor_units_match_every_invoice_currency():
+    import json
+    from pathlib import Path
+    from core.finance_currency import SUPPORTED_CURRENCIES
+    from core.display_currency import CURRENCY_MINOR_UNITS
+    from modules.orders.invoice_generator import _fmt
+    table = json.loads((Path(__file__).parents[2] / 'frontend/src/utils/currencyMinorUnits.json').read_bytes())
+    assert set(table) == set(SUPPORTED_CURRENCIES)
+    assert table == CURRENCY_MINOR_UNITS
+    for code in SUPPORTED_CURRENCIES:
+        assert _fmt(1234, code) == f'{code} {1234:,.{table[code]}f}'

@@ -1,6 +1,7 @@
 import React from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
+import { renderWithCurrency as render } from '../../test/renderWithCurrency'
 import Products from './Products'
 import { products, models, consumables } from '../../api'
 import toast from 'react-hot-toast'
@@ -18,8 +19,8 @@ afterEach(()=>{cleanup();vi.clearAllMocks()})
 it('renders recorded zero prices in both product presentations',async()=>{
   render(<MemoryRouter><Products /></MemoryRouter>)
   await screen.findAllByText('Synthetic free product')
-  expect(screen.getByText('Price: 0.00')).toBeTruthy()
-  expect(screen.getAllByText('0.00').length).toBeGreaterThan(0)
+  expect(screen.getByText('Price: EUR 0.00')).toBeTruthy()
+  expect(screen.getAllByText('EUR 0.00').length).toBeGreaterThan(0)
 })
 it('preserves an explicit zero during an unchanged edit',async()=>{
   render(<MemoryRouter><Products /></MemoryRouter>)
@@ -80,12 +81,12 @@ it('does not replace a create form with a pending edit response',async()=>{
 it.each([0,null])('shows zero and unknown product estimates explicitly (%s)',async estimate=>{
  vi.mocked(products.list).mockResolvedValue([{...product,estimated_cogs:estimate}] as any)
  render(<MemoryRouter><Products/></MemoryRouter>);await screen.findAllByText('Synthetic free product')
- expect(screen.getByText(estimate===0?'Est. COGS: 0.00':'Est. COGS: Unknown')).toBeInTheDocument()
+ expect(screen.getByText(estimate===0?'Est. COGS: EUR 0.00':'Est. COGS: Unknown')).toBeInTheDocument()
  const row=screen.getAllByText('Synthetic free product').find(element=>element.closest('tr'))!.closest('tr')!
- expect(row.children[4].textContent).toBe(estimate===0?'0.00':'Unknown')
+ expect(row.children[4].textContent).toBe(estimate===0?'EUR 0.00':'Unknown')
 })
 
-it.each([[12.99,0,'6.50'],[0,0,'0.00'],[12.99,null,'Unknown'],[null,null,'Unknown'],[1e308,1e308,'Unknown'],[-1,1,'Unknown']])('shows catalog counts and a complete precise average (%s,%s)',async(first,second,average)=>{
+it.each([[12.99,0,'EUR 6.50'],[0,0,'EUR 0.00'],[12.99,null,'Unknown'],[null,null,'Unknown'],[1e308,1e308,'Unknown'],[-1,1,'Unknown']])('shows catalog counts and a complete precise average (%s,%s)',async(first,second,average)=>{
  vi.mocked(products.list).mockResolvedValue([
   {...product,id:1,name:'Synthetic first catalog',price:first,components:[{id:10},{id:11}]},
   {...product,id:2,name:'Synthetic second catalog',sku:null,price:second,components:[{id:12}]},
