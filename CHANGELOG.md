@@ -4,6 +4,10 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Starting or updating ODIN now checks long timelapse histories in seconds. Every timelapse record still receives the same checks.
+
 ## [2.6.0] - 2026-11-22
 
 

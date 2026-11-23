@@ -17,6 +17,7 @@ from core.schema.migrator import (
     apply_dedicated_python_migration,
     apply_migration_file,
     apply_python_migration,
+    apply_publication_migration_group,
     ensure_ledger,
     acquire_schema_writer_lock,
 )
@@ -636,16 +637,7 @@ def _bootstrap_database_contract(
             applied.append("python:017-timelapse-recovery")
         if apply_python_migration(connection, "core.schema.migrations.018_timelapse_unlinks"):
             applied.append("python:018-timelapse-unlinks")
-        if apply_python_migration(connection, "core.schema.migrations.019_timelapse_publications"):
-            applied.append("python:019-timelapse-publications")
-        if apply_python_migration(connection, "core.schema.migrations.020_ams_evidence"):
-            applied.append("python:020-ams-evidence")
-        if apply_python_migration(connection, "core.schema.migrations.021_economic_identity"):
-            applied.append("python:021-economic-identity")
-        if apply_python_migration(connection, "core.schema.migrations.022_economic_source_lifetimes"):
-            applied.append("python:022-economic-source-lifetimes")
-        if apply_python_migration(connection, "core.schema.migrations.023_timelapse_retirement_membership"):
-            applied.append("python:023-timelapse-retirement-membership")
+        applied.extend(apply_publication_migration_group(connection))
         if apply_python_migration(connection, "core.schema.migrations.024_audit_actor"):
             applied.append("python:024-audit-actor")
         if apply_python_migration(connection, "core.schema.migrations.025_spool_purchase_evidence"):
