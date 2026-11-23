@@ -80,7 +80,7 @@
     "frontend/src/pages/printers/CameraDetail.tsx": "eaed3d199583256a468f08cbd80a2328537c8952d5687be1f3b5bf15823933f8",
     "frontend/src/pages/printers/Cameras.tsx": "b421eeb3c173998b13763ebb7e8515c7a64ced9710506dfd503a0ff61d5d4289",
     "frontend/src/pages/printers/Maintenance.tsx": "165301913abbabb4842dbaf856c53c7b17b3d7980b6ec68aeaf35a7ecc20e6c2",
-    "frontend/src/pages/printers/PrinterDetail.tsx": "509f918491133f201451496b3f1d67d43cd43e9c8b61a228cd364f2076cc3dc7",
+    "frontend/src/pages/printers/PrinterDetail.tsx": "29b2c3b8a8078836cd942acacb1548dd339bbf793941cbc5fe2f9c7fa2054538",
     "frontend/src/pages/printers/Printers.tsx": "f2f7cf444ba50aef809d5faead6ca751de9535ece865d969dab8fa18a3e92095",
     "frontend/src/pages/vision/Detections.tsx": "951594e6c4d548de5c3a1173bbc0023e1620d191362ce2fb53a2cce58ca954eb"
   },

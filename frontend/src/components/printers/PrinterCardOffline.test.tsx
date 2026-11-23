@@ -24,12 +24,12 @@ it('shows persisted offline immediately and restores after a persisted valid rep
  view.rerender(<PrinterCard printer={{ ...printer, gcode_state: 'IDLE', print_stage: 'Idle', last_seen: '2026-10-11T12:00:00Z' }} {...props} />)
  expect(screen.getByTestId('printer-status')).toHaveTextContent('Online')
 })
-it('shows linked printer notices and restores the attention badge when a fault appears', () => {
+it.each(['compact', 'full'] as const)('shows linked notices and restores the fault badge on the %s Foundry card', slotVariant => {
  document.documentElement.dataset.themeFamily = 'foundry'
  const notice = { code: '05010400_00030002', severity: 'info', message: 'Lubricate the rods',
    wiki_url: 'https://wiki.bambulab.com/en/x1/troubleshooting/hmscode/0501_0400_0003_0002' }
  const idle = { ...printer, api_type: 'bambu', gcode_state: 'FINISH', hms_errors: JSON.stringify([notice]) } as Printer
- const card = (p: Printer) => <MemoryRouter><FoundryPrinterCard printer={p} /></MemoryRouter>
+ const card = (p: Printer) => <MemoryRouter><FoundryPrinterCard printer={p} slotVariant={slotVariant} /></MemoryRouter>
  const view = render(card(idle))
  expect(screen.getByRole('heading', {name: 'Printer notices'})).toBeVisible()
  expect(screen.getByText(notice.message)).toBeVisible()

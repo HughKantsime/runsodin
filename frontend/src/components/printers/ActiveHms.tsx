@@ -1,10 +1,10 @@
-import { hmsEvents, hmsFaults, type HmsEvent } from '../../utils/hms'
+import { hmsEvents, isHmsNotice, type HmsEvent } from '../../utils/hms'
 
 function HmsGroup({ entries, title }: { entries: HmsEvent[]; title: string }) {
   if (!entries.length) return null
   return <div>
     <h2 className="font-semibold">{title}</h2>
-    <ul>{entries.map((e, i) => <li key={e?.code ?? i}>
+    <ul>{entries.map((e, i) => <li key={i}>
       {e?.message || e?.code || 'Unrecognized printer code'} {e?.wiki_url && <a className="underline" href={e.wiki_url} target="_blank" rel="noreferrer">Bambu troubleshooting</a>}
     </li>)}</ul>
   </div>
@@ -12,9 +12,9 @@ function HmsGroup({ entries, title }: { entries: HmsEvent[]; title: string }) {
 
 export default function ActiveHms({ printer, noticesOnly = false }) {
   if (printer.api_type !== 'bambu') return null
-  const events = [...new Map(hmsEvents(printer.hms_errors).map((e, i) => [e?.code ?? i, e])).values()]
-  const faults = hmsFaults(events)
-  const notices = <HmsGroup entries={events.filter(e => !faults.includes(e))} title="Printer notices" />
+  const events = hmsEvents(printer.hms_errors)
+  const faults = events.filter(e => !isHmsNotice(e))
+  const notices = <HmsGroup entries={events.filter(isHmsNotice)} title="Printer notices" />
   if (noticesOnly) return notices
   return <section className="my-4 space-y-2" aria-label="Printer health">
     <HmsGroup entries={faults} title="Active faults" />

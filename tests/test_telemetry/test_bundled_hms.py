@@ -166,9 +166,9 @@ def test_list_keeps_each_stored_severity_when_refreshing_descriptions(lists):
         {'attr': 3, 'code': 0x10001},
     ]
     shown = display_hms_errors(entries, '094')
-    assert [e['severity'] for e in shown] == ['info', 'error', 'unknown', 'unknown', 'critical']
+    assert [e['severity'] for e in shown] == ['info', 'error', 'info', 'unknown', 'critical']
     assert shown[2]['message'] == 'Lubricate threaded rods'
-    assert attention_entries(shown) == shown[1:]
+    assert attention_entries(shown) == [shown[1], *shown[3:]]
 
 
 def test_later_fetch_failure_keeps_all_last_good_files(tmp_path):

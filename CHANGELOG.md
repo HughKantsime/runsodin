@@ -7,6 +7,7 @@ All notable changes to O.D.I.N. are documented here.
 ### Fixed
 
 - Printers that report only notices, such as maintenance reminders, now keep their normal status. The notices and their troubleshooting links stay visible on the printer card and printer page.
+- Older printer notices now appear on both Foundry card sizes. A paused print keeps its reported cause, and a notice with the same code as a fault no longer hides the fault.
 
 ## [2.6.0] - 2026-11-22
 

@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from core.db import get_db
 from core.display_names import display_names
-from core.hms_state import display_entries, is_notice, historical_hms_notice
+from core.hms_state import distinct_entries, is_notice, historical_hms_notice
 from core.rbac import get_org_scope, require_role, require_scope, should_filter_org
 from modules.printers.integration_floor import HIDDEN_ERROR_MESSAGE, Floor, iso as _iso, to_utc as _utc
 from modules.printers.models import Printer
@@ -44,7 +44,7 @@ def hms_counts(stored) -> tuple[int, int]:
         entries = json.loads(stored or "[]")
     except (TypeError, ValueError):
         return 0, 0
-    displayed = display_entries(entries) if isinstance(entries, list) else []
+    displayed = distinct_entries(entries) if isinstance(entries, list) else []
     notices = sum(is_notice(entry) for entry in displayed)
     return len(displayed) - notices, notices
 
@@ -71,7 +71,7 @@ def _odin_version() -> str:
         return "0.0.0"
 
 
-def unresolved_error(last_error_at, latest_print_start, last_completed_at=None, *, bambu_code=None) -> bool:
+def unresolved_error(last_error_at, latest_print_start, last_completed_at=None, *, bambu_code=None, gcode_state=None) -> bool:
     """A recorded error stays unresolved until a print starts, or completes, after it.
 
     ODIN keeps a printer's last error indefinitely; a later print (a retry, a
@@ -79,7 +79,9 @@ def unresolved_error(last_error_at, latest_print_start, last_completed_at=None, 
     same print going on to complete after the error was recorded.
     """
     at = _utc(last_error_at)
-    if at is None or historical_hms_notice(bambu_code):
+    if at is None:
+        return False
+    if historical_hms_notice(bambu_code) and (gcode_state or '').strip().upper() not in PAUSED_STATES | ERROR_STATES:
         return False
     started = _utc(latest_print_start)
     if started is not None and started > at:
@@ -192,7 +194,7 @@ def home_assistant_status(
         online = is_online(printer.gcode_state, printer.last_seen, now)
         hms_count, notices = hms_counts(printer.hms_errors)
         error_unresolved = unresolved_error(printer.last_error_at, latest_start.get(printer.id),
-                                            floor.completed_at(printer.id),
+                                            floor.completed_at(printer.id), gcode_state=printer.gcode_state,
                                             bambu_code=printer.last_error_code if printer.api_type == "bambu" else None)
         status = derive_status(printer.gcode_state, online, hms_count, error_unresolved)
         counts[status] += 1

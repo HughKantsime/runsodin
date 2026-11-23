@@ -54,7 +54,7 @@ export default function PrinterCard({ printer, job, next, now, children, selecti
   return <article className="f-card" aria-label={printer.nickname || printer.name}>
     <div className="f-row"><div className="f-printer-heading">{selection}<div><h2><Link to={`/printers/${printer.id}`}>{printer.nickname || printer.name}</Link></h2><p className="f-secondary">{[printer.model, feed(printer)].filter(Boolean).join(' · ')}</p></div></div><StatusBadge status={state(printer)} /></div>
     {statusDetail}
-    {slotVariant === 'compact' && <ActiveHms printer={printer} noticesOnly />}
+    <ActiveHms printer={printer} noticesOnly={slotVariant === 'compact'} />
     {job && <p className="f-job">{displayName(job)}</p>}
     {isActivePrintState(printer.gcode_state) && !job?.awaiting_confirmation && showPrinterReadings(printer, job)
       ? <LivePrintValues printer={printer} foundry />

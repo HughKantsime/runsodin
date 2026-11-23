@@ -187,6 +187,41 @@ def test_spaghetti_wins_over_runout(paused):
     assert alerts(paused)[-1]['metadata']['cause'] == 'spaghetti'
 
 
+@pytest.mark.parametrize('source', ['active', 'history', 'episode'])
+def test_paused_print_reminder_keeps_information_level_detection(paused, source):
+    from modules.printers.hms_codes import parse_hms_errors
+    entry, = parse_hms_errors([{'attr': 0x0C000300, 'code': 0x30008}])
+    assert entry['severity'] == 'info'
+    if source == 'episode':
+        transition(paused, 'resumed', 0)
+        transition(paused, 'paused', 0, code=entry['code'])
+    execute(paused, "UPDATE printers SET api_type='bambu', hms_errors=:entries, last_error_code=:code, "
+                    "last_error_at=:at", entries=json.dumps([entry] if source == 'active' else []),
+            code=entry['code'] if source == 'history' else None, at=BASE)
+    assert paused.run(2) == [1]
+    assert alerts(paused)[-1]['metadata']['cause'] == 'spaghetti'
+
+
+def test_mqtt_records_information_level_pause_cause(monkeypatch):
+    from unittest.mock import Mock
+    from core import job_timeline
+    from modules.printers.monitors.mqtt_printer import PrinterMonitor
+    from modules.printers.monitors import pause_cause
+    monitor = object.__new__(PrinterMonitor)
+    monitor.printer_id, monitor.name, monitor._current_job_id = 1, 'Printer', 1
+    monitor._state = {'gcode_state': 'PAUSE', 'print_error': 0, 'hms': [{'attr': 0x0C000300, 'code': 0x30008}]}
+    record = Mock()
+    monkeypatch.setattr(job_timeline, 'for_printer', record)
+    monitor._on_state_change('RUNNING', 'PAUSE')
+    assert record.call_args.args == (1, 'paused')
+    assert record.call_args.kwargs['code'] == '0C000300_00030008'
+    assert record.call_args.kwargs['context']['hms_codes'] == ['0C000300_00030008']
+    pause_cause.observe(monitor, monitor._state)
+    stored = pause_cause.stage(monitor, '')
+    assert stored == 'Paused: hms=0C000300_00030008'
+    assert pause_cause.display_stage(stored) != 'Paused: Cause unavailable'
+
+
 @pytest.mark.parametrize('brand', ['bambu', 'moonraker'])
 def test_monitor_runout_reaches_filament_classifier(paused, monkeypatch, brand):
     import time

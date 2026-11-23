@@ -7,7 +7,6 @@ Job lifecycle and telemetry parsing helpers are in mqtt_job_lifecycle.py
 and mqtt_telemetry.py respectively.
 """
 
-from core.hms_state import attention_entries
 from core.ports import CONTAINER_API_PORT
 from core.base import AlertType, AlertSeverity
 
@@ -719,7 +718,7 @@ class PrinterMonitor:
 
         if new_state == 'PAUSE' and old_state != 'PAUSE':
             from modules.notifications.event_dispatcher import parse_hms_errors
-            errors = attention_entries(parse_hms_errors(self._state.get('hms') or []))
+            errors = parse_hms_errors(self._state.get('hms') or [])
             worst = max(errors, key=lambda e: {'critical': 3, 'error': 2, 'warning': 1}.get(e['severity'], 0)) if errors else None
             code = self._state.get('print_error') or (worst['code'] if worst else None)
             # Record runout before the pause so both lanes agree on its cause.

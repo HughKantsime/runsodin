@@ -271,6 +271,29 @@ def test_printer_list_and_detail_return_described_notices(inventory, offline_sto
     assert alerts == []
 
 
+@pytest.mark.parametrize('fault_first', [True, False])
+def test_native_and_web_printer_fields_keep_legacy_notice_and_duplicate_fault(inventory, offline_store, fault_first):
+    from modules.printers.routes_integrations import hms_counts
+    _, view, _ = inventory
+    legacy = {'attr': 0x05010400, 'code': 0x30002}
+    duplicate = {'attr': 0x05010400, 'code': 0x30004}
+    fault = dict(duplicate, code='05010400_00030004', raw_code=0x30004, severity='error')
+    copies = [fault, duplicate] if fault_first else [duplicate, fault]
+    stored = json.dumps([legacy, *copies])
+    # The unfiltered native fleet request also serializes the SQL-seeded printers.
+    offline_store.execute(text("UPDATE printers SET slot_count=4, tags='[]', timelapse_enabled=0, shared=0 "
+                               "WHERE id IN (9, 10)"))
+    offline_store.execute(text("UPDATE printers SET hms_errors=:stored WHERE id=199"), {'stored': stored})
+    offline_store.commit()
+    assert hms_counts(stored) == (1, 1)
+    listed = next(p for p in view('/printers') if p['id'] == 199)
+    for printer in (listed, view('/printers/199')):
+        notice, error = json.loads(printer['hms_errors'])
+        assert (notice['attr'], notice['raw_code'], notice['code']) == (legacy['attr'], legacy['code'], '05010400_00030002')
+        assert notice['severity'] == 'info' and notice['informational_only'] is True
+        assert (error['code'], error['severity']) == (fault['code'], 'error')
+
+
 def test_hms_notices_return_separately_and_parse_failure_retries(inventory, monkeypatch):
     from modules.notifications import error_handling
     raw = [{'attr': 0x0300E400, 'code': 0x00020007}]

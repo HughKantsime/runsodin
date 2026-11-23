@@ -43,9 +43,20 @@ describe('active Bambu notices', () => {
  })
  it('keeps common/info out of fleet fault counts and badges', () => {
   expect(hmsFaults([notice])).toEqual([])
-  expect(hmsFaults([{code:0x40001}, {raw_code:0x40001, severity:'unknown'}])).toHaveLength(2)
+  expect(hmsFaults([{code:0x30002}, {raw_code:0x40001, severity:'unknown'}, {code:notice.code}])).toEqual([])
+  expect(hmsFaults([{code:0x50001}, {raw_code:-1}, {raw_code:0x100030002}, {}])).toHaveLength(4)
+  expect(needsYou({gcode_state:'FINISH', hms_errors:JSON.stringify([{code:0x30002}])} as Printer)).toBe(false)
   expect(printerBadgeStatus({gcode_state:'FINISH',hms_errors:[notice]},true)).toBe('FINISH')
   expect(hmsFaults([{code:0x10001},{code:0x20001}])).toHaveLength(2)
   expect(hmsFaults('[]')).toEqual([])
+ })
+ it.each([true, false])('keeps a fault when its notice copy comes first: %s', noticeFirst => {
+  const fault = {...notice, severity:'warning', message:'Check the printer'}
+  const entries = noticeFirst ? [notice, fault] : [fault, notice]
+  render(<ActiveHms printer={{api_type:'bambu', hms_errors:entries}} />)
+  expect(screen.getByText('Active faults')).toBeVisible()
+  expect(screen.getByText(fault.message)).toBeVisible()
+  expect(screen.queryByText('Printer notices')).toBeNull()
+  expect(hmsFaults(entries)).toEqual([fault])
  })
 })
