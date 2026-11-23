@@ -1,6 +1,6 @@
 """Record an operator's physical check against retained start attempts."""
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -13,7 +13,6 @@ from core.controlled_parts import allowed
 from core.db import get_db
 from core.db_compat import as_utc_datetime
 from core.display_names import filename_stem
-from core.dispatch_claim_schema import PrinterDispatchClaim
 from core.dispatch_payload_selection import SELECTED_PRINT_FILE_ID_SQL
 from core.dispatch_receipt_schema import DispatchAttemptReceipt as Receipt
 from core.dispatch_receipts import observed_filename_matches
@@ -70,7 +69,8 @@ def no_start_states(db, jobs):
     if not ids:
         return {}
     receipts = db.query(Receipt.job_id, Receipt.claim_token, Receipt.created_at, Receipt.observed_print_job_id).filter(
-        Receipt.job_id.in_(ids), ~Receipt.job_id.in_(db.query(PrinterDispatchClaim.job_id)),
+        Receipt.job_id.in_(ids),
+        text('NOT EXISTS (SELECT 1 FROM printer_dispatch_claims c WHERE c.job_id=dispatch_attempt_receipts.job_id)'),
         text('NOT EXISTS (SELECT 1 FROM print_jobs p WHERE p.scheduled_job_id=dispatch_attempt_receipts.job_id)'),
         text('NOT EXISTS (SELECT 1 FROM dispatch_sender_registrations s WHERE s.job_id=dispatch_attempt_receipts.job_id)'),
         text('NOT EXISTS (SELECT 1 FROM education_submissions e WHERE e.job_id=dispatch_attempt_receipts.job_id)'),
@@ -107,22 +107,20 @@ def _check_printers(db, job, receipts, actor):
         printer = db.execute(text('SELECT org_id,shared,api_type,last_seen,gcode_state FROM printers WHERE id=:id'),
                              {'id': pid}).mappings().first()
         if printer and not (check_org_access(actor, printer['org_id']) or printer['shared']):
-            raise HTTPException(404, 'Printer not found.')
+            raise HTTPException(403, 'An administrator must record this check because you cannot access the printer.')
         state = telemetry(db, {'printer': printer, 'target_jobs': [], 'observations': []}) if printer else 'status_unavailable'
-        active = db.execute(text("SELECT filename,job_name,observed_received_at FROM print_jobs WHERE printer_id=:pid AND ended_at IS NULL "
-                                 "AND lower(status) IN ('printing','running','paused')"), {'pid': pid}).all()
-        # A recent print observation can arrive before the printer heartbeat.
-        if state == 'status_unavailable':
-            now = datetime.now(timezone.utc)
-            active = [row for row in active if row.observed_received_at and
-                      timedelta(0) <= now - as_utc_datetime(row.observed_received_at) <= timedelta(seconds=10)]
-        observed = [name for row in active for name in (row.filename, row.job_name) if name]
-        for name in observed:
-            if filename_stem(name).casefold() in names or any(observed_filename_matches(
-                SECRET_KEY.encode(), r.claim_token, printer['api_type'] if printer else None, name, r.observed_filename_key
-            ) for r in targets[pid]):
-                raise HTTPException(409, 'The printer is reporting a print that matches this job.')
-        if observed:
+        unfinished = db.execute(text('SELECT filename,job_name FROM print_jobs WHERE printer_id=:pid AND ended_at IS NULL'),
+                                {'pid': pid})
+        observed = {name for row in unfinished for name in (row.filename, row.job_name) if name}
+        fingerprint_match = any(observed_filename_matches(
+            SECRET_KEY.encode(), r.claim_token, printer['api_type'] if printer else None, name, r.observed_filename_key
+        ) for name in observed for r in targets[pid])
+        name_match = any(filename_stem(name).casefold() in names for name in observed)
+        if fingerprint_match or (name_match and state is not None):
+            raise HTTPException(409, 'The printer is printing a file with the same name. Try again when it ends.')
+        if name_match:
+            checks[str(pid)] = 'stale_open_print_ignored'
+        elif observed:
             checks[str(pid)] = 'different_print'
         elif state is None:
             checks[str(pid)] = 'idle'
@@ -135,12 +133,10 @@ def _check_printers(db, job, receipts, actor):
 def record_no_start(job_id: int, body: NoStartRequest,
                     actor=Depends(require_action('jobs.cancel', scope='write:jobs')), db=Depends(get_db)):
     try:
-        # Cover empty evidence sets as well as existing rows. Serialize retries before reading audits.
-        if db.get_bind().dialect.name == 'postgresql':
-            db.execute(text('LOCK TABLE dispatch_attempt_receipts, dispatch_sender_registrations, education_submissions, '
-                            'print_jobs, printer_dispatch_claims, printers IN SHARE MODE NOWAIT'))
-        else:
-            db.execute(text('BEGIN IMMEDIATE'))
+        if db.get_bind().dialect.name == 'sqlite':
+            # Promote the request transaction to a writer without changing a job or starting a nested transaction.
+            db.execute(text('UPDATE jobs SET status=status WHERE 1=0'))
+        # Dispatch claim acquisition takes this same PostgreSQL row lock before inserting a claim.
         job = db.query(Job).filter_by(id=job_id).with_for_update(nowait=True).populate_existing().one_or_none()
         if not job or not check_org_access(actor, job.charged_to_org_id) or not allowed(db, 'job', job_id, actor):
             raise HTTPException(404, 'Job not found.')

@@ -1,10 +1,16 @@
 """A reconciled no-start receipt grants no printer authority."""
 import json
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+from threading import Barrier
 from types import SimpleNamespace
+from uuid import uuid4
 
 import pytest
+from fastapi import HTTPException
+from fastapi.testclient import TestClient
 from sqlalchemy import text
+from sqlalchemy.orm import Session
 
 from modules.jobs.no_start import ACTION, NoStartRequest, no_start_states, record_no_start, router
 from tests.test_contracts.test_dispatch_recovery_slot_change import slot_engine, farm, pg_engine
@@ -36,6 +42,7 @@ def test_scoped_cancel_requires_no_start_for_every_receipt(review_db,evidence):
 
 URL = '/jobs/401/dispatch-attempts/no-start'
 BODY = {'attestation': {'version': 1, 'printer_checked': True, 'job_did_not_start': True}}
+SAME_NAME = 'printing a file with the same name. Try again when it ends.'
 
 
 def receipt(db, token, *, job=401, printer=301, age=60):
@@ -109,10 +116,10 @@ def test_reconciled_receipts_can_cancel_through_scoped_http_route(held):
     ('claim', 409, 'Dispatch recovery panel'), ('bound', 409, 'linked to this job'),
     ('sender', 409, 'sender is still recorded'), ('observed', 409, 'observed a print'),
     ('young', 409, '10 minutes'), ('empty', 409, 'no recorded start'),
-    ('same_file', 409, 'matches this job'), ('fresh_observation', 409, 'matches this job'), ('wire_name', 409, 'matches this job'),
-    ('uploaded_name', 409, 'matches this job'),
+    ('same_file', 409, SAME_NAME), ('fresh_observation', 409, SAME_NAME), ('wire_name', 409, SAME_NAME),
+    ('uploaded_name', 409, SAME_NAME),
     ('education', 409, 'Education'), ('viewer', 403, 'permissions'),
-    ('scope', 403, 'scope'), ('foreign', 404, 'Job not found'), ('foreign_printer', 404, 'Printer not found'),
+    ('scope', 403, 'scope'), ('foreign', 404, 'Job not found'), ('foreign_printer', 403, 'administrator must record'),
 ])
 def test_action_refuses_without_writing(held, case, expected, reason):
     client, actor, db = held
@@ -158,6 +165,29 @@ def test_action_refuses_without_writing(held, case, expected, reason):
         assert not no_start_states(db, [SimpleNamespace(id=401, hold=True, status='pending')])
 
 
+@pytest.mark.parametrize(('name', 'status', 'fresh_idle', 'refuses'), [
+    ('odin-dispatch-' + 'a'*32, 'running', False, True),
+    ('odin-dispatch-' + 'a'*32, 'preparing', True, True),
+    ('Never sent', 'running', False, True),
+    ('Never sent', 'running', True, False),
+])
+def test_old_unfinished_print_evidence(held, name, status, fresh_idle, refuses):
+    client, _, db = held
+    old = datetime.now(timezone.utc) - timedelta(hours=1)
+    db.execute(text("UPDATE printers SET gcode_state='IDLE',last_seen=:seen WHERE id=301"),
+               {'seen': datetime.now(timezone.utc).replace(microsecond=0) if fresh_idle else old})
+    db.execute(text("UPDATE print_jobs SET status=:status,ended_at=NULL,observed_received_at=:old,job_name=:name "
+                    "WHERE scheduled_job_id=302"), {'status': status, 'old': old, 'name': name})
+    db.commit()
+    response = client.post(URL, json=BODY)
+    if refuses:
+        assert response.status_code == 409 and SAME_NAME in response.text
+        assert audits(db) == []
+    else:
+        assert response.json() == {'recorded': 2}
+        assert [row['printer_checks'] for row in audits(db)] == [{'301': 'stale_open_print_ignored'}] * 2
+
+
 @pytest.mark.parametrize('body', [{}, {'attestation': {}},
                                   {'attestation': {**BODY['attestation'], 'printer_checked': 1}},
                                   {'attestation': {**BODY['attestation'], 'job_did_not_start': False}}])
@@ -167,12 +197,10 @@ def test_explicit_attestation_required(held, body):
     assert audits(db) == []
 
 
-def test_reconciliation_transaction_on_each_database(slot_engine, farm, monkeypatch):
-    from sqlalchemy.orm import Session
+@pytest.fixture
+def job_with_receipts(slot_engine, farm, monkeypatch):
     from core.registry import registry
     from modules.organizations.services import EducationPolicyService
-    from modules.jobs import no_start
-    from uuid import uuid4
     monkeypatch.setitem(registry._providers, 'EducationPolicyProvider', EducationPolicyService())
     actor, _ = farm
     with Session(slot_engine) as db:
@@ -184,6 +212,13 @@ def test_reconciliation_transaction_on_each_database(slot_engine, farm, monkeypa
         for _ in range(2):
             receipt(db, uuid4().hex, printer=pid, job=jid)
         db.commit()
+    return actor, jid, pid
+
+
+def test_reconciliation_transaction_on_each_database(slot_engine, job_with_receipts, monkeypatch):
+    from modules.jobs import no_start
+    actor, jid, _ = job_with_receipts
+    with Session(slot_engine) as db:
         original = no_start.log_audit
         def fail_second(*args):
             if db.new:
@@ -202,26 +237,78 @@ def test_reconciliation_transaction_on_each_database(slot_engine, farm, monkeypa
 
 
 def test_authenticated_operator_token_records_and_cancels(token_client, review_db, monkeypatch):
+    from core import db
+    from core.app import create_app
+    from core.config import settings
     from core.registry import registry
-    from modules.organizations.services import EducationPolicyService
-    from modules.jobs.routes.jobs_agent import router as cancel_router
-    monkeypatch.setitem(registry._providers, 'EducationPolicyProvider', EducationPolicyService())
-    client, issue = token_client
-    client.app.include_router(router)
-    client.app.include_router(cancel_router)
+    _, issue = token_client
+    monkeypatch.setattr(db, 'engine', review_db.get_bind())
+    monkeypatch.setattr(db.SessionLocal, 'kw', dict(db.SessionLocal.kw))
+    db.SessionLocal.configure(bind=review_db.get_bind())
+    monkeypatch.setattr(registry, '_providers', {})
+    monkeypatch.setattr(registry, '_declared_requires', [])
+    monkeypatch.setattr(settings, 'trusted_hosts', '*')
+    client = TestClient(create_app())
     review_db.execute(text("UPDATE users SET role='operator' WHERE id=3"))
     review_db.execute(text("INSERT INTO jobs(id,item_name,status,charged_to_org_id,hold) VALUES(401,'Part','scheduled',1,true)"))
     receipt(review_db, '1'*32, printer=9)
     receipt(review_db, '2'*32, printer=9)
     review_db.commit()
     headers = issue(['write:jobs'])
-    assert client.post(URL, json=BODY, headers=headers).json() == {'recorded': 2}
-    assert client.post('/jobs/401/cancel', headers=headers).status_code == 200
+    response = client.post('/api' + URL, json=BODY, headers=headers)
+    assert response.status_code == 200, response.text
+    assert response.json() == {'recorded': 2}
+    assert {a['actor_token_id'] for a in audits(review_db)} == {
+        review_db.execute(text('SELECT id FROM api_tokens WHERE user_id=3')).scalar_one()}
+    assert client.post('/api/jobs/401/cancel', headers=headers).status_code == 200
+
+
+@pytest.mark.parametrize('busy', [False, True])
+def test_sqlite_request_with_open_transaction(held, busy):
+    _, actor, db = held
+    with db.get_bind().connect() as other:
+        if busy:
+            other.exec_driver_sql('BEGIN IMMEDIATE')
+        db.execute(text('PRAGMA busy_timeout=0'))
+        db.execute(text('BEGIN'))
+        if busy:
+            with pytest.raises(HTTPException) as error:
+                record_no_start(401, NoStartRequest(**BODY), actor, db)
+            assert error.value.status_code == 409
+            assert audits(db) == []
+        else:
+            assert record_no_start(401, NoStartRequest(**BODY), actor, db) == {'recorded': 2}
+
+
+@pytest.mark.postgresql
+@pytest.mark.parametrize('slot_engine', ['postgresql'], indirect=True)
+def test_postgres_concurrent_checks_during_telemetry(slot_engine, job_with_receipts):
+    from core.models import AuditLog
+    actor, jid, pid = job_with_receipts
+    start = Barrier(2)
+
+    def submit():
+        with Session(slot_engine) as db:
+            start.wait(timeout=5)
+            try:
+                return record_no_start(jid, NoStartRequest(**BODY), actor, db)['recorded']
+            except HTTPException as error:
+                assert error.status_code == 409
+                return 0
+
+    with slot_engine.begin() as telemetry:
+        telemetry.execute(text('UPDATE printers SET last_seen=CURRENT_TIMESTAMP WHERE id=:pid'), {'pid': pid})
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            submissions = [pool.submit(submit) for _ in range(2)]
+            assert sorted(call.result() for call in submissions) == [0, 2]
+    with Session(slot_engine) as db:
+        entries = db.query(AuditLog).filter_by(action=ACTION, entity_type='job', entity_id=jid).all()
+        tokens = db.execute(text('SELECT claim_token FROM dispatch_attempt_receipts WHERE job_id=:id'), {'id': jid})
+        assert len(entries) == 2
+        assert {entry.details['claim_token'] for entry in entries} == set(tokens.scalars())
 
 
 def test_concurrent_checks_record_each_receipt_once(held):
-    from concurrent.futures import ThreadPoolExecutor
-    from threading import Barrier
     client, _, db = held
     start = Barrier(2)
     def submit():
