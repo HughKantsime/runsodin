@@ -89,7 +89,7 @@ export default function IPAllowlistSettings() {
         <Shield size={20} className="text-[var(--brand-primary)]" />
         <h3 className="text-lg font-semibold">IP Allowlist</h3>
       </div>
-      <p className="text-sm text-[var(--brand-text-secondary)] mb-4">Restrict API access to specific IP addresses or CIDR ranges.</p>
+      <p className="text-sm text-[var(--brand-text-secondary)] mb-4">When enabled, the allowlist restricts web pages, the API, and live updates to the IP addresses or CIDR ranges listed here. The /health endpoint stays reachable from any address.</p>
 
       {error && (
         <PageState kind="error" role="alert" className="mb-3 p-3 bg-red-900/30 border border-red-700 rounded-md flex items-center gap-2 text-sm text-red-400">

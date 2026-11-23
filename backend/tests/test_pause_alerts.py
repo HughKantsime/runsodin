@@ -161,7 +161,7 @@ def test_get_preferences_returns_defaults_without_writes(alert_db, monkeypatch, 
     alert_db.execute(text('DELETE FROM alert_preferences WHERE user_id=3'))
     if existing:
         alert_db.execute(text("INSERT INTO alert_preferences(user_id,alert_type,in_app,browser_push,email,threshold_value) "
-                              "VALUES(3,'print_paused',FALSE,FALSE,TRUE,25),(3,'printer_error',TRUE,FALSE,FALSE,NULL)"))
+                              "VALUES(3,'print_paused',FALSE,FALSE,TRUE,25)"))
     alert_db.commit()
     before = alert_db.execute(text('SELECT * FROM alert_preferences ORDER BY id')).all()
     commit = Mock(side_effect=AssertionError('GET must not commit')) if existing else Mock(wraps=alert_db.commit)
@@ -204,12 +204,34 @@ def test_get_preferences_returns_defaults_without_writes(alert_db, monkeypatch, 
     assert len(rows) == len(by_type) == 3
     assert by_type['print_cancelled'] == dict(id=-2, user_id=3, alert_type='print_cancelled',
                                             in_app=True, browser_push=True, email=False, threshold_value=None)
+    assert by_type['printer_error'] == dict(id=-3, user_id=3, alert_type='printer_error',
+                                           in_app=True, browser_push=True, email=False, threshold_value=None)
     paused = by_type['print_paused']
     assert paused['in_app'] is (not existing)
     assert paused['browser_push'] is (not existing)
     assert paused['email'] is existing
     assert paused['threshold_value'] == (25 if existing else None)
     assert paused['id'] > 0
+
+
+def test_settings_reads_and_updates_the_legacy_printer_error_row(alert_db):
+    import asyncio
+    from modules.notifications.routes.alerts import get_alert_preferences, update_alert_preferences
+    from modules.notifications.schemas import AlertPreferencesUpdate
+
+    alert_db.execute(text("UPDATE alert_preferences SET alert_type='PRINTER_ERROR',in_app=FALSE,"
+                          "browser_push=FALSE,email=FALSE WHERE user_id=3 AND alert_type='printer_error'"))
+    alert_db.commit()
+    user = {'id': 3}
+    prefs = asyncio.run(get_alert_preferences(user, alert_db))
+    pref, = [p for p in prefs if p.alert_type == 'printer_error']
+    assert not (pref.in_app or pref.browser_push or pref.email)
+    change = AlertPreferencesUpdate(preferences=[dict(alert_type='printer_error', in_app=False,
+                                                     browser_push=True, email=False)])
+    asyncio.run(update_alert_preferences(change, user, alert_db))
+    assert alert_db.execute(text("SELECT id,alert_type,in_app,browser_push,email FROM alert_preferences "
+                                 "WHERE user_id=3 AND LOWER(alert_type)='printer_error'")).one() == (
+                                     pref.id, 'PRINTER_ERROR', False, True, False)
 
 
 @pytest.mark.parametrize('item_name,project_name,original,expected', [

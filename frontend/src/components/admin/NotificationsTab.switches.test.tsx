@@ -45,6 +45,24 @@ it.each(['Print Failed', 'Spool Low'])('names each channel for the displayed %s 
   expect(inApp).toHaveAttribute('aria-checked', checked === 'true' ? 'false' : 'true')
 })
 
+it('shows the printer error defaults and saves all three channel choices', async () => {
+  render(<NotificationsTab />)
+  expect(await screen.findByText('Printer errors')).toBeVisible()
+  expect(screen.getByText('A printer reports an error, a temperature problem, or does not confirm a pause, resume or stop.')).toBeVisible()
+  for (const [channel, checked] of [['In-app', 'true'], ['Push', 'true'], ['Email', 'false']]) {
+    const control = screen.getByRole('switch', { name: `${channel} alerts for Printer errors` })
+    expect(control).toHaveAttribute('aria-checked', checked)
+    fireEvent.click(control)
+  }
+  fireEvent.click(screen.getByRole('button', { name: 'Save Preferences' }))
+  await waitFor(() => expect(screen.getByText('Preferences saved!')).toBeVisible())
+  const request = vi.mocked(fetch).mock.calls.find(([url, init]) =>
+    url === '/api/alert-preferences' && init?.method === 'PUT')
+  expect(JSON.parse(String(request?.[1]?.body)).preferences).toContainEqual({
+    alert_type: 'printer_error', in_app: false, browser_push: false, email: true, threshold_value: null,
+  })
+})
+
 it('names the SMTP master switch and retains its toggle behavior', async () => {
   render(<NotificationsTab />)
   const smtp = await screen.findByRole('switch', { name: 'Email notifications (SMTP)' })
@@ -57,6 +75,6 @@ it('gives every rendered switch an accessible name, including temperature alerts
   render(<NotificationsTab />)
   await screen.findByRole('switch', { name: 'In-app alerts for Print Failed' })
   await screen.findByRole('switch', { name: 'Temperature anomaly alerts' })
-  await waitFor(() => expect(screen.getAllByRole('switch')).toHaveLength(33))
+  await waitFor(() => expect(screen.getAllByRole('switch')).toHaveLength(36))
   for (const control of screen.getAllByRole('switch')) expect(control).toHaveAccessibleName()
 })

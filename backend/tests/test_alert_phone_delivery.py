@@ -98,7 +98,8 @@ def test_error_repeat_policy(alert_db, path, case, expected):
               if case == 'full_message_different' else '[bambu_hms:456] new'
               if case == 'different' else '[bambu_hms:123] changed description')
     send(alert_db, path, message=second)
-    assert alert_db.execute(text('SELECT count(*) FROM alerts')).scalar_one() == expected
+    counts = alert_db.execute(text('SELECT user_id,count(*) FROM alerts GROUP BY user_id')).all()
+    assert dict(counts) == {uid: expected for uid in (1, 2, 3, 4)}
 
 
 @pytest.mark.parametrize('path', ['orm', 'daemon', 'mqtt'])
@@ -267,12 +268,15 @@ def test_uppercase_only_preference_delivers(alert_db, devices, path):
 
 @pytest.mark.parametrize('path', ['orm', 'daemon'])
 def test_dedupe_is_per_user_and_printer(alert_db, devices, path):
-    send(alert_db, path)
-    alert_db.execute(text("INSERT INTO alert_preferences(user_id,alert_type,in_app) VALUES(1,'printer_error',1)"))
+    alert_db.execute(text("INSERT INTO alert_preferences(user_id,alert_type,in_app,browser_push,email) "
+                          "VALUES(1,'printer_error',FALSE,FALSE,FALSE)"))
     alert_db.commit()
     send(alert_db, path)
-    assert set(alert_db.execute(text('SELECT user_id FROM alerts')).scalars()) == {1, 3}
-    assert alert_db.execute(text('SELECT count(*) FROM alerts')).scalar_one() == 2
+    assert sorted(alert_db.execute(text('SELECT user_id FROM alerts')).scalars()) == [2, 3, 4]
+    alert_db.execute(text("UPDATE alert_preferences SET in_app=TRUE WHERE user_id=1 AND alert_type='printer_error'"))
+    alert_db.commit()
+    send(alert_db, path)
+    assert sorted(alert_db.execute(text('SELECT user_id FROM alerts')).scalars()) == [1, 2, 3, 4]
     assert devices.send_push_result.call_count == 1  # user 3 was deduped; user 1 has no device
     from modules.notifications.alert_policy import active_resource_duplicate
     assert not active_resource_duplicate(alert_db, 3, 'printer_error', 10, None, '[bambu_hms:123] original')

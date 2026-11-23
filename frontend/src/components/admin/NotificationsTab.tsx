@@ -28,10 +28,10 @@ export default function NotificationsTab() {
       try {
         const data = await alertPreferences.get()
         // Backfill newly supported alert types when older servers omit them.
-        const types = ['print_complete', 'print_failed', 'print_paused', 'print_cancelled', 'spool_low', 'maintenance_overdue', 'bed_cooled', 'queue_added', 'queue_skipped', 'queue_failed_start']
+        const types = ['print_complete', 'print_failed', 'print_paused', 'print_cancelled', 'printer_error', 'spool_low', 'maintenance_overdue', 'bed_cooled', 'queue_added', 'queue_skipped', 'queue_failed_start']
         const prefs = types.map(type => {
-          const existing = data.find(p => p.alert_type === type || p.alert_type === type.toUpperCase())
-          return existing || { alert_type: type, in_app: true, browser_push: ['print_paused', 'print_cancelled'].includes(type), email: false, threshold_value: type === 'spool_low' ? 100 : null }
+          const existing = data.find(p => p.alert_type.toLowerCase() === type)
+          return existing ? { ...existing, alert_type: type } : { alert_type: type, in_app: true, browser_push: ['print_paused', 'print_cancelled', 'printer_error'].includes(type), email: false, threshold_value: type === 'spool_low' ? 100 : null }
         })
         setAlertPrefs(prefs)
       } catch (err) {
@@ -42,6 +42,7 @@ export default function NotificationsTab() {
           { alert_type: 'print_paused', in_app: true, browser_push: true, email: false, threshold_value: null },
           { alert_type: 'print_cancelled', in_app: true, browser_push: true, email: false, threshold_value: null },
           { alert_type: 'print_failed', in_app: true, browser_push: true, email: false, threshold_value: null },
+          { alert_type: 'printer_error', in_app: true, browser_push: true, email: false, threshold_value: null },
           { alert_type: 'spool_low', in_app: true, browser_push: false, email: false, threshold_value: 100 },
           { alert_type: 'maintenance_overdue', in_app: true, browser_push: false, email: false, threshold_value: null },
           { alert_type: 'bed_cooled', in_app: true, browser_push: false, email: false, threshold_value: 40 },
@@ -89,6 +90,7 @@ export default function NotificationsTab() {
     'print_paused':        { label: 'Print Paused',         desc: 'When a print pauses, including before printing', icon: AlertTriangle,  color: 'var(--status-failed)' },
     'print_cancelled':     { label: 'Print Cancelled',      desc: 'When a printer or user cancels a print',         icon: XCircle,        color: 'var(--status-warning)' },
     'print_failed':        { label: 'Print Failed',         desc: 'When a print fails or errors out',                icon: XCircle,        color: 'var(--status-failed)' },
+    'printer_error':      { label: 'Printer errors', desc: 'A printer reports an error, a temperature problem, or does not confirm a pause, resume or stop.', icon: AlertTriangle, color: 'var(--status-failed)' },
     'spool_low':           { label: 'Spool Low',            desc: 'When filament drops below threshold',             icon: AlertTriangle,  color: 'var(--status-warning)' },
     'maintenance_overdue': { label: 'Maintenance Due',      desc: 'When printer maintenance is overdue',             icon: Wrench,         color: 'var(--brand-text-muted)' },
     'job_submitted':       { label: 'Job Submitted',        desc: 'When a user submits a job for approval',          icon: FileText,       color: 'var(--brand-text-muted)' },
