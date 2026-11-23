@@ -6,7 +6,6 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [2.6.0] - 2026-11-22
 
-<!-- release-date placeholder: set by ops/bump-version.sh -->
 
 <!-- summary: Bambu Lab H3C support: the nine rack positions, AMS 3H filament and humidity, the built-in camera, and Experimental job sending you switch on per printer. Also an opt-in daily check for new ODIN releases, ITAR mode that starts on a stock install, and stock inspections that record who counted. -->
 
