@@ -4,6 +4,10 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Operators using a jobs token can now cancel a held job after checking the printer and recording that its requested start never began.
+
 ## [2.6.0] - 2026-11-22
 
 

@@ -62,6 +62,10 @@ export const jobs = {
   delete: (id: number): Promise<void> => fetchAPI('/jobs/' + id, { method: 'DELETE' }),
   start: (id: number): Promise<Job> => fetchAPI('/jobs/' + id + '/start', { method: 'POST' }),
   complete: (id: number): Promise<Job> => fetchAPI('/jobs/' + id + '/complete', { method: 'POST' }),
+  recordNoStart: (id: number): Promise<{ recorded: number }> => fetchAPI(`/jobs/${id}/dispatch-attempts/no-start`, {
+    method: 'POST',
+    body: JSON.stringify({ attestation: { version: 1, printer_checked: true, job_did_not_start: true } }),
+  }),
   cancel: (id: number): Promise<Job> => fetchAPI('/jobs/' + id + '/cancel', { method: 'POST' }),
   fail: (id: number): Promise<Job> => fetchAPI('/jobs/' + id + '/fail', { method: 'POST' }),
   reorder: (jobIds: number[]): Promise<void> => fetchAPI('/jobs/reorder', { method: 'PATCH', body: JSON.stringify({ job_ids: jobIds }) }),

@@ -11,6 +11,7 @@ import { jobs, printJobs } from '../../api'
 import JobTimeline from './JobTimeline'
 import JobAmsMapping from './JobAmsMapping'
 import JobCost from './JobCost'
+import JobNoStart from './JobNoStart'
 import { parseServerDay } from '../../utils/shared'
 
 function parseUTC(dateStr) {
@@ -63,6 +64,7 @@ function ScheduledJobDetail({ block }) {
       </div>
 
       <ControlledPart kind="jobs" id={job.id} />
+      <JobNoStart key={job.id} job={job} inTimeline />
       <JobAmsMapping job={job} />
       <JobTimeline jobId={block.job_id} />
       {/* Color swatches */}
