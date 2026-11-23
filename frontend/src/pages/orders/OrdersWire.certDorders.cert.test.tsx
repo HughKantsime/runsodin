@@ -81,7 +81,7 @@ describe('certD orders wire contract', () => {
   // Revenue card sums non-cancelled orders only (WIRE-WHL-3, $100 cancelled, is excluded), like Average Margin.
   it('F09-9.1-04 revenue card excludes cancelled orders', async () => {
     await mount()
-    expect(value('Revenue')).toBe('$100.00')
+    expect(value('Revenue')).toBe('100.00')
   })
 
   it('F09-9.1-01/02 detail shows platform, customer, reference and Product line items from backend detail', async () => {
@@ -90,7 +90,7 @@ describe('certD orders wire contract', () => {
     expect(dialog).toHaveTextContent('Platform: etsy')
     expect(dialog).toHaveTextContent('Customer: Wire Customer')
     expect(dialog).toHaveTextContent('2x Own product')
-    expect(dialog).toHaveTextContent('$60.00')               // line subtotal 2 x 30
+    expect(dialog).toHaveTextContent('60.00')               // line subtotal 2 x 30
     expect(calls.some(c => c.method === 'GET' && c.url === `/api/orders/${ids.fulfilled}`)).toBe(true)
   })
 
@@ -98,9 +98,9 @@ describe('certD orders wire contract', () => {
     await mount()
     const dialog = await openDetail(rowIndex('WIRE-ETSY-1'), 'WIRE-ETSY-1')
     const row = (label: string) => within(dialog).getByText(label).parentElement!
-    expect(row('Revenue')).toHaveTextContent('$60.00')
-    expect(row('Estimated COGS (BOM)')).toHaveTextContent('$17.00')
-    expect(row('Est. Profit')).toHaveTextContent('$40.00')
+    expect(row('Revenue')).toHaveTextContent('60.00')
+    expect(row('Estimated COGS (BOM)')).toHaveTextContent('17.00')
+    expect(row('Est. Profit')).toHaveTextContent('40.00')
     expect(row('Est. Margin')).toHaveTextContent('66.7%')
     for (const label of ['Actual Cost', 'Profit', 'Margin']) expect(row(label)).toHaveTextContent('Unknown')
   })

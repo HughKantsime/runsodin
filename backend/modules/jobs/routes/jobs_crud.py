@@ -660,22 +660,22 @@ async def repeat_job(job_id: int, current_user: dict = Depends(require_action("j
 
     assert_generic_model_reference_allowed(db, original.model_id)
     if original.print_file_id is not None:
-        # Repeating must retain the archived payload, not reselect a model file.
-        from modules.printers.models import Printer
+        from core.model_preview_access import is_education_owned_file
         target = db.query(Printer).filter(Printer.id == original.printer_id).first()
         if not target or not (check_org_access(current_user, target.org_id) or target.shared):
             raise HTTPException(404, "Printer not found")
-        payload = db.execute(text("SELECT pf.model_id,pf.stored_path,pf.org_id,m.org_id AS model_org "
+        payload = db.execute(text("SELECT pf.model_id,pf.stored_path,pf.blob_state,pf.org_id,m.org_id AS model_org "
                                   "FROM print_files pf JOIN models m ON m.id=pf.model_id WHERE pf.id=:id"),
                              {"id": original.print_file_id}).first()
-        if db.execute(text("SELECT 1 FROM education_submissions WHERE print_file_id=:id"),
-                      {"id": original.print_file_id}).first():
+        if is_education_owned_file(db, original.print_file_id, payload.stored_path if payload else None):
             raise HTTPException(409, "Education files require their approval workflow")
         if payload and (not check_org_access(current_user, payload.org_id)
                         or not check_org_access(current_user, payload.model_org)):
             raise HTTPException(404, "Original print file not found")
         if not payload or payload.model_id != original.model_id:
             raise HTTPException(400, "Original print file not available for repeat")
+        from modules.jobs.repeat import verify_repeat_file
+        verify_repeat_file(original, payload)
     from modules.jobs.ams_mapping import checked_repeat_mapping, mapping_audit_details
     mapping, held_for_planned_load = checked_repeat_mapping(db, current_user, original)
     from modules.jobs.repeat import build_repeated_job

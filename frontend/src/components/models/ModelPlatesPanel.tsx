@@ -2,8 +2,10 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Layers, X, Image as ImageIcon } from 'lucide-react'
 import { models } from '../../api/models'
-import { printFilePlates, type PlateFacts } from '../../api/printFilePlates'
+import { printFilePlates, unavailableReasons, type PlateFacts } from '../../api/printFilePlates'
 import { usePlateThumbnail } from '../../hooks/usePlateThumbnail'
+
+import CompletedFileJobs from './CompletedFileJobs'
 
 const SAFE_COLOR = /^#[0-9a-f]{6}([0-9a-f]{2})?$/i
 
@@ -81,7 +83,7 @@ export default function ModelPlatesPanel({ modelId, modelName, onClose }: { mode
     retry: false,
   })
   const status = (platesQuery.error as { status?: number } | null)?.status
-  const slicer = platesQuery.data?.slicer
+  const slicer = platesQuery.data?.status === 'not_available' ? null : platesQuery.data?.slicer
   const slicerText = slicer && (slicer.name || slicer.version) ? [slicer.name, slicer.version].filter(Boolean).join(' ') : null
 
   let body
@@ -91,11 +93,12 @@ export default function ModelPlatesPanel({ modelId, modelName, onClose }: { mode
   else if (platesQuery.isLoading) body = <p role="status" className="text-sm text-[var(--brand-muted)]">Loading plates…</p>
   else if (platesQuery.isError) {
     body = status === 404
-      ? <p className="text-sm text-[var(--brand-muted)]">Plate details are not available for this file (not a sliced 3MF, or the file is no longer stored).</p>
+      ? <p className="text-sm text-[var(--brand-muted)]">Plate details are not available for this file.</p>
       : status === 429
         ? <div role="alert" className="text-sm"><p className="text-amber-400 mb-2">3MF analysis is busy. Try again shortly.</p><button className="px-3 py-1.5 bg-[var(--brand-primary)] rounded-md text-sm" onClick={() => platesQuery.refetch()}>Retry</button></div>
         : <p role="alert" className="text-sm text-red-400">Could not load plate details.</p>
-  } else if (!platesQuery.data || platesQuery.data.plates.length === 0) body = <p className="text-sm text-[var(--brand-muted)]">This file has no plates.</p>
+  } else if (platesQuery.data?.status === 'not_available') body = <p>{unavailableReasons[platesQuery.data.reason] ?? unavailableReasons.parse_failed}</p>
+  else if (!platesQuery.data || platesQuery.data.plates.length === 0) body = <p className="text-sm text-[var(--brand-muted)]">This file has no plates.</p>
   else body = (
     <>
       <p className="text-xs text-[var(--brand-muted)] mb-3">{slicerText ? `Sliced with ${slicerText}` : 'Slicer not recorded'} · {platesQuery.data.plates.length} {platesQuery.data.plates.length === 1 ? 'plate' : 'plates'}</p>
@@ -123,6 +126,7 @@ export default function ModelPlatesPanel({ modelId, modelName, onClose }: { mode
           </label>
         )}
         {body}
+        {fileId != null && <CompletedFileJobs key={fileId} fileId={fileId} />}
       </div>
     </div>
   )

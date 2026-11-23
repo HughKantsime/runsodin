@@ -1,3 +1,4 @@
+import { useMoney } from '../../contexts/DisplayCurrency'
 import PageState from '../../components/ui/PageState'
 import Table from '../../components/ui/Table'
 import { useSearchParams } from 'react-router-dom'
@@ -18,6 +19,7 @@ import { EmptyState } from '../../components/ui'
 import { DialogSurface } from '../../components/ui'
 
 export default function Products() {
+  const money = useMoney()
   const [searchParams] = useSearchParams()
   const requestedInspection = Number(searchParams.get('inspect'))
   const inspectJobId = Number.isSafeInteger(requestedInspection) && requestedInspection > 0 ? requestedInspection : undefined
@@ -38,7 +40,7 @@ export default function Products() {
     typeof product.price === 'number' && Number.isFinite(product.price) && product.price >= 0)
   const priceTotal = knownPrices ? productList.reduce((sum, product) => sum + product.price, 0) : null
   const averagePrice = priceTotal != null && Number.isFinite(priceTotal)
-    ? `$${(priceTotal / productList.length).toFixed(2)}` : 'Unknown'
+    ? money(priceTotal / productList.length) : 'Unknown'
 
   const editRequest = useRef(0)
   const closeModal = () => {
@@ -302,9 +304,9 @@ export default function Products() {
                 </div>
                 <div className="text-sm space-y-1 text-[var(--brand-muted)]">
                   <div>SKU: {product.sku || '-'}</div>
-                  <div>Price: {product.price != null ? `$${product.price.toFixed(2)}` : '-'}</div>
+                  <div>Price: {product.price != null ? money(product.price) : '-'}</div>
                   <div>Components: {product.component_count || 0} parts</div>
-                  <div>Est. COGS: {product.estimated_cogs != null ? `$${product.estimated_cogs.toFixed(2)}` : 'Unknown'}</div>
+                  <div>Est. COGS: {product.estimated_cogs != null ? money(product.estimated_cogs) : 'Unknown'}</div>
                 </div>
                 {expandedProduct?.id === product.id && (
                   <div className="mt-3 pt-3 border-t border-[var(--brand-card-border)]">
@@ -376,14 +378,14 @@ export default function Products() {
                       </button>
                     </td>
                     <td className="px-4 py-3 text-[var(--brand-muted)]">{product.sku || '-'}</td>
-                    <td className="px-4 py-3 text-[var(--brand-text)]">{product.price != null ? `$${product.price.toFixed(2)}` : '-'}</td>
+                    <td className="px-4 py-3 text-[var(--brand-text)]">{product.price != null ? money(product.price) : '-'}</td>
                     <td className="px-4 py-3">
                       <span className="px-2 py-1 rounded-md text-sm bg-[var(--brand-input-bg)] text-[var(--brand-text-secondary)]">
                         {product.component_count || 0} parts
                       </span>
                     </td>
                     <td className="px-4 py-3 text-[var(--brand-text)]">
-                      {product.estimated_cogs != null ? `$${product.estimated_cogs.toFixed(2)}` : 'Unknown'}
+                      {product.estimated_cogs != null ? money(product.estimated_cogs) : 'Unknown'}
                     </td>
                     <td className="px-4 py-3 text-right">
                       {canDo('products.edit') && (

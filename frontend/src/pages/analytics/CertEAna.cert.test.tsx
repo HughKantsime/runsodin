@@ -50,14 +50,14 @@ afterEach(() => { vi.useRealTimers(); cleanup(); clients.forEach(c => c.clear())
 // ---------- F10.1 Analytics dashboard ----------
 test('F10-10.1-01 hero/margin stat cards show producer revenue, cost, margin and completed jobs', async () => {
   show(<Analytics />); await screen.findByRole('heading', { name: 'Fleet Overview' })
-  expect(card('Revenue')).toHaveTextContent('$31.00'); expect(card('Revenue')).toHaveTextContent('3 completed jobs')
-  expect(card('Total Cost')).toHaveTextContent('$11.00')
-  expect(card('Net Margin')).toHaveTextContent('$20.00'); expect(card('Net Margin')).toHaveTextContent('64.5% margin')
+  expect(card('Revenue')).toHaveTextContent('31.00'); expect(card('Revenue')).toHaveTextContent('3 completed jobs')
+  expect(card('Total Cost')).toHaveTextContent('11.00')
+  expect(card('Net Margin')).toHaveTextContent('20.00'); expect(card('Net Margin')).toHaveTextContent('64.5% margin')
 })
-test('F10-10.1-01 wording: the first (hero) row is Revenue/Pipeline/Avg $/Hour/Print Hours; cost and margin are a second row', async () => {
+test('F10-10.1-01 wording: the first (hero) row is Revenue/Pipeline/Average value per hour/Print Hours; cost and margin are a second row', async () => {
   show(<Analytics />); await screen.findByRole('heading', { name: 'Fleet Overview' })
   const rows = [card('Revenue').parentElement!, card('Total Cost').parentElement!]
-  expect([...rows[0].querySelectorAll('span.uppercase')].map(s => s.textContent)).toEqual(['Revenue', 'Pipeline', 'Avg $/Hour', 'Print Hours'])
+  expect([...rows[0].querySelectorAll('span.uppercase')].map(s => s.textContent)).toEqual(['Revenue', 'Pipeline', 'Average value per hour', 'Print Hours'])
   expect([...rows[1].querySelectorAll('span.uppercase')].map(s => s.textContent)).toEqual(['Total Cost', 'Net Margin', 'Projected Cost', 'Cost Tracked'])
 })
 // Fixed (was: reporting.ts analytics.get() dropped the window and /analytics accepted none).
@@ -113,9 +113,9 @@ test('F10-10.5-01 wording: per-model failure rates are rendered on the Analytics
 // ---------- F10.4 Energy ----------
 test('F10-10.4-02 EnergyWidget in Analytics totals producer kWh and cost', async () => {
   show(<Analytics />); const widget = (await screen.findByRole('heading', { name: 'Energy Consumption' })).parentElement!.parentElement!.parentElement!
-  await within(widget).findByRole('button', { name: /\$0\.2\/kWh/ })
+  await within(widget).findByRole('button', { name: /0\.20\/kWh/ })
   expect(within(widget).getByText('Total kWh').previousSibling).toHaveTextContent('0.8')
-  expect(within(widget).getByText('Total Cost').previousSibling).toHaveTextContent('$0.15')
+  expect(within(widget).getByText('Total Cost').previousSibling).toHaveTextContent('0.15')
   expect(within(widget).getByText('Jobs Tracked').previousSibling).toHaveTextContent('2')
 })
 // Fixed (was: EnergyWidget grouped by completed_at, a field /print-jobs never returns; it now uses ended_at).
@@ -179,31 +179,31 @@ test('F10-10.2-04 dedicated Calculator page loads saved config and model inputs'
 //   overhead $500 / 100 = $5.00. Base 10 + 6 + 0.5 + 1 + 3 + 4 = $24.50; failure buffer 10% = $2.45; subtotal $31.95.
 test('F10-10.2-01 per-model breakdown matches backend /models/{id}/cost components', async () => {
   await calculator()
-  for (const [l, v] of [['Material Cost:', '$10.00'], ['Labor Cost:', '$6.00'], ['Electricity:', '$0.50'], ['Printer Depreciation:', '$1.00'], ['Packaging:', '$3.00'], ['Failure Buffer (10%):', '$2.45'], ['Overhead:', '$5.00'], ['Other Costs:', '$4.00'], ['Subtotal:', '$31.95']]) expect(money(l)).toHaveTextContent(v)
+  for (const [l, v] of [['Material Cost:', '10.00'], ['Labor Cost:', '6.00'], ['Electricity:', '0.50'], ['Printer Depreciation:', '1.00'], ['Packaging:', '3.00'], ['Failure Buffer (10%):', '2.45'], ['Overhead:', '5.00'], ['Other Costs:', '4.00'], ['Subtotal:', '31.95']]) expect(money(l)).toHaveTextContent(v)
 })
 test('F10-10.2-02 margin from saved config prices the unit and an edited margin is saved', async () => {
   await calculator()
   // Per item: $31.95 x 1.25 = $39.94; at 30%: $31.95 x 1.30 = $41.535 -> $41.54.
-  expect(money('Recommended Price (per unit)')).toHaveTextContent('$39.94')
+  expect(money('Recommended Price (per unit)')).toHaveTextContent('39.94')
   fireEvent.change(label('Markup'), { target: { value: '30' } })
-  expect(money('Recommended Price (per unit)')).toHaveTextContent('$41.54')
+  expect(money('Recommended Price (per unit)')).toHaveTextContent('41.54')
   fireEvent.click(screen.getByRole('button', { name: 'Save Config' }))
   await waitFor(() => expect(api.save).toHaveBeenCalledWith(expect.objectContaining({ default_margin: 30 }), expect.anything()))
 })
 test('F10-10.2-03 bulk quantity multiplies the per-unit price', async () => {
   await calculator(); fireEvent.change(label('Quantity'), { target: { value: '3' } })
   // 3 x $39.9375 = $119.8125 -> $119.81
-  expect(money('Total for 3 units')).toHaveTextContent('$119.81')
+  expect(money('Total for 3 units')).toHaveTextContent('119.81')
 })
 // Fixed (was: Calculator priced a whole 2-up bed as one unit, so 'Total for 2 units' double-counted 111.50 vs 55.75).
 test('F10-10.2-03 per-unit price of a multi-unit bed divides only the per-bed costs', async () => {
   await calculator()
   expect(label('Units per Bed')).toHaveValue(2)
   // 2 x $39.9375 = $79.875 -> $79.88 (not the old double-count $111.50, nor the bed price halved $55.75 / 2).
-  expect(money('Total for 2 units')).toHaveTextContent('$79.88')
+  expect(money('Total for 2 units')).toHaveTextContent('79.88')
   // A single-unit bed: material $20, electricity $1, depreciation $2; base $36, failure $3.60, subtotal $44.60 x 1.25.
   fireEvent.change(label('Units per Bed'), { target: { value: '1' } })
-  expect(money('Recommended Price (per unit)')).toHaveTextContent('$55.75')
+  expect(money('Recommended Price (per unit)')).toHaveTextContent('55.75')
 })
 
 // Review L3: unpriced/uncosted jobs make totals Unknown (never $0.00); the pipeline is the current queue.
@@ -216,5 +216,5 @@ test('F10-10.1-01 unpriced and uncosted jobs show Unknown with their counts', as
   expect(card('Total Cost')).toHaveTextContent('Unknown'); expect(card('Total Cost')).toHaveTextContent('2 jobs without a cost estimate')
   expect(card('Net Margin')).toHaveTextContent('margin unknown')
   expect(card('Pipeline')).toHaveTextContent('1 pending jobs in the current queue')
-  expect(document.body).not.toHaveTextContent('$0.00')
+  for (const label of ['Revenue', 'Total Cost', 'Net Margin']) expect(card(label)).not.toHaveTextContent('0.00')
 })

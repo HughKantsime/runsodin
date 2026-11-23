@@ -186,7 +186,8 @@ def test_store_and_read_roundtrip_with_private_permissions(cache_root):
     digest = hashlib.sha256(b'roundtrip').hexdigest()
     document = plate_cache.store(digest, decoded_facts({'Metadata/plate_2.png': jpeg()}))
     assert plate_cache.read_facts(digest) == document
-    assert set(document) == {'version', 'file_hash', 'slicer', 'plate_count', 'plates'}
+    assert set(document) == {'status', 'reason', 'version', 'file_hash', 'slicer', 'plate_count', 'plates'}
+    assert document['status'] == 'available' and document['reason'] is None
     assert set(document['plates'][0]) == {'index', 'has_thumbnail', 'filaments', 'print_time_seconds',
                                           'weight_grams', 'layer_height', 'warnings'}
     first, second = plate_cache.read_thumbnail(digest, 1), plate_cache.read_thumbnail(digest, 2)

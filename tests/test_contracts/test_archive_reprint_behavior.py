@@ -360,3 +360,23 @@ def test_reprint_capability_preflight_readiness_seam(reprint_client, plate_numbe
     assert gate.prepare() is True
     assert gate() is True
     assert gate.refusal is None
+
+
+@pytest.mark.parametrize('change', ['hashless', 'missing', 'changed', 'education_upload'])
+def test_repeat_refuses_unverified_or_missing_file(reprint_client, review_db, change):
+    client, _, source = reprint_client
+    original = client.post('/archives/101/reprint', json={'printer_id': 9}).json()['job_id']
+    if change == 'hashless':
+        review_db.execute(text('UPDATE jobs SET payload_sha256=NULL WHERE id=:id'), {'id': original})
+        review_db.commit()
+    elif change == 'education_upload':
+        review_db.execute(text("INSERT INTO education_upload_operations(operation_id,org_id,user_id,state,final_path) "
+                               "VALUES('file-only',1,1,'committed',:path)"), {'path': str(source)})
+        review_db.commit()
+    elif change == 'missing':
+        source.unlink()
+    else:
+        source.write_bytes(b'file changed')
+    before = review_db.execute(text('SELECT count(*) FROM jobs')).scalar_one()
+    assert client.post(f'/jobs/{original}/repeat').status_code == 409
+    assert review_db.execute(text('SELECT count(*) FROM jobs')).scalar_one() == before

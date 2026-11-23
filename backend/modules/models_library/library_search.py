@@ -162,3 +162,36 @@ def file_clause(db, actor, filters):
         parts.extend(conditions)
     parts.append(_NOT_EDUCATION.format(a="print_files"))
     return " AND (" + " AND ".join(parts) + ")", params
+
+
+def completed_file_jobs(db, actor, file_id):
+    """Completed attempts explicitly bound to this file, newest visible attempt first."""
+    import json
+    from core.controlled_parts import job_visibility
+
+    visible, params = job_visibility(actor, "j")
+    org = get_org_scope(actor)
+    fence = ""
+    if should_filter_org(actor, org):
+        fence = ("AND j.charged_to_org_id IS NULL" if org is None else "AND j.charged_to_org_id=:org")
+        fence += " AND (p.org_id IS NULL OR p.org_id=:org OR p.shared IS TRUE)"
+    rows = db.execute(text(f"""
+        SELECT j.id, j.actual_end, j.plate_index, j.ams_mapping, p.name AS printer_name
+        FROM jobs j JOIN printers p ON p.id=j.printer_id
+        WHERE j.print_file_id=:file_id AND j.status='completed' {fence} AND ({visible})
+          AND NOT EXISTS (SELECT 1 FROM education_submissions es WHERE es.job_id=j.id)
+        ORDER BY j.actual_end DESC NULLS LAST, j.id DESC LIMIT 20
+    """), {**params, "file_id": file_id, "org": org}).mappings()
+    result = []
+    for row in rows:
+        job = dict(row)
+        if isinstance(job["ams_mapping"], str):
+            try:
+                job["ams_mapping"] = json.loads(job["ams_mapping"])
+            except ValueError:
+                job["ams_mapping"] = None
+        slots = job["ams_mapping"]
+        if not isinstance(slots, list) or not all(type(slot) is int for slot in slots):
+            job["ams_mapping"] = None
+        result.append(job)
+    return result

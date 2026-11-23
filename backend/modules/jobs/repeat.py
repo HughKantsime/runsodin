@@ -2,6 +2,21 @@
 from modules.jobs.models import Job
 
 
+def verify_repeat_file(original, payload):
+    from fastapi import HTTPException
+    from core.print_payload_snapshot import PayloadUnavailable, hash_regular_payload
+    if not original.payload_sha256:
+        raise HTTPException(409, "This job has no verified file. Queue the file from the library instead.")
+    if payload.blob_state != "present" or not payload.stored_path:
+        raise HTTPException(409, "The original print file is no longer available.")
+    try:
+        actual = hash_regular_payload(payload.stored_path)
+    except PayloadUnavailable:
+        raise HTTPException(409, "The original print file could not be read.") from None
+    if actual != original.payload_sha256:
+        raise HTTPException(409, "The original print file has changed. Queue the file from the library instead.")
+
+
 def build_repeated_job(original, actor, mapping, held_for_planned_load):
     return Job(
         model_id=original.model_id,

@@ -25,8 +25,8 @@ for (const theme of ['classic', 'foundry']) {
         api.list.mockResolvedValue([c.model])
         mount(<><section aria-label="Model card"><ModelCard model={{ ...c.model, ...c.expected }} {...actions} /></section><CalculatorPage /></>)
         const card = within(screen.getByRole('region', { name: 'Model card' }))
-        expect(card.getByText(/^Cost per item:/)).toHaveTextContent(`Cost per item: $${c.expected.estimated_cost.toFixed(2)}`)
-        expect(card.getByText(/^Price per item:/)).toHaveTextContent(`Price per item: $${c.expected.suggested_price.toFixed(2)}`)
+        expect(card.getByText(/^Cost per item:/)).toHaveTextContent(`Cost per item: ${c.expected.estimated_cost.toFixed(2)}`)
+        expect(card.getByText(/^Price per item:/)).toHaveTextContent(`Price per item: ${c.expected.suggested_price.toFixed(2)}`)
         if (c.model.units_per_bed > 1) expect(card.getByText(`${c.model.units_per_bed} per plate`)).toBeInTheDocument()
         else expect(card.queryByText(/per plate/)).toBeNull()
         await screen.findByText('Final Pricing')
@@ -34,8 +34,8 @@ for (const theme of ['classic', 'foundry']) {
         // The calculator edits global markup; selecting a model currently imports only plate facts.
         fireEvent.change(screen.getByLabelText('Markup'), { target: { value: String(c.expected.effective_markup_percent) } })
         expect(screen.getByLabelText('Units per Bed')).toHaveValue(c.model.units_per_bed)
-        expect(screen.getByTestId('recommended-price')).toHaveTextContent(`$${c.expected.suggested_price.toFixed(2)}`)
-        expect(screen.getByText('Subtotal:').parentElement).toHaveTextContent(`$${c.expected.estimated_cost.toFixed(2)}`)
+        expect(screen.getByTestId('recommended-price')).toHaveTextContent(`${c.expected.suggested_price.toFixed(2)}`)
+        expect(screen.getByText('Subtotal:').parentElement).toHaveTextContent(`${c.expected.estimated_cost.toFixed(2)}`)
       })
     }
 

@@ -1,10 +1,11 @@
+import { useMoney } from '../../contexts/DisplayCurrency'
+import { formatMoney } from '../../utils/formatMoney'
 import { createContext, useContext, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { pricingConfig } from '../../api'
 import { jobCost, type CostUnknownReason, type JobCost as Cost } from '../../api/jobCost'
 
 const FINISHED = ['completed', 'failed', 'cancelled']
-const money = (value: number) => `$${value.toFixed(2)}`
 const hours = (value: number) => `${Number(value.toFixed(2))} h`
 
 const UNKNOWN_TEXT: Record<CostUnknownReason, string> = {
@@ -20,14 +21,14 @@ const UNKNOWN_TEXT: Record<CostUnknownReason, string> = {
 const SOURCE_TEXT: Record<string, string> = { measured: 'printer reading', sliced_estimate: 'from the sliced file' }
 
 // "Estimate $A, actual $B" in one line; a partial total is always "at least".
-export function costSummary(cost: Cost): string {
+export function costSummary(cost: Cost, money = (value: number) => formatMoney(value, null)): string {
   const estimate = cost.estimate != null ? `Estimate ${money(cost.estimate)}` : 'No estimate'
   if (cost.state === 'none') return `${estimate}. No usage recorded, so there is no actual cost.`
   if (cost.state === 'partial') return `${estimate}, actual at least ${money(cost.total ?? 0)}`
   return `${estimate}, actual ${money(cost.total ?? 0)}`
 }
 
-function difference(cost: Cost): string | null {
+function difference(cost: Cost, money: (value: number) => string): string | null {
   if (cost.state !== 'complete' || cost.difference == null) return null
   if (cost.difference === 0) return 'Same as the estimate'
   return cost.difference > 0 ? `${money(cost.difference)} more than the estimate` : `${money(-cost.difference)} less than the estimate`
@@ -38,6 +39,7 @@ function Line({ label, value }: { label: string; value: string }) {
 }
 
 function Breakdown({ cost }: { cost: Cost }) {
+  const money = useMoney()
   const failed = (cost.attempts ?? []).filter(attempt => attempt.outcome === 'failed' || attempt.outcome === 'cancelled')
   const settings = cost.from_settings
   return <div className="mt-2 space-y-2 text-xs">
@@ -78,6 +80,7 @@ function Breakdown({ cost }: { cost: Cost }) {
 
 // detail: the job detail card (summary first, breakdown on click). Otherwise the opened row panel.
 function CostBody({ jobId, detail }: { jobId: number; detail: boolean }) {
+  const money = useMoney()
   const [open, setOpen] = useState(!detail)
   const query = useQuery({ queryKey: ['job-cost', jobId], queryFn: () => jobCost.get(jobId), retry: false, staleTime: 60000 })
   if (query.isLoading) return detail ? null : <p role="status" className="text-xs">Loading cost...</p>
@@ -85,10 +88,10 @@ function CostBody({ jobId, detail }: { jobId: number; detail: boolean }) {
   const cost = query.data
   if (!cost || !cost.configured || !cost.finished) return null
   const reasons = [...new Set((cost.unknown ?? []).map(item => UNKNOWN_TEXT[item.reason] ?? 'A cost was not recorded'))]
-  const delta = difference(cost)
+  const delta = difference(cost, money)
   return <section aria-label="Print cost" className={detail ? 'bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4 text-sm break-words' : 'text-sm break-words'}>
     {detail && <h4 className="text-[var(--brand-text-secondary)] text-xs uppercase tracking-wide mb-2">Cost</h4>}
-    <p>{costSummary(cost)}</p>
+    <p>{costSummary(cost, money)}</p>
     {delta && <p className="text-xs text-[var(--brand-text-muted)]">{delta}</p>}
     {cost.state === 'partial' && <div className="text-xs text-[var(--brand-text-muted)]">
       <p>Not the full cost. Unknown:</p>

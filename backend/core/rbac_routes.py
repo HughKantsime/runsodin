@@ -204,6 +204,7 @@ ACTION_ROUTES: dict[str, list[tuple[str, str]]] = {
         ("POST", "/api/models"),
         ("POST", "/api/models/{model_id}/revisions"),
     ],
+    "models.backfill": [("POST", "/api/print-files/plates/backfill")],
     "models.edit": [("PUT", "/api/controlled-parts/files/{identifier}"),
         ("PATCH", "/api/print-files/{file_id}/name"),
         ("POST", "/api/models/{model_id}/hide"),

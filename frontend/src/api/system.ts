@@ -7,6 +7,8 @@ const API_BASE = '/api'
 // ---- System types ----
 
 export interface AppConfig {
+  currency?: string | null;
+  currency_basis?: "organization" | "global" | null;
   [key: string]: unknown;
 }
 

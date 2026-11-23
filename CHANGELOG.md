@@ -4,6 +4,13 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+- In the model library’s Plates view, choose a completed print to queue it again with its saved printer, plate and filament slots.
+- Slice details are available for plain G-code. The library explains missing details, and platform administrators can check older files from Settings → System.
+- Maintenance shows the 30- and 90-day outcomes on separate lines, explains which prints count, and flags a high 30-day rate after at least five finished prints.
+- Set the display currency in Settings → General. Prices and costs show the currency code, or a plain number when it is unset.
+- Print archives, the print log and its CSV export include recorded materials and whether they came from charged spools, the sliced file or the job.
+- Print history now explains which date filters to use when a client sends the unsupported `days` parameter.
+
 ## [2.6.0] - 2026-11-22
 
 

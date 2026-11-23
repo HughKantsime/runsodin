@@ -64,6 +64,7 @@ class ReprintRequest(PydanticBaseModel):
 
 from modules.archives.archive_payload import archive_row_to_dict as _archive_row_to_dict
 from modules.archives.settlement_data import archive_statuses
+from modules.archives.materials import add_materials
 
 
 from modules.archives.archive_queries import build_archive_query as _build_archive_query
@@ -175,8 +176,9 @@ def list_archives(
 
     if statuses is None:
         statuses = archive_statuses(db, [dict(r._mapping) for r in rows])
+    items = [_archive_row_to_dict(r, db, user, statuses[r.id]) for r in rows]
     return {
-        "items": annotate_print_failures(db, name_payloads(db, 'archive', [_archive_row_to_dict(r, db, user, statuses[r._mapping['id']]) for r in rows], user), archive=True, user=user),
+        "items": annotate_print_failures(db, name_payloads(db, 'archive', add_materials(db, items, user), user), archive=True, user=user),
         "total": total,
         "page": page,
         "per_page": per_page,
@@ -217,6 +219,8 @@ def compare_archives(
     statuses = archive_statuses(db, [dict(row_a._mapping), dict(row_b._mapping)])
     da = name_payloads(db, 'archive', [_archive_row_to_dict(row_a, db, user, statuses[a])], user)[0]
     db_dict = name_payloads(db, 'archive', [_archive_row_to_dict(row_b, db, user, statuses[b])], user)[0]
+
+    add_materials(db, [da, db_dict], user)
 
     # Build diff — fields that differ between a and b
     compare_fields = [
@@ -269,7 +273,7 @@ def archive_log(
 
     rows = db.execute(
         text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
-            f"SELECT a.id, a.print_job_id, a.print_name, a.printer_id, a.user_id, a.status, "
+            f"SELECT a.id, a.org_id, a.consumption_json, a.print_job_id, a.print_name, a.printer_id, a.user_id, a.status, "
             f"a.started_at, a.completed_at, a.actual_duration_seconds, "
             f"a.filament_used_grams, a.cost_estimate, a.tags, a.notes AS recording_note, "
             f"p.name AS printer_name, p.nickname AS printer_nickname, "
@@ -294,6 +298,9 @@ def archive_log(
         d["tags"] = [t.strip() for t in raw_tags.split(",") if t.strip()] if raw_tags else []
         items.append(d)
 
+    add_materials(db, items, user)
+    for item in items:
+        del item["org_id"], item["consumption_json"]
     return {"items": annotate_print_failures(db, name_payloads(db, 'archive', items, user), archive=True, user=user), "total": total, "page": page, "per_page": per_page}
 
 
@@ -326,7 +333,7 @@ def export_archive_log(
 
     rows = db.execute(
         text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
-            f"SELECT a.print_name, a.status, a.started_at, a.completed_at, "
+            f"SELECT a.id, a.org_id, a.consumption_json, a.print_name, a.status, a.started_at, a.completed_at, "
             f"a.actual_duration_seconds, a.filament_used_grams, a.cost_estimate, "
             f"a.tags, p.name AS printer_name, u.username AS user_name "
             f"FROM print_archives a "
@@ -336,29 +343,29 @@ def export_archive_log(
             f"ORDER BY a.completed_at DESC"
         ),
         params,
-    ).fetchall()
+    ).mappings()
 
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow([
         "Print Name", "Printer", "User", "Status",
         "Started", "Completed", "Duration (s)",
-        "Filament (g)", "Cost", "Tags",
+        "Filament (g)", "Cost", "Tags", "Materials", "Material source",
     ])
-    for r in rows:
-        d = dict(r._mapping)
-        writer.writerow([
-            d.get("print_name", ""),
-            d.get("printer_name", ""),
-            d.get("user_name", ""),
-            d.get("status", ""),
-            d.get("started_at", ""),
-            d.get("completed_at", ""),
-            d.get("actual_duration_seconds", ""),
-            d.get("filament_used_grams", ""),
-            d.get("cost_estimate", ""),
-            d.get("tags", ""),
-        ])
+    for batch in rows.partitions(200):
+        for d in add_materials(db, [dict(row) for row in batch], user):
+            writer.writerow([
+                d.get("print_name", ""),
+                d.get("printer_name", ""),
+                d.get("user_name", ""),
+                d.get("status", ""),
+                d.get("started_at", ""),
+                d.get("completed_at", ""),
+                d.get("actual_duration_seconds", ""),
+                d.get("filament_used_grams", ""),
+                d.get("cost_estimate", ""),
+                d.get("tags", ""), json.dumps(d["materials"]), d["material_source"],
+            ])
 
     audit_download(db, "export.downloaded", details={"export": "archive-print-log",
         "filters": export_filters(printer_id=printer_id, user_id=user_id, status=status,
@@ -390,7 +397,7 @@ def get_archive(
     if not row:
         raise HTTPException(status_code=404, detail="Archive not found")
     _check_archive_org_access(db, dict(row._mapping)["id"], user)
-    return annotate_print_failures(db, name_payloads(db, 'archive', [_archive_row_to_dict(row, db, user)], user), archive=True, user=user)[0]
+    return annotate_print_failures(db, name_payloads(db, 'archive', add_materials(db, [_archive_row_to_dict(row, db, user)], user), user), archive=True, user=user)[0]
 
 
 @router.patch("/archives/{archive_id}", tags=["Archives"])

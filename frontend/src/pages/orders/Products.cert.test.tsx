@@ -20,12 +20,12 @@ it('F08-8.1-02 stat cards summarise the real catalog response', async () => {
   expect(value('Products')).toBe('2')
   expect(value('Components')).toBe('1')
   expect(value('With SKU')).toBe('1')
-  expect(value('Avg Price')).toBe('$16.00')
+  expect(value('Avg Price')).toBe('16.00')
 })
 
 it('F08-8.1-01/8.2-03 name, SKU, price and BOM COGS estimate from the real response are shown', async () => {
   render(<MemoryRouter><Products /></MemoryRouter>); await screen.findAllByText('Own product')
   expect(screen.getAllByText('OWN-1').length).toBeGreaterThan(0)
-  expect(screen.getByText('Est. COGS: $8.00')).toBeInTheDocument()
+  expect(screen.getByText('Est. COGS: 8.00')).toBeInTheDocument()
   expect(screen.getByText('Est. COGS: Unknown')).toBeInTheDocument()
 })

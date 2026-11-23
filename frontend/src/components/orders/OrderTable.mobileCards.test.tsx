@@ -18,7 +18,7 @@ test('card shows the same fields as the table row', () => {
   const card = container.querySelector('.md\\:hidden') as HTMLElement
   const row = container.querySelector('tbody tr') as HTMLElement
   const date = new Date(order.created_at).toLocaleDateString()
-  for (const text of ['ETSY-100', 'Ada', 'etsy', '$12.50', date]) {
+  for (const text of ['ETSY-100', 'Ada', 'etsy', '12.50', date]) {
     expect(card.textContent).toContain(text)
     expect(row.textContent).toContain(text)
   }

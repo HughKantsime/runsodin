@@ -129,7 +129,7 @@ function ModelModal({ isOpen, onClose, onSubmit, editingModel }) {
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-sm text-[var(--brand-muted)] mb-1">Cost per Item ($)</label>
+            <label className="block text-sm text-[var(--brand-muted)] mb-1">Cost per Item</label>
             <input type="number" step="0.01" min="0" value={formData.cost_per_item} onChange={(e) => setFormData(prev => ({ ...prev, cost_per_item: e.target.value }))} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" placeholder="e.g., 5.50" />
           </div>
           <div>

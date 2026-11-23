@@ -32,7 +32,7 @@ it.each([false, true])('a completed row offers its cost and loads it only when o
   fireEvent.click(screen.getByRole('button', { name: 'Cost' }))
   const panel = await screen.findByRole('region', { name: 'Print cost' })
   expect(jobCost.get).toHaveBeenCalledWith(801)
-  expect(panel).toHaveTextContent('Estimate $7.50, actual at least $5.75')
+  expect(panel).toHaveTextContent('Estimate 7.50, actual at least 5.75')
   expect(panel).toHaveTextContent('Filament use was not recorded for a print attempt')
 })
 

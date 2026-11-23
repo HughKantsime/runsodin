@@ -40,7 +40,7 @@ it('shows actual and estimated cost per piece, the difference and the failed sha
   expect(analytics.costPerPrint).toHaveBeenCalledWith('model', rangeStart(30))
   const row = within(section).getByText('Bracket').closest('tr')!
   expect(row).toHaveTextContent('5 completed (left out: 1 with missing records, 1 with no usage recorded)')
-  expect(within(row).getAllByRole('cell').map(cell => cell.textContent).slice(1)).toEqual(['4', '$5.66', '$5.25', '7.9% over estimate', '2%'])
+  expect(within(row).getAllByRole('cell').map(cell => cell.textContent).slice(1)).toEqual(['4', '5.66', '5.25', '7.9% over estimate', '2%'])
   expect(within(section).getAllByRole('columnheader').map(cell => cell.textContent)).toEqual(
     ['Model', 'Pieces made', 'Actual cost per piece', 'Estimate per piece', 'Actual vs estimate', 'Spent on failed attempts'])
 })

@@ -1,3 +1,4 @@
+import { useMoney } from '../../contexts/DisplayCurrency'
 import { materialLabel } from '../../utils/shared'
 import PageState from '../ui/PageState'
 import { useState } from 'react'
@@ -10,6 +11,7 @@ import { canDo } from '../../permissions'
 import { EditFilamentModal } from './SpoolEditModals'
 
 export default function FilamentLibraryView() {
+  const money = useMoney()
   const queryClient = useQueryClient()
   const [editingFilament, setEditingFilament] = useState(null)
   const [showAddModal, setShowAddModal] = useState(false)
@@ -134,7 +136,7 @@ export default function FilamentLibraryView() {
                   </span>
                   {f.cost_per_gram && (
                     <span className="px-2 py-0.5 bg-green-900/50 rounded-md text-xs text-green-400 shrink-0">
-                      ${f.cost_per_gram}/g
+                      {money(f.cost_per_gram, '—', 3)}/g
                     </span>
                   )}
                 </div>

@@ -53,6 +53,11 @@ def test_filters_by_instant_and_half_open_edges(history_client, params, expected
     assert response.headers['X-Total-Count'] == str(len(expected))
 
 
+def test_days_requires_an_explicit_date_filter(history_client):
+    response = history_client.get('/print-jobs', params={'days': 7}, headers=interactive_headers())
+    assert response.status_code == 422 and 'ended_after' in response.json()['detail']
+
+
 def test_pages_are_stable_and_total_is_before_paging(history_client):
     pages = [read(history_client, limit=2, offset=offset) for offset in (0,2,4,6)]
     assert [[row['id'] for row in page.json()] for page in pages] == [[905,904],[903,902],[901],[]]
@@ -96,11 +101,11 @@ def test_detail_uses_same_fields_without_query_defaults(history_client):
     assert history_client.get('/print-jobs/999999', headers=interactive_headers()).status_code == 404
 
 
-def test_default_limit_and_ignored_days_keep_array(history_client, review_db):
+def test_default_limit_keeps_array(history_client, review_db):
     for identifier in range(910,965):
         review_db.execute(text("INSERT INTO print_jobs(id,printer_id,status,started_at) VALUES(:id,9,'running','2026-11-02')"), {'id':identifier})
     review_db.commit()
-    response = read(history_client, days=1)
+    response = read(history_client)
     assert isinstance(response.json(), list) and len(response.json()) == 50
     assert response.headers['X-Total-Count'] == '60'
 
@@ -129,6 +134,7 @@ def test_openapi_documents_dates_and_count(history_client):
     operation = history_client.app.openapi()['paths']['/print-jobs']['get']
     assert 'X-Total-Count' in operation['responses']['200']['headers']
     parameters = {p['name']:p for p in operation['parameters']}
+    assert 'days' not in parameters
     assert all(parameters[name]['description'] for name in ('started_after','started_before','ended_after','ended_before','limit','offset'))
 
 

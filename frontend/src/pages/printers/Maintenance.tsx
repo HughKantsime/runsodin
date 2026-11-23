@@ -1,3 +1,4 @@
+import { useMoney } from '../../contexts/DisplayCurrency'
 import PrinterNumber from '../../components/ui/PrinterNumber'
 import PageState from '../../components/ui/PageState'
 import Table from '../../components/ui/Table'
@@ -112,7 +113,7 @@ function LogMaintenanceModal({ printer, task, onClose, onSave, saving }) {
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs text-[var(--brand-text-secondary)] mb-1">Cost ($)</label>
+              <label className="block text-xs text-[var(--brand-text-secondary)] mb-1">Cost</label>
               <input type="number" step="0.01" className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-[var(--brand-text-primary)] text-sm"
                 value={form.cost} onChange={e => set('cost', e.target.value)} placeholder="0.00" />
             </div>
@@ -196,7 +197,7 @@ function TaskForm({ task, onSave, onCancel, saving }: { task?: Awaited<ReturnTyp
             value={form.interval_days} onChange={e => set('interval_days', e.target.value)} placeholder="e.g. 90" />
         </div>
         <div>
-          <label className="block text-xs text-[var(--brand-text-secondary)] mb-1">Est. Cost ($)</label>
+          <label className="block text-xs text-[var(--brand-text-secondary)] mb-1">Est. Cost</label>
           <input type="number" step="0.01" className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-[var(--brand-text-primary)] text-sm"
             value={form.estimated_cost} onChange={e => set('estimated_cost', e.target.value)} />
         </div>
@@ -214,13 +215,14 @@ function TaskForm({ task, onSave, onCancel, saving }: { task?: Awaited<ReturnTyp
 
 /* ======================== Printer Status Card ======================== */
 
-// Keep both windows and the split visible, including on phones.
-function failureSummary(rate) {
-  const part = (label, w) => {
-    const total = w.completed + w.did_not_complete
-    return total === 0 ? `${label}: no prints` : `${label}: ${w.did_not_complete} of ${total} did not complete (${w.rate_percent}%) (${w.failed} failed, ${w.stopped} stopped)`
-  }
-  return `${part('30 days', rate.last_30_days)} · ${part('90 days', rate.last_90_days)}`
+function RateWindow({ days, counts }) {
+  const total = counts.completed + counts.did_not_complete
+  const high = days === 30 && total >= 5 && counts.did_not_complete / total >= 0.2
+  return <span className="block">
+    {total === 0 ? `Last ${days} days: no finished prints` :
+      `Last ${days} days: ${counts.did_not_complete} of ${total} did not complete (${counts.rate_percent}%) (${counts.failed} failed, ${counts.stopped} stopped)`}
+    {high && <strong className="ml-1 text-amber-400">High</strong>}
+  </span>
 }
 
 function PrinterCard({ printer, onLogMaintenance }) {
@@ -250,9 +252,9 @@ function PrinterCard({ printer, onLogMaintenance }) {
             </span>
           )}
           {printer.failure_rate && (
-            <span className="text-xs text-[var(--brand-text-secondary)] font-mono"
-              title="Failed plus stopped prints out of all completed, failed and stopped prints.">
-              {failureSummary(printer.failure_rate)}
+            <span className="basis-full text-xs text-[var(--brand-text-secondary)] font-mono">
+              <RateWindow days={30} counts={printer.failure_rate.last_30_days} />
+              <RateWindow days={90} counts={printer.failure_rate.last_90_days} />
             </span>
           )}
           <StatusBadge status={printer.overall_status} />
@@ -338,6 +340,7 @@ function PrinterCard({ printer, onLogMaintenance }) {
 /* ======================== Main Page ======================== */
 
 export default function Maintenance() {
+  const money = useMoney()
   const queryClient = useQueryClient()
   const [activeTab, setActiveTab] = useState('status')
   const [logModal, setLogModal] = useState(null)
@@ -449,6 +452,7 @@ export default function Maintenance() {
       {/* ==================== Fleet Status Tab ==================== */}
       {activeTab === 'status' && (
         <div className="space-y-3">
+          <p className="text-sm text-[var(--brand-text-secondary)]">The rate counts failed and stopped prints out of all completed, failed and stopped prints.</p>
           {statusLoading && <PageState kind="loading" className="text-[var(--brand-text-muted)] text-center py-8">Loading fleet status...</PageState>}
 
           {!statusLoading && statusData.length === 0 && (
@@ -541,7 +545,7 @@ export default function Maintenance() {
                       <td className="px-4 py-3 text-[var(--brand-text-secondary)] hidden sm:table-cell">{task.printer_model_filter || 'All'}</td>
                       <td className="px-4 py-3 text-right text-[var(--brand-text-secondary)] font-mono">{task.interval_print_hours ?? '—'}</td>
                       <td className="px-4 py-3 text-right text-[var(--brand-text-secondary)] font-mono">{task.interval_days ?? '—'}</td>
-                      <td className="px-4 py-3 text-right text-[var(--brand-text-secondary)] hidden sm:table-cell">{task.estimated_cost ? `$${task.estimated_cost}` : '—'}</td>
+                      <td className="px-4 py-3 text-right text-[var(--brand-text-secondary)] hidden sm:table-cell">{task.estimated_cost != null ? money(task.estimated_cost) : '—'}</td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center gap-1 justify-end">
                           <button aria-label="Edit task" onClick={() => { setEditingTask(task); setShowTaskForm(false) }}
@@ -616,7 +620,7 @@ export default function Maintenance() {
                         {log.notes && <div className="text-[var(--brand-text-muted)] text-xs mt-0.5 truncate max-w-xs">{log.notes}</div>}
                       </td>
                       <td className="px-4 py-3 text-[var(--brand-text-secondary)] hidden sm:table-cell">{log.performed_by || '—'}</td>
-                      <td className="px-4 py-3 text-right text-[var(--brand-text-secondary)] hidden sm:table-cell">{log.cost ? `$${log.cost}` : '—'}</td>
+                      <td className="px-4 py-3 text-right text-[var(--brand-text-secondary)] hidden sm:table-cell">{log.cost != null ? money(log.cost) : '—'}</td>
                       <td className="px-4 py-3 text-right text-[var(--brand-text-secondary)] hidden sm:table-cell">{log.downtime_minutes ? `${log.downtime_minutes}m` : '—'}</td>
                       <td className="px-4 py-3 text-right text-[var(--brand-text-secondary)] font-mono text-xs">{log.print_hours_at_service}h</td>
                       <td className="px-4 py-2 text-right">

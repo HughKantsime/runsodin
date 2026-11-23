@@ -152,6 +152,22 @@ try {
       try {
         await gotoReady(page, (route === '/setup' ? setup.url : app.url) + route, theme)
         await page.evaluate(() => document.fonts.ready)
+        if (route === '/maintenance' && width === 390) {
+          const viewport = page.viewportSize()
+          try {
+            for (const phoneWidth of [390, 360]) {
+              await page.setViewportSize({ ...viewport, width: phoneWidth })
+              const card = page.locator('[data-layout="stacked"]').first()
+              for (const days of [30, 90]) await card.getByText(new RegExp('Last ' + days + ' days:')).waitFor()
+              const fits = await card.evaluate(el => {
+                const rect = el.getBoundingClientRect()
+                return rect.left >= 0 && rect.right <= innerWidth && el.scrollWidth <= el.clientWidth &&
+                  document.documentElement.scrollWidth <= innerWidth
+              })
+              if (!fits) throw new Error(`Maintenance outcomes overflow at ${phoneWidth}px`)
+            }
+          } finally { await page.setViewportSize(viewport) }
+        }
         const expected = inventory.find(entry => entry.url === route).finalPath
         if (new URL(page.url()).pathname !== expected) throw new Error(`Expected ${expected}; landed on ${new URL(page.url()).pathname}`)
         if (theme === 'foundry' && await page.locator('[data-foundry-page]').count() !== 1) throw new Error('Missing Foundry page boundary')

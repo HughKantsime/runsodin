@@ -94,10 +94,14 @@ def test_archive_scoped_token_enforces_resource_and_action(private_archive,repri
 def test_education_archive_uses_real_submission_audience(private_archive,reprint_client,user,role,org,expected, education_license):
  client,db=private_archive;_,identity,_=reprint_client
  db.execute(text("UPDATE education_upload_operations SET final_path='/opaque/upload-1.3mf' WHERE operation_id='upload-1'"))
+ db.execute(text("UPDATE print_files SET filaments_json=:facts WHERE id=11"), {'facts':'[{"type":"PETG","used_grams":4}]'})
  db.execute(text("UPDATE print_archives SET job_id=13,print_file_id=11,education_submission_id=14 WHERE id=101"));db.commit()
  identity.update(id=user,role=role,group_id=org)
  response=client.get('/archives/101')
  assert response.status_code==expected,response.text
+ if expected==200:
+  assert response.json()['materials']==[{'material':'PETG','grams':4}]
+  assert response.json()['material_source']=='file'
  assert client.get('/archives?per_page=1').json()['total']==(1 if expected==200 else 0)
  assert ('Tenant A private fixture' in client.get('/archives/log/export').text)==(expected==200)
 

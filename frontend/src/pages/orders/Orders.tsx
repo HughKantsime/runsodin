@@ -1,3 +1,4 @@
+import { useMoney } from '../../contexts/DisplayCurrency'
 import PageState from '../../components/ui/PageState'
 import ShowCommitments from '../../components/orders/ShowCommitments'
 import {getCurrentUser} from '../../permissions'
@@ -31,6 +32,7 @@ const optionalAmount = (value) => {
 }
 
 function OrderStatsBar({ orders: ordersList }) {
+  const money = useMoney()
   if (!ordersList.length) return null
   // Revenue counts only live orders: cancelled orders earned nothing (same basis as Average Margin).
   const revenueOrders = ordersList.filter(order => order.status !== 'cancelled')
@@ -47,7 +49,7 @@ function OrderStatsBar({ orders: ordersList }) {
     ? (weightedProfit / weightedRevenue) * 100 : null
   const averageMargin = weightedMargin != null && Number.isFinite(weightedMargin) ? `${weightedMargin.toFixed(1)}%` : 'Unknown'
   const marginSubtitle = `Revenue-weighted estimate · ${marginKnown.length} of ${marginEligible.length} orders`
-  const revenue = revenueTotal != null && Number.isFinite(revenueTotal) ? `$${revenueTotal.toFixed(2)}` : 'Unknown'
+  const revenue = revenueTotal != null && Number.isFinite(revenueTotal) ? money(revenueTotal) : 'Unknown'
   return (
     <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2 md:gap-3 mb-6">
       <StatCard label="Total Orders" value={ordersList.length} icon={Package} color="default" />

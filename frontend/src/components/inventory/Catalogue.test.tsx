@@ -106,9 +106,10 @@ it('rejects an oversized file without sending it', () => {
 
 
 it('lists and filters an imported type without a recognised base', async () => {
-  vi.mocked(filaments.list).mockResolvedValue([...entries, { id: 'lib_15', brand: 'Bambu Lab', name: 'Invented Unlisted Polymer', material: 'OTHER' }] as any)
+  vi.mocked(filaments.list).mockResolvedValue([...entries, { id: 'lib_15', brand: 'Bambu Lab', name: 'Invented Unlisted Polymer', material: 'OTHER', cost_per_gram: 0.125 }] as any)
   provider(<FilamentLibraryView />)
   expect(await screen.findByText('Invented Unlisted Polymer')).toBeInTheDocument()
+  expect(screen.getByText('0.125/g')).toBeVisible()
   fireEvent.change(screen.getByRole('combobox'), { target: { value: 'OTHER' } })
   expect(screen.getByText('Invented Unlisted Polymer')).toBeInTheDocument()
   expect(screen.queryByText('PLA Matte Invented Orbit')).not.toBeInTheDocument()

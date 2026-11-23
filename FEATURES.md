@@ -147,6 +147,8 @@ and browser reachability check. Cellular and native-device validation is owner-r
 - Multi-filament consumption deduction: per-material evidence drives assigned-spool deductions; ambiguous total-only measurements remain unresolved
 
 ### 2b.2 Archive Browser
+- Archive list, detail, comparison and print-log responses include `materials` (material and known grams), `material` for a single material, and `material_source` (spool, file, job or null). The CSV includes materials and their source. Spool and file evidence is read when the archive is opened, so library edits can affect older entries.
+- Clients can group loaded archive rows by material and show an unknown group for an empty list.
 - Dedicated `/archives` page with table view (thumbnail, name, printer, status badge, duration, filament, date)
 - Filters: text search, printer dropdown, status dropdown
 - Pagination (50 per page)
@@ -298,6 +300,8 @@ and browser reachability check. Cellular and native-device validation is owner-r
 ## 5. Model Library
 
 ### 5.1 Upload & Metadata
+- Plates shows slice facts for sliced 3MF and plain G-code, including text-header BGCODE. G-code summaries use the first and last 64 KiB of the verified file. Platform administrators can read older files in Settings → System.
+- The Plates view lists the latest 20 visible completed jobs explicitly linked to a file. Print again uses the original job’s verified file, printer, plate and filament mapping.
 - .3mf file upload with automatic metadata extraction: print time estimate, filament usage (grams per material), target printer model, thumbnail
 - Object checklist — individual objects in the build plate with checkboxes
 - Wipe tower auto-unchecked
@@ -887,6 +891,10 @@ and browser reachability check. Cellular and native-device validation is owner-r
 - Columns: MFA fields on users, quota fields on users, chargeback columns on jobs, org columns on groups/printers/models/spools, timelapse_enabled on printers
 
 ---
+
+### Display currency
+
+Administrators choose a display currency in Settings → General. Signed-in clients read `currency` and `currency_basis` from `GET /api/config` (also `/api/v1/config`). The setting belongs to the caller’s organization, or to the installation for a caller without an organization. Unset values are null. Clients show plain numbers when unset and use any currency recorded on a transaction. The setting labels amounts without conversion. Older estimates were calculated from the price settings in effect at the time.
 
 ## 23. Native Apps
 

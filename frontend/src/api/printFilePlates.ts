@@ -14,6 +14,7 @@ export interface PlateFacts {
   warnings: PlateWarning[] | null
 }
 export interface PrintFilePlates {
+  status?: "available"
   version: number
   file_hash: string
   slicer: { name: string | null; version: string | null } | null
@@ -21,10 +22,23 @@ export interface PrintFilePlates {
   plates: PlateFacts[]
 }
 
+export const unavailableReasons = {
+  binary_gcode: 'This binary G-code file has no readable slice summary.',
+  unsupported_type: 'This file type does not contain supported slice facts.',
+  not_sliced: 'This project has no sliced plates. Export a sliced 3MF to see slice facts.',
+  file_missing: 'The stored print file is no longer available.',
+  missing_hash: 'This file has no recorded fingerprint.',
+  hash_mismatch: 'The stored file has changed since it was added.',
+  parse_refused: 'The file could not be read within the supported file limits.',
+  parse_failed: 'The slice details could not be read.',
+}
+type FactsResult = PrintFilePlates | { status: 'not_available'; file_hash: string | null; reason: keyof typeof unavailableReasons }
+
 export const printFilePlates = {
-  // 404 = not available, 429 = analysis busy (error.status is set by fetchAPI).
-  facts: (fileId: number, signal?: AbortSignal): Promise<PrintFilePlates> =>
-    fetchAPI<PrintFilePlates>(`/print-files/${fileId}/plates`, { signal, quiet: true }),
+  completedJobs: (fileId: number) => fetchAPI<{ id: number; printer_name: string; actual_end: string | null; plate_index: number | null; ams_mapping: number[] | null }[]>(`/print-files/${fileId}/completed-jobs`),
+  // Visible files without facts get a reason. A busy analysis worker returns 429.
+  facts: (fileId: number, signal?: AbortSignal): Promise<FactsResult> =>
+    fetchAPI<FactsResult>(`/print-files/${fileId}/plates`, { signal, quiet: true }),
 }
 
 const MAX_PLATE_THUMBNAIL_BYTES = 262144

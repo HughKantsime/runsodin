@@ -1,3 +1,4 @@
+import { useMoney } from '../../contexts/DisplayCurrency'
 import MeasuredFilamentCost from './MeasuredFilamentCost'
 import ShowFulfillment from './ShowFulfillment'
 import {getCurrentUser} from '../../permissions'
@@ -8,6 +9,7 @@ import { Modal } from '../ui'
 const PLATFORMS = ['etsy', 'amazon', 'ebay', 'direct', 'wholesale', 'show_ship_later', 'other']
 
 export function CreateOrderModal({ isOpen, onClose, onSubmit, formData, setFormData, items, setItems, productList }: { isOpen: boolean; onClose: () => void; onSubmit: (e: React.FormEvent) => void; formData: any; setFormData: (d: any) => void; items: any[]; setItems: (items: any[]) => void; productList: any[] }) {
+  const money = useMoney()
   if (!isOpen) return null
 
   const addItem = () => setItems([...items, { product_id: '', quantity: 1, unit_price: '' }])
@@ -131,7 +133,7 @@ export function CreateOrderModal({ isOpen, onClose, onSubmit, formData, setFormD
                 </div>
               ))}
               <div className="text-right text-sm text-[var(--brand-muted)] font-mono">
-                Subtotal: ${calcItemsTotal().toFixed(2)}
+                Subtotal: {money(calcItemsTotal())}
               </div>
             </div>
           )}
@@ -207,10 +209,9 @@ export function ProductionConfirmation({ item, onConfirm }: { item: any; onConfi
   )
 }
 
-const finiteMoney = (value) => typeof value === 'number' && Number.isFinite(value)
-  ? `${value < 0 ? '-' : ''}$${Math.abs(value).toFixed(2)}` : 'Unknown'
 
 export function OrderDetailModal({ isOpen, order, onClose, onSchedule, onShip, onCancel, onDownloadInvoice, onConfirmProduction, onShowUpdated, STATUS_CLASSES, canDo }: { isOpen: boolean; order: any; onClose: () => void; onSchedule: (id: number) => void; onShip: (order: any) => void; onCancel: (order: any) => void; onDownloadInvoice: (order: any) => void; onConfirmProduction: (itemId: number, quantity: number) => Promise<void>; onShowUpdated?: (id:number)=>void; STATUS_CLASSES: Record<string, string>; canDo: (action: string) => boolean }) {
+  const money = useMoney()
   if (!isOpen || !order) return null
 
   return (
@@ -280,7 +281,7 @@ export function OrderDetailModal({ isOpen, order, onClose, onSchedule, onShip, o
                   <ProductionConfirmation key={`${order.id}-${item.id}-${item.fulfilled_quantity}`} item={item} onConfirm={onConfirmProduction} />
                 )}
                 <div className="flex items-center gap-4 text-sm">
-                  <span className="text-[var(--brand-text-secondary)]">{item.subtotal == null ? 'Not recorded' : `$${item.subtotal.toFixed(2)}`}</span>
+                  <span className="text-[var(--brand-text-secondary)]">{item.subtotal == null ? 'Not recorded' : money(item.subtotal)}</span>
                   <span className={item.is_fulfilled ? 'text-status-printing' : 'text-status-pending'}>
                     {item.is_fulfilled ? 'Done' : `${item.fulfilled_quantity}/${item.quantity}`}
                   </span>
@@ -314,37 +315,37 @@ export function OrderDetailModal({ isOpen, order, onClose, onSchedule, onShip, o
           <div className="rounded-md p-3 space-y-1 text-sm font-mono bg-[var(--brand-content-bg)]">
             <div className="flex justify-between">
               <span className="text-[var(--brand-muted)] font-sans">Revenue</span>
-              <span className="font-medium text-[var(--brand-text)]">{order.revenue == null ? 'Not recorded' : `$${order.revenue.toFixed(2)}`}</span>
+              <span className="font-medium text-[var(--brand-text)]">{order.revenue == null ? 'Not recorded' : money(order.revenue)}</span>
             </div>
             {order.platform_fees > 0 && (
               <div className="flex justify-between text-[var(--brand-muted)]">
                 <span>Platform Fees</span>
-                <span>-${order.platform_fees.toFixed(2)}</span>
+                <span>-{money(order.platform_fees)}</span>
               </div>
             )}
             {order.payment_fees > 0 && (
               <div className="flex justify-between text-[var(--brand-muted)]">
                 <span>Payment Fees</span>
-                <span>-${order.payment_fees.toFixed(2)}</span>
+                <span>-{money(order.payment_fees)}</span>
               </div>
             )}
             {order.shipping_cost > 0 && (
               <div className="flex justify-between text-[var(--brand-muted)]">
                 <span>Shipping Cost</span>
-                <span>-${order.shipping_cost.toFixed(2)}</span>
+                <span>-{money(order.shipping_cost)}</span>
               </div>
             )}
             <div className="flex justify-between text-[var(--brand-muted)]">
               <span>Estimated Cost</span>
-              <span>{typeof order.estimated_cost === 'number' && Number.isFinite(order.estimated_cost) ? `$${order.estimated_cost.toFixed(2)}` : 'Unknown'}</span>
+              <span>{typeof order.estimated_cost === 'number' && Number.isFinite(order.estimated_cost) ? money(order.estimated_cost) : 'Unknown'}</span>
             </div>
             <div className="flex justify-between text-[var(--brand-muted)]">
               <span>Actual Cost</span>
-              <span>{typeof order.actual_cost === 'number' && Number.isFinite(order.actual_cost) ? `$${order.actual_cost.toFixed(2)}` : 'Unknown'}</span>
+              <span>{typeof order.actual_cost === 'number' && Number.isFinite(order.actual_cost) ? money(order.actual_cost) : 'Unknown'}</span>
             </div>
             <div className="flex justify-between font-medium pt-1 mt-1 border-t border-[var(--brand-card-border)]">
               <span className="text-[var(--brand-text)]">Profit</span>
-              <span>{typeof order.profit === 'number' && Number.isFinite(order.profit) ? `$${order.profit.toFixed(2)}` : 'Unknown'}</span>
+              <span>{typeof order.profit === 'number' && Number.isFinite(order.profit) ? money(order.profit) : 'Unknown'}</span>
             </div>
             <div className="flex justify-between text-[var(--brand-muted)]">
               <span>Margin</span>
@@ -353,11 +354,11 @@ export function OrderDetailModal({ isOpen, order, onClose, onSchedule, onShip, o
             {/* BOM estimates: filament + consumables per component, labeled as estimates. */}
             <div className="flex justify-between text-[var(--brand-muted)] pt-1 mt-1 border-t border-[var(--brand-card-border)]">
               <span>Estimated COGS (BOM)</span>
-              <span>{finiteMoney(order.estimated_cogs)}</span>
+              <span>{money(order.estimated_cogs)}</span>
             </div>
             <div className="flex justify-between text-[var(--brand-muted)]">
               <span>Est. Profit</span>
-              <span>{finiteMoney(order.estimated_profit)}</span>
+              <span>{money(order.estimated_profit)}</span>
             </div>
             <div className="flex justify-between text-[var(--brand-muted)]">
               <span>Est. Margin</span>

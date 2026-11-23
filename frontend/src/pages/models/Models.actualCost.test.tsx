@@ -28,7 +28,7 @@ afterEach(() => cleanup())
 test('a model with three prints on full cost records shows its actual cost per piece and how it compares', () => {
   mount()
   const line = screen.getByTestId('model-actual-cost')
-  expect(line).toHaveTextContent('Actual: $5.66 per piece over 3 prints')
+  expect(line).toHaveTextContent('Actual: 5.66 per piece over 3 prints')
   expect(line).toHaveTextContent('Prints cost 7.9% more than estimated')
 })
 

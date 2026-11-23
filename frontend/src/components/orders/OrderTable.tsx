@@ -1,3 +1,4 @@
+import { useMoney } from '../../contexts/DisplayCurrency'
 import Table from '../ui/Table'
 import { Eye, Pencil, Trash2, Play, Truck, Ban } from 'lucide-react'
 import { canDo } from '../../permissions'
@@ -5,6 +6,7 @@ import { Button, StatusBadge } from '../ui'
 import { parseServerDate } from '../../utils/shared'
 
 export default function OrderTable({ orders, STATUS_CLASSES, onDetail, onEdit, onSchedule, onShip, onCancel, onDelete }: { orders: any[]; STATUS_CLASSES: Record<string, string>; onDetail: (order: any) => void; onEdit: (order: any) => void; onSchedule: (id: number) => void; onShip: (order: any) => void; onCancel: (order: any) => void; onDelete: (id: number) => void }) {
+  const money = useMoney()
   return (
     <div tabIndex={0} role="region" aria-label="Orders" className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] overflow-hidden">
       {/* Mobile card view */}
@@ -24,7 +26,7 @@ export default function OrderTable({ orders, STATUS_CLASSES, onDetail, onEdit, o
               <div>Platform: {order.platform || '-'}</div>
               <div>Customer: {order.customer_name || '-'}</div>
               <div>Items: {order.item_count || 0}</div>
-              <div>Revenue: <span className="font-mono">{order.revenue != null ? `$${order.revenue.toFixed(2)}` : '-'}</span></div>
+              <div>Revenue: <span className="font-mono">{order.revenue != null ? money(order.revenue) : '-'}</span></div>
               {order.created_at && <div>Date: {parseServerDate(order.created_at).toLocaleDateString()}</div>}
             </div>
             <div className="flex gap-1 max-sm:[&_button]:min-h-11 max-sm:[&_button]:min-w-11">
@@ -80,7 +82,7 @@ export default function OrderTable({ orders, STATUS_CLASSES, onDetail, onEdit, o
                 <StatusBadge status={order.status} />
               </td>
               <td className="px-4 py-3 text-[var(--brand-text-secondary)]">{order.item_count || 0}</td>
-              <td className="px-4 py-3 text-[var(--brand-text)] font-mono">{order.revenue != null ? `$${order.revenue.toFixed(2)}` : '-'}</td>
+              <td className="px-4 py-3 text-[var(--brand-text)] font-mono">{order.revenue != null ? money(order.revenue) : '-'}</td>
               <td className="px-4 py-3 text-right">
                 <Button variant="ghost" size="icon" icon={Eye} onClick={() => onDetail(order)} className="text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/10" title="View Details" />
                 {canDo('orders.edit') && (

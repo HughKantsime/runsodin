@@ -19,5 +19,5 @@ it('F07 consumable list, server low-stock flag and inventory value render from t
   expect(stat('Total Items')).toBe('2')
   expect(stat('Low Stock')).toBe('1')
   expect(stat('Active')).toBe('2')
-  expect(stat('Inventory Value')).toBe('$20.36')
+  expect(stat('Inventory Value')).toBe('20.36')
 })

@@ -1,5 +1,6 @@
 """Customer-facing invoices with local fonts and no internal cost disclosure."""
 from datetime import datetime, timezone
+from decimal import Decimal, ROUND_HALF_UP, localcontext
 from math import isfinite
 from pathlib import Path
 
@@ -32,12 +33,16 @@ def _hex_to_rgb(value):
     return (34, 197, 94)
 
 
-def _fmt(value):
+def _fmt(value, currency):
     if value is None:
         return 'Not recorded'
     if not isfinite(value):
         raise InvoiceInvalidAmount('Invalid stored billing amount')
-    return f'${value:,.2f}'
+    digits = 0 if currency == 'JPY' else 2
+    with localcontext() as context:
+        context.rounding = ROUND_HALF_UP
+        amount = f'{Decimal(str(value)):,.{digits}f}'
+    return f'{currency} {amount}' if currency else amount
 
 
 class _InvoicePDF(FPDF):
@@ -84,7 +89,8 @@ class _InvoicePDF(FPDF):
 
 
 class InvoiceGenerator:
-    def __init__(self, branding, order):
+    def __init__(self, branding, order, currency=None):
+        self.currency = currency
         self.branding = branding
         self.order = order
         self.primary_rgb = _hex_to_rgb(branding.get('primary_color'))
@@ -162,7 +168,7 @@ class InvoiceGenerator:
                     subtotal += value
                 row = table.row()
                 for text in (item.get('product_name') or f"Product #{item.get('product_id', '?')}",
-                             item.get('product_sku') or '-', str(quantity), _fmt(price), _fmt(value)):
+                             item.get('product_sku') or '-', str(quantity), _fmt(price, self.currency), _fmt(value, self.currency)):
                     row.cell(text)
         pdf.ln(5)
         return subtotal if complete else None
@@ -177,7 +183,7 @@ class InvoiceGenerator:
             pdf.set_font('Invoice', 'B' if bold else '', 10)
             pdf.set_x(110)
             pdf.cell(55, 8, label, align='R')
-            pdf.cell(35, 8, _fmt(value), align='R', new_x='LMARGIN', new_y='NEXT')
+            pdf.cell(35, 8, _fmt(value, self.currency), align='R', new_x='LMARGIN', new_y='NEXT')
         row('Items Subtotal:', subtotal)
         shipping = self.order.get('shipping_charged')
         if shipping is not None:

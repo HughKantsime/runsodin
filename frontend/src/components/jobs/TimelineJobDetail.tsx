@@ -1,3 +1,4 @@
+import { useMoney } from '../../contexts/DisplayCurrency'
 import { useFoundry } from '../../hooks/themePreferences'
 import ControlledPart from '../shared/ControlledPart'
 import PrinterNumber from '../ui/PrinterNumber'
@@ -36,6 +37,7 @@ export default function BlockDetail({ block }) {
 }
 
 function ScheduledJobDetail({ block }) {
+  const money = useMoney()
   const foundry = useFoundry()
   const { data: job, isLoading } = useQuery({
     queryKey: ['job', block.job_id],
@@ -137,8 +139,8 @@ function ScheduledJobDetail({ block }) {
         <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
           <h4 className="text-[var(--brand-text-secondary)] text-xs uppercase tracking-wide mb-2">Pricing</h4>
           <div className="space-y-1.5 text-sm">
-            {job.estimated_cost != null && <Row label="Est. cost" value={`$${Number(job.estimated_cost).toFixed(2)}`} />}
-            {job.suggested_price != null && <Row label="Sugg. price" value={`$${Number(job.suggested_price).toFixed(2)}`} />}
+            {job.estimated_cost != null && <Row label="Est. cost" value={money(Number(job.estimated_cost))} />}
+            {job.suggested_price != null && <Row label="Sugg. price" value={money(Number(job.suggested_price))} />}
           </div>
         </div>
       )}

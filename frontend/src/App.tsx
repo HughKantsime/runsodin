@@ -1,3 +1,4 @@
+import { CurrencyProvider } from './contexts/DisplayCurrency'
 import { FleetSummary } from './components/foundry/Floor'
 // Self-hosted fonts (GDPR — no Google Fonts CDN)
 // Default theme fonts — always loaded
@@ -129,6 +130,7 @@ export default function App() {
 
   return (
     <ProtectedRoute>
+      <CurrencyProvider>
       <PrintControlsProvider>
       <CameraPipProvider>
       <div className="h-screen flex flex-col md:flex-row overflow-hidden">
@@ -208,6 +210,7 @@ export default function App() {
       </div>
       </CameraPipProvider>
       </PrintControlsProvider>
+      </CurrencyProvider>
     </ProtectedRoute>
   )
 }

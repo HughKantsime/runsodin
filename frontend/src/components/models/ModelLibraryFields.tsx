@@ -1,3 +1,4 @@
+import { useMoney } from '../../contexts/DisplayCurrency'
 import { materialLabel } from '../../utils/shared'
 import ModelPlates from './ModelPlates'
 import { FileFactChips, PrinterFitLine } from './FileFacts'
@@ -11,6 +12,7 @@ import toast from 'react-hot-toast'
 import { formatGrams, formatHours } from '../../utils/shared'
 
 export function ModelCard({  model, onEdit, onDelete, onSchedule, onToggleFavorite, onView3D, onRevisions, onPlates = undefined, submitForApproval = false, pricingConfigured = true, actualCost = undefined }) {
+  const money = useMoney()
   const queryClient = useQueryClient()
   return (
     <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] overflow-hidden hover:border-[var(--brand-card-border)] transition-colors">
@@ -136,17 +138,17 @@ export function ModelCard({  model, onEdit, onDelete, onSchedule, onToggleFavori
         {pricingConfigured && (model.estimated_cost > 0 || model.suggested_price > 0) && (
           <div className="flex flex-wrap items-center justify-between gap-2 mt-3 pt-3 border-t border-[var(--brand-card-border)]">
             <div className="text-xs text-[var(--brand-muted)]">
-              Cost per item: <span className="text-[var(--brand-text-secondary)]">${model.estimated_cost?.toFixed(2) || '—'}</span>
+              Cost per item: <span className="text-[var(--brand-text-secondary)]">{money(model.estimated_cost, '—')}</span>
             </div>
             <div className="text-xs font-medium text-green-400">
-              Price per item: ${model.suggested_price?.toFixed(2) || '—'}
+              Price per item: {money(model.suggested_price, '—')}
             </div>
           </div>
         )}
 
         {pricingConfigured && actualCost?.average_actual_per_piece != null && (
           <div className="mt-2 text-xs text-[var(--brand-muted)]" data-testid="model-actual-cost">
-            Actual: <span className="text-[var(--brand-text-secondary)]">${actualCost.average_actual_per_piece.toFixed(2)} per piece</span> over {actualCost.jobs_with_full_cost} prints
+            Actual: <span className="text-[var(--brand-text-secondary)]">{money(actualCost.average_actual_per_piece)} per piece</span> over {actualCost.jobs_with_full_cost} prints
             {actualCost.variance_percent != null && actualCost.variance_percent !== 0 && (
               <span className="block">Prints cost {Math.abs(actualCost.variance_percent)}% {actualCost.variance_percent > 0 ? 'more' : 'less'} than estimated</span>
             )}

@@ -24,10 +24,10 @@ afterEach(()=>{cleanup();vi.clearAllMocks();vi.unstubAllGlobals()})
 function system(){const client=new QueryClient({defaultOptions:{queries:{retry:false},mutations:{retry:false}}});render(<QueryClientProvider client={client}><SystemTab/></QueryClientProvider>)}
 test('F10-10.4-02 EnergyWidget aggregates daily consumption from actual job records',async()=>{
  render(<EnergyWidget jobs={[{energy_kwh:2,ended_at:'2026-10-10 12:00:00'},{energy_kwh:3,ended_at:'2026-10-10 14:00:00'},{energy_kwh:1,ended_at:'2026-10-11 12:00:00'}]}/>)
- await screen.findByRole('button',{name:/\$0.2\/kWh/})
+ await screen.findByRole('button',{name:/0\.20\/kWh/})
  const data=JSON.parse(screen.getByTestId('energy-series').childNodes[0].textContent!)
  expect(data).toEqual([{day:'Oct 10',kwh:5,cost:1},{day:'Oct 11',kwh:1,cost:.2}])
- expect(screen.getByText('$1.20')).toBeInTheDocument()
+ expect(screen.getByText('1.20')).toBeInTheDocument()
 })
 test.each([['Jobs','/export/jobs','jobs_export.csv'],['Models','/export/models','models_export.csv'],['Spools','/export/spools','spools_export.csv'],['Filament Usage','/export/filament-usage','filament_usage_export.csv']])('F10-10.6-02 System export %s forwards exact endpoint and filename',async(label,path,filename)=>{
  system();fireEvent.click(screen.getByRole('button',{name:label,exact:true}))

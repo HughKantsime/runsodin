@@ -1,3 +1,5 @@
+import { useMoney } from '../../contexts/DisplayCurrency'
+import ArchiveMaterial from '../../components/archives/ArchiveMaterial'
 import FilamentAccounting from './FilamentSettlement'
 import CheckTarget from '../../components/ui/CheckTarget'
 import PageState from '../../components/ui/PageState'
@@ -85,6 +87,7 @@ function TagEditor({ tags, onChange }) {
 }
 
 function CompareModal({ a, b, onClose }) {
+  const money = useMoney()
   const { data, isLoading } = useQuery({
     queryKey: ['archive-compare', a.id, b.id],
     queryFn: () => archives.compare(a.id, b.id),
@@ -98,7 +101,7 @@ function CompareModal({ a, b, onClose }) {
     field('status', 'Status', v => v ?? '--'),
     field('actual_duration_seconds', 'Duration', formatDuration),
     field('filament_used_grams', 'Filament (g)', v => v != null ? `${v.toFixed(1)}g` : '--'),
-    field('cost_estimate', 'Cost', v => v != null ? `$${v.toFixed(2)}` : '--'),
+    field('cost_estimate', 'Cost', v => v != null ? money(v) : '--'),
     field('started_at', 'Started', formatDate),
     field('completed_at', 'Completed', formatDate),
   ]
@@ -242,6 +245,7 @@ function ArchiveDetail({ archive, onClose, onDelete, onNotesUpdate, onTagsUpdate
 
         {!archive.failure_correction && <OutcomeCorrection key={archive.id} jobId={archive.job_id} printId={archive.print_job_id} status={archive.status} onCorrected={onClose} />}
         <PrintFailureControl canCorrect={archive.failure_correction_allowed} inline key={`${archive.id}:${archive.status}`} printId={archive.print_job_id} status={archive.status} endedAt={archive.completed_at} correction={archive.failure_correction} onCorrected={onClose} />
+        <p>Material: <ArchiveMaterial archive={archive} /></p>
         <FilamentAccounting archive={archive} />
 
         {/* Tags */}
@@ -570,6 +574,7 @@ export default function ArchivesPage() {
                   status={<SharedStatusBadge status={item.status} size="sm" kind="job" />}
                   fields={[
                     ['Printer', item.printer_display],
+                    ['Material', <ArchiveMaterial archive={item} />],
                     ['Duration', formatDuration(item.actual_duration_seconds)],
                     ['Filament', item.filament_used_grams != null ? `${item.filament_used_grams.toFixed(1)}g` : '--'],
                     ['Date', formatDate(item.completed_at)],
@@ -595,6 +600,7 @@ export default function ArchivesPage() {
                   <th className="py-2 px-3 text-left hidden md:table-cell">Printer</th>
                   <th className="py-2 px-3 text-left">Status</th>
                   <th className="py-2 px-3 text-left hidden lg:table-cell">Duration</th>
+                  <th scope="col" className="py-2 px-3 text-left">Material</th>
                   <th className="py-2 px-3 text-left hidden lg:table-cell">Filament</th>
                   <th className="py-2 px-3 text-left">Date</th>
                 </tr>
@@ -639,6 +645,7 @@ export default function ArchivesPage() {
                     <td className="py-2 px-3 text-[var(--brand-text-muted)] hidden lg:table-cell">
                       <span className="flex items-center gap-1"><Clock size={12} /> {formatDuration(item.actual_duration_seconds)}</span>
                     </td>
+                    <td className="py-2 px-3"><ArchiveMaterial archive={item} /></td>
                     <td className="py-2 px-3 text-[var(--brand-text-muted)] hidden lg:table-cell">
                       {item.filament_used_grams != null ? `${item.filament_used_grams.toFixed(1)}g` : '--'}
                     </td>

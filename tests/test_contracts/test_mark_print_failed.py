@@ -473,3 +473,16 @@ def test_home_assistant_feed_counts_the_day_the_print_ended(client, review_db, m
     yesterday = feed()
     assert mark(client).status_code == 200
     assert feed() == yesterday
+
+def test_maintenance_rate_keeps_stopped_print_in_total_after_correction(client, review_db):
+    from modules.system.maintenance_status import failure_rates
+
+    def counts():
+        window = failure_rates(review_db, [9], datetime(2026, 11, 15, tzinfo=timezone.utc))[9]['last_30_days']
+        return window['failed'], window['stopped'], window['did_not_complete']
+
+    before = counts()
+    assert mark(client).status_code == 200
+    assert counts() == (before[0] + 1, before[1] - 1, before[2])
+    assert undo(client).status_code == 200
+    assert counts() == before

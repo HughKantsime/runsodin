@@ -1,25 +1,47 @@
 {
-  "$include": ["common.json"],
-  "GET /api/users": [],
+  "$include": [
+    "common.json"
+  ],
+  "GET /api/admin/oidc": {
+    "configured": false
+  },
+  "GET /api/admin/quotas": [],
+  "GET /api/backups": [],
+  "GET /api/config": {
+    "currency": null,
+    "currency_basis": null
+  },
+  "GET /api/config/ip-allowlist": {
+    "allowed_ips": [],
+    "enabled": false
+  },
+  "GET /api/config/require-job-approval": {
+    "require_job_approval": true
+  },
+  "GET /api/config/retention": {},
   "GET /api/groups": [],
   "GET /api/orgs": [],
-  "GET /api/admin/quotas": [],
-  "GET /api/admin/oidc": {"configured": false},
-  "GET /api/config": {},
-  "GET /api/settings/remote-access": {
-    "configured": false,
-    "url": null,
-    "tailnet": false,
-    "current_origin_verified": false,
-    "check_url": null,
-    "tailnet_ice_configured": false,
-    "camera_transport": "snapshot-fallback"
+  "GET /api/print-files/plates/backfill": {
+    "done": 0,
+    "not_available": 0,
+    "started_at": null,
+    "state": "idle",
+    "total": 0
   },
-  "GET /api/config/require-job-approval": {"require_job_approval": true},
-  "GET /api/backups": [],
-  "GET /api/config/retention": {},
-  "GET /api/config/ip-allowlist": {"enabled": false, "allowed_ips": []},
-  "GET /api/setup/network": {"configured_ip": "", "detected_ip": ""},
   "GET /api/report-schedules": [],
-  "GET /api/reports/chargebacks": []
+  "GET /api/reports/chargebacks": [],
+  "GET /api/settings/remote-access": {
+    "camera_transport": "snapshot-fallback",
+    "check_url": null,
+    "configured": false,
+    "current_origin_verified": false,
+    "tailnet": false,
+    "tailnet_ice_configured": false,
+    "url": null
+  },
+  "GET /api/setup/network": {
+    "configured_ip": "",
+    "detected_ip": ""
+  },
+  "GET /api/users": []
 }
