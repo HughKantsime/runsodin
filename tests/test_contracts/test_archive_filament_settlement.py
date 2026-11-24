@@ -367,10 +367,26 @@ def test_spool_settlement_write_scope(settlement_case, role, group, has_orgs, sp
     if spool_org:
         # Even a platform admin may settle only against a spool available to this print.
         assert response.status_code == 404
-    elif group:
-        assert response.status_code == 403
-        assert response.json()['detail'] == 'This spool belongs to no organization. Ask a platform administrator to change it.'
     else:
         assert response.status_code == 200, response.text
     assert query(case, 'SELECT remaining_weight_g FROM spools WHERE id=7099') == [
         (960 if response.status_code == 200 else 1000,)]
+
+
+def test_ordinary_group_operator_settles_unscoped_spool(settlement_case, monkeypatch):
+    from core.dependencies import get_current_user
+    from tests.test_contracts.test_cert_A_harness import bearer
+
+    case = settlement_case
+    client = case[0]
+    monkeypatch.delitem(client.app.dependency_overrides, get_current_user)
+    write(case, "INSERT INTO groups(id,name,is_org) VALUES(3,'Print crew',FALSE)")
+    write(case, "UPDATE users SET role='operator',group_id=3 WHERE username='outsider'")
+    write(case, "UPDATE print_archives SET org_id=NULL,ownership_state='known' WHERE id=:id", {'id': case[2]})
+    write(case, 'UPDATE spools SET org_id=NULL WHERE id=7099')
+
+    response = client.post(f'/archives/{case[2]}/settle-filament',
+                           headers=bearer('outsider', 'operator', 3),
+                           json={'entries': [dict(spool_id=7099, grams=40)]})
+    assert response.status_code == 200, response.text
+    assert query(case, 'SELECT remaining_weight_g FROM spools WHERE id=7099') == [(960,)]

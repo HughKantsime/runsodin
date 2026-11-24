@@ -92,7 +92,7 @@ def readable_spool(db, spool_id, user, org_id=None, *, for_write=False):
     if not row or not check_org_access(user, row['org_id']):
         return None
     if for_write:
-        require_org_write(user, row['org_id'], "spool")
+        require_org_write(user, row['org_id'], "spool", operate=True)
     if for_write and row['org_id'] is not None and row['org_id'] != org_id:
         return None
     return row

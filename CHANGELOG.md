@@ -6,7 +6,7 @@ All notable changes to O.D.I.N. are documented here.
 
 ### Fixed
 
-- On installs with organizations, only a platform administrator can edit or delete a printer, printer profile or spool balance that belongs to no organization. Members can still see and use them.
+- On installs with organizations, members of an organization can no longer edit or delete a printer or printer profile that belongs to no organization. They can still see and use them, including loading filament. Platform administrators and users without an organization are unchanged.
 
 ## [2.7.0] - 2026-11-24
 

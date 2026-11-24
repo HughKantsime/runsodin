@@ -5,11 +5,17 @@ from sqlalchemy import text
 from tests.test_contracts.test_cert_A_harness import cert_app, cert_client, fernet_env, review_db
 
 
-@pytest.mark.parametrize('role,group_id', [('operator', 1), ('operator', None), ('admin', None)])
-@pytest.mark.parametrize('printer_org', [None, 2])
-def test_operating_printer_scope(cert_app, review_db, monkeypatch, role, group_id, printer_org):
+@pytest.mark.parametrize('role,group_id,printer_org,has_orgs', [
+    ('operator', 1, None, True), ('operator', 1, 2, True),
+    ('operator', None, None, True), ('operator', None, 2, True),
+    ('admin', None, None, True), ('admin', None, 2, True),
+    ('admin', 1, None, True), ('operator', None, None, False),
+])
+def test_operating_printer_scope(cert_app, review_db, monkeypatch, role, group_id, printer_org, has_orgs):
     from modules.printers import monitor_commands, print_objects, routes_controls, routes_start_next, smart_plug
 
+    if not has_orgs:
+        review_db.execute(text("UPDATE groups SET is_org=FALSE"))
     review_db.execute(text("UPDATE printers SET org_id=:org,plug_type='mqtt' WHERE id=301"), {'org': printer_org})
     review_db.execute(text("UPDATE users SET group_id=:org WHERE username=:name"), {'org': group_id, 'name': role})
     review_db.commit()
@@ -52,3 +58,24 @@ def test_operating_printer_scope(cert_app, review_db, monkeypatch, role, group_i
         assert response.status_code == (404 if foreign else success), (path, response.text)
     if foreign:
         assert calls == []
+
+
+@pytest.mark.parametrize('action', ['on', 'off'])
+def test_ordinary_group_operator_manual_plug(cert_app, review_db, monkeypatch, action):
+    from modules.printers import smart_plug
+
+    review_db.execute(text('UPDATE groups SET is_org=FALSE WHERE id=1'))
+    review_db.execute(text("UPDATE printers SET org_id=NULL,plug_type='tasmota' WHERE id=301"))
+    review_db.commit()
+    calls = []
+
+    def command(printer_id, *, authority):
+        assert authority.valid()
+        calls.append((printer_id, authority.purpose))
+        return action == 'on'
+
+    monkeypatch.setattr(smart_plug, f'power_{action}', command)
+    response = cert_app.post(f'/printers/301/plug/{action}', headers=cert_app.roles['operator'])
+    assert response.status_code == 200, response.text
+    assert response.json() == {'power_state': action == 'on'}
+    assert calls == [(301, f'manual_{action}')]

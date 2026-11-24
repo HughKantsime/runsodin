@@ -1,4 +1,6 @@
 """Configuration, reads, and legacy group compatibility through the real routes."""
+from pathlib import Path
+
 import pytest
 from sqlalchemy import text
 
@@ -79,6 +81,23 @@ def test_write_predicate_requires_user_and_preserves_scoped_access():
         assert not check_org_write({}, 1, operate=operate)
         assert check_org_write(member, 1, operate=operate)
         assert not check_org_write(member, 2, operate=operate)
+
+
+def test_anonymous_write_is_denied_independently_of_read_access(monkeypatch):
+    from core import rbac
+
+    monkeypatch.setattr(rbac, 'check_org_access', lambda *_: True)
+    for user in (None, {}):
+        assert not rbac.check_org_write(user, None, operate=True)
+
+
+def test_changelog_describes_unscoped_printer_access():
+    changelog = (Path(__file__).resolve().parents[2] / 'CHANGELOG.md').read_text()
+    assert (
+        'On installs with organizations, members of an organization can no longer edit or delete a printer or '
+        'printer profile that belongs to no organization. They can still see and use them, including loading '
+        'filament. Platform administrators and users without an organization are unchanged.'
+    ) in changelog
 
 
 @pytest.mark.postgresql

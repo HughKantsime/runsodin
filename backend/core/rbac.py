@@ -206,6 +206,8 @@ def check_org_write(current_user: dict, resource_org_id: Optional[int], *, opera
     Unassigned users keep their existing access to unscoped resources.
     Organization members may operate unscoped resources but cannot configure or delete them.
     """
+    if not current_user:
+        return False
     if not check_org_access(current_user, resource_org_id):
         return False
     return (resource_org_id is not None or operate or current_user.get("group_id") is None
