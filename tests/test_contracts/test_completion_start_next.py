@@ -96,10 +96,13 @@ def test_unscoped_suggestion_requires_its_submitter(queue, review_db, monkeypatc
     from modules.printers import dispatch
 
     member = {'id': 3, 'role': 'operator', 'group_id': 1}
-    review_db.execute(text('UPDATE jobs SET submitted_by=:user WHERE id=202'), {'user': submitter})
+    # The member saw this suggestion while they still owned the job.
+    review_db.execute(text('UPDATE jobs SET submitted_by=3 WHERE id=202'))
     review_db.commit()
     suggestion = advice(review_db, queue, actor=member)
     assert suggestion['job_id'] == 202
+    review_db.execute(text('UPDATE jobs SET submitted_by=:user WHERE id=202'), {'user': submitter})
+    review_db.commit()
     data = request(suggestion)
     send = Mock(return_value=(True, 'Accepted'))
     monkeypatch.setattr(dispatch, 'dispatch_job', send)
@@ -113,3 +116,19 @@ def test_unscoped_suggestion_requires_its_submitter(queue, review_db, monkeypatc
     else:
         assert start_next.start(review_db, queue, member, data)['success']
         send.assert_called_once()
+
+
+def test_member_starts_own_org_job_behind_another_submitters_unscoped_job(queue, review_db, monkeypatch):
+    from modules.printers import dispatch
+    from modules.printers.routes_start_next import get_next_suggestion
+
+    member = {'id': 3, 'role': 'operator', 'group_id': 1}
+    review_db.execute(text('UPDATE jobs SET submitted_by=2 WHERE id=202'))
+    review_db.execute(text('UPDATE jobs SET charged_to_org_id=1 WHERE id=203'))
+    review_db.commit()
+    suggestion = get_next_suggestion(queue.id, review_db, member)
+    assert suggestion['job_id'] == 203
+    send = Mock(return_value=(True, 'Accepted'))
+    monkeypatch.setattr(dispatch, 'dispatch_job', send)
+    assert start_next.start(review_db, queue, member, request(suggestion))['success']
+    send.assert_called_once_with(queue.id, 203)

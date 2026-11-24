@@ -81,12 +81,14 @@ def start(db, printer, user, data, *, background=False):
     if kobra_s1 and data.attestation is None:
         raise HTTPException(422, 'A Kobra S1 start must say who confirmed the bed is clear')
     visible = lambda job: check_org_access(user, job.charged_to_org_id)
+    from modules.jobs.models import Job
+    from modules.jobs.services import require_job_write
+    requested = db.get(Job, data.suggested_job_id)
+    if requested is not None and visible(requested):
+        require_job_write(user, requested)
     suggestion = next_suggestion(db, printer, visible=visible, actor=user)
     if suggestion['job_id'] != data.suggested_job_id or suggestion['fingerprint'] != data.suggestion_fingerprint:
         raise HTTPException(409, {'message': 'Suggestion changed. Review the new suggestion.', 'suggestion': suggestion})
-    from modules.jobs.models import Job
-    from modules.jobs.services import require_job_write
-    require_job_write(user, db.get(Job, data.suggested_job_id))
     record = {'actor': principal(user), 'printer_id': printer_id, 'job_id': data.suggested_job_id,
               'fingerprint': data.suggestion_fingerprint, 'attestation': data.attestation or 'owner_in_app',
               'result': {'success': False, 'state': 'preparing', 'job_id': data.suggested_job_id, 'request_id': str(data.request_id)}}

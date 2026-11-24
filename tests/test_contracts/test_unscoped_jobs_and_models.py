@@ -118,7 +118,11 @@ def test_job_writes(cert, review_db, owned_completion_background, monkeypatch,
         ('post', '/reject', 'submitted', {'reason': 'Revise'}),
     ):
         state(initial)
-        write(method, '/jobs/721' + suffix, body)
+        response = write(method, '/jobs/721' + suffix, body)
+        if status == 403 and suffix in ('/cancel', '/approve', '/reject'):
+            assert response.json()['error'] == {
+                'code': 'permission_denied', 'detail': detail('job'), 'retriable': False,
+            }
     assert stage.call_count == int(status == 200)
     state('rejected')
     if status == 200 and not creator:
