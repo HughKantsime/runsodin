@@ -181,6 +181,26 @@ def test_partial_bulk_writes(routes, review_db):
         (721, 'green'), (None, 'blue, red'), (None, 'blue, red')]
 
 
+def test_bulk_spool_update_selects_without_locks(routes, review_db):
+    from unittest.mock import patch
+    from sqlalchemy.orm import Query
+    from modules.inventory.models import FilamentLibrary, Spool
+    from modules.inventory.routes import spool_ops
+
+    client, as_user = routes
+    review_db.add(FilamentLibrary(id=721, brand='Fixture', name='PLA'))
+    review_db.flush()
+    review_db.add_all([Spool(id=721, filament_id=721, org_id=1), Spool(id=722, filament_id=721)])
+    review_db.commit()
+    with patch.object(spool_ops, 'lock_slot_graph', wraps=spool_ops.lock_slot_graph) as graph_lock, \
+            patch.object(Query, 'with_for_update', autospec=True, side_effect=Query.with_for_update) as row_lock:
+        result = client.post('/spools/bulk-update', json={'spool_ids': [721, 722], 'action': 'archive'},
+                             headers=as_user('operator1'))
+    check(result, 200)
+    assert result.json() == {'status': 'ok', 'affected': 1, 'skipped': [{'spool_id': 722, 'detail': detail('spool')}]}
+    assert (graph_lock.call_count, row_lock.call_count) == (0, 0)
+
+
 @pytest.mark.parametrize('source,target', [(721, 722), (722, 721)])
 def test_merge_checks_both_spools(routes, review_db, source, target):
     from modules.inventory.models import FilamentLibrary, Spool

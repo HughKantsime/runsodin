@@ -252,9 +252,7 @@ async def bulk_update_spools(body: dict, current_user: dict = Depends(require_ac
     # archive accounting lock spools the same way), so concurrent writers never
     # wait on each other in opposite orders.
     spool_ids = sorted(set(spool_ids))
-    lock_slot_graph(db)  # SQLite writer boundary before checking ownership.
-    selected = (db.query(Spool).filter(Spool.id.in_(spool_ids)).order_by(Spool.id)
-                .with_for_update().populate_existing().all())
+    selected = db.query(Spool).filter(Spool.id.in_(spool_ids)).order_by(Spool.id).all()
     if (len(selected) != len(spool_ids)
             or any(not check_org_access(current_user, spool.org_id) for spool in selected)):
         raise HTTPException(status_code=404, detail="Spool not found")
