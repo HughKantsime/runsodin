@@ -195,12 +195,12 @@ it('HMS panel lists the five captured notices without counting them as recurring
   await page()
   fireEvent.click(within(card(301)).getByRole('button', { name: 'HMS error history' }))
   const panel = within(card(301))
-  await panel.findByText('Recent printer codes')
+  const history = within((await panel.findByText('Recent printer codes')).parentElement!)
   expect(w.printers.find((p: any) => p.id === 301).last_error_at).toBeNull()
   expect(panel.getAllByText('info')).toHaveLength(5)
   for (const entry of w.hms_301.entries) {
     expect(entry.source).toBe('bambu_notice')
-    expect(panel.getByText(entry.message)).toBeInTheDocument()
+    expect(history.getByText(entry.message)).toBeInTheDocument()
   }
   expect(panel.queryByText(/Top Recurring/)).toBeNull()
 })

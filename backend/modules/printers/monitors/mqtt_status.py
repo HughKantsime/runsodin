@@ -1,5 +1,6 @@
 """MQTT status ingestion; dependencies resolved from the owning monitor at call time."""
 
+from core.hms_state import is_notice
 from core.monitor_observations import fresh_report
 from core.printer_identity_audit import observe_printer_identity
 
@@ -626,7 +627,7 @@ def handle_status(self, status, generation, runtime):
                 rows = []
                 for err in parsed:
                     code = err['code']
-                    notice = err.get('informational_only', False)
+                    notice = is_notice(err)
                     active[code] = previous.get(code, False) or not notice
                     if code not in previous or active[code] != previous[code]:
                         severity = 'error' if code in previous else err['severity']

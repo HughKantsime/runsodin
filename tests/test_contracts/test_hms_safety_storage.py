@@ -129,7 +129,11 @@ def test_education_queue_indication_ignores_safety_only_records(hms_boundary, mo
                print_file_id=11, gcode_state='IDLE', hms_errors=json.dumps([
                    {'display': False, 'hms_safety': HIDDEN}]))
     assert head_block_reason(db, row, 1).startswith('Live readiness')
-    row['hms_errors'] = json.dumps([NOTICE])
+    row['hms_errors'] = json.dumps([dict(NOTICE, severity='info')])
+    assert head_block_reason(db, row, 1).startswith('Live readiness')
+    row['hms_errors'] = json.dumps([NOTICE])  # Legacy raw packet.
+    assert head_block_reason(db, row, 1).startswith('Live readiness')
+    row['hms_errors'] = json.dumps([{'attr': 1}])
     assert head_block_reason(db, row, 1).startswith('Printer has recorded HMS diagnostics')
 
 

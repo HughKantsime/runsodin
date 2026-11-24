@@ -78,8 +78,12 @@ def test_bambu_token_hms_respects_severity_and_corroboration(
         [{"attr": 0x0C000300, "code": (level << 16) | 6}],
         observed_filename=reservation["remote_filename"], live_state=live, mqtt_retained=retained,
     )
-    assert result["education_suppressed"] is True
-    assert recorded == [False]
+    if level in (3, 4):
+        assert result["errors"] == [] and len(result["notices"]) == 1
+        assert recorded == []
+    else:
+        assert result["education_suppressed"] is True
+        assert recorded == [False]
     assert forbidden == []
     monitor_db.expire_all()
     assert tuple(

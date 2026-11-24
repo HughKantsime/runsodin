@@ -135,7 +135,7 @@ export default function PrinterDetail() {
       {!foundry && <PlateCleared printer={printer} />}
       <ExperimentalOptIn printer={printer} />
       <PauseCause printer={printer} />
-      <ActiveHms printer={printer} />
+      {!foundry && <ActiveHms printer={printer} />}
       <PrinterDetectionLink printer={printer} />
       {(!rack || printer.experimental_actions_enabled) && printer.api_type === 'bambu' && <TraySettings key={`${printer.id}-${rack}`} printerId={printer.id} rack={rack} />}
       {foundry && <PrinterDetailOverview printer={printer} />}

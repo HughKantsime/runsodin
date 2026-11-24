@@ -23,7 +23,7 @@ log = logging.getLogger("printer_events")
 
 from modules.printers.hms_codes import parse_hms_errors
 from modules.printers.hms_codes import credential_prefix
-from core.hms_state import display_entries, safety_entries
+from core.hms_state import attention_entries, display_entries, is_notice, safety_entries
 
 
 def record_error(
@@ -286,14 +286,14 @@ def process_hms_errors(
         previous = display_entries(json.loads(row[1] or '[]') or []) if row else []
         # Old releases persisted raw packets. Compare identities, not old meanings.
         prior_codes = {e['code'] for e in parse_hms_errors(previous, prefix)}
-        prior_codes.update(e['code'] for e in previous if isinstance(e, dict) and isinstance(e.get('code'), str) and not e.get('informational_only'))
+        prior_codes.update(e['code'] for e in attention_entries(previous) if isinstance(e, dict) and isinstance(e.get('code'), str))
         errors = parse_hms_errors(hms_data, prefix, quiet_unknown=quiet_unknown)
     except Exception:
         log.error('Failed to read HMS state for printer %s; retry required', printer_id)
         return {'retryable': True}
     active = errors + safety_entries(hms_data, errors)
-    notices = [event for event in errors if event.get('informational_only')]
-    errors = [event for event in errors if not event.get('informational_only')]
+    notices = [event for event in errors if is_notice(event)]
+    errors = attention_entries(errors)
     result = {'errors': errors}
     if notices:
         result['notices'] = notices

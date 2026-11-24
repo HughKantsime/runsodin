@@ -1,3 +1,4 @@
+import ActiveHms from '../../components/printers/ActiveHms'
 import { hmsFaults } from '../../utils/hms'
 import PageState from '../../components/ui/PageState'
 import { displayName } from '../../utils/displayName'
@@ -87,6 +88,7 @@ function TVPrinterCard({ printer }: { printer: any }) {
           </div>
         </div>
 
+        <ActiveHms printer={printer} noticesOnly />
         {isPrinting && (
           <div className="mt-auto">
             {jobName && <p data-testid="tv-printer-job" className="text-sm text-[var(--brand-text-secondary)] truncate mb-2">{jobName}</p>}

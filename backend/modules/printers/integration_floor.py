@@ -36,16 +36,14 @@ from modules.printers.ams_humidity import humidity_scale, reported_percent
 from core.print_outcomes import PRINT_DID_NOT_COMPLETE_SQL, print_outcome
 from core.physical_print import pause_identity
 from core.display_names import display_names
-from core.hms_state import attention_entries
+from core.hms_state import distinct_entries, hms_code_parts, is_notice
+from modules.printers.hms_codes import is_spaghetti_code
 from core.rbac import should_filter_org
 
 HIDDEN_ERROR_MESSAGE = "Details hidden (controlled work)"
 CONTROLLED_NAME = "Controlled work"
 HELD_REASON = "Held, waiting for go"
 MAX_UNASSIGNED = 5
-# Bambu HMS spaghetti family 0C000300_00030008: module 0x0C, error 0x00030008.
-SPAGHETTI_MODULE = 0x0C
-SPAGHETTI_CODE = 0x00030008
 
 REFUSAL_WORDS = {
     "AMS_MAPPING_REQUIRED": "No AMS mapping chosen for this job",
@@ -527,10 +525,6 @@ def _entry(item):
     return attr, raw, message
 
 
-def _is_spaghetti(attr, raw):
-    return type(attr) is int and type(raw) is int and attr >> 24 == SPAGHETTI_MODULE and raw == SPAGHETTI_CODE
-
-
 def _stage_code(stage):
     """'Paused: hms=0C000300_00030008' -> (attr, raw)."""
     if isinstance(stage, str) and stage.startswith("Paused: hms=") and "_" in stage:
@@ -806,16 +800,24 @@ class Floor:
 
     def _pause(self, printer, running, error_unresolved, redact):
         stored = _json(printer.hms_errors)
-        entries = [_entry(item) for item in attention_entries(stored if isinstance(stored, list) else [])]
+        displayed = distinct_entries(stored) if isinstance(stored, list) else []
+        faults = [_entry(item) for item in displayed if not is_notice(item)]
+        entries = [_entry(item) for item in displayed if isinstance(item, dict) and not item.get('informational_only')
+                   and (item.get('code') is not None or item.get('raw_code') is not None)]
         stage = printer.print_stage or ""
         vision = running is not None and running["id"] in self.vision_paused
-        if vision or any(_is_spaghetti(a, c) for a, c, _ in entries) or _is_spaghetti(*_stage_code(stage)):
-            return "spaghetti", "Paused: possible spaghetti"
         episode = self.episodes.get(printer.id, {})
+        recorded = bool(printer.last_error_code or printer.last_error_message) and error_unresolved
+        codes = [(a, c) for a, c, _ in entries]
+        codes.extend([_stage_code(stage), hms_code_parts(episode.get('code'))])
+        if recorded and printer.api_type == 'bambu':
+            codes.append(hms_code_parts(printer.last_error_code))
+        if vision or any(is_spaghetti_code(a, c) for a, c in codes):
+            return "spaghetti", "Paused: possible spaghetti"
         runout, since = to_utc(episode.get('runout_at')), to_utc(episode.get('since'))
         if runout is not None and since is not None and runout <= since:
             return "filament", "Waiting for filament"
-        recorded = bool(printer.last_error_code or printer.last_error_message) and error_unresolved
+        entries = faults or entries
         if entries or stage.startswith("Paused: print_error=") or recorded:
             if redact:
                 return "error", HIDDEN_ERROR_MESSAGE
@@ -881,7 +883,8 @@ def paused_prints(db, now):
         timing = floor.pause_timing(printer)
         if timing['paused_long'] is not True:
             continue
-        cause, reason = floor._pause(printer, row, unresolved_error(printer.last_error_at, row['started_at'] if row else None), False)
+        unresolved = unresolved_error(printer.last_error_at, row['started_at'] if row else None)
+        cause, reason = floor._pause(printer, row, unresolved, False)
         if row is None:
             context = episode.get('context', {})
             row = {'scheduled_job_id': None, 'filename': context.get('filename'), 'job_name': context.get('job_name')}

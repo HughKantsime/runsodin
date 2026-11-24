@@ -1,5 +1,6 @@
 """Exact per-model Bambu lookups. Unknown codes never imply a device or fault."""
 from urllib.parse import quote
+from core.hms_state import distinct_entries, hms_severity, raw_word, stored_severity
 from modules.printers.bambu_hms_bundle import canonical, load_bundle, credential_prefix
 
 
@@ -10,6 +11,10 @@ def display_code(code):
 
 def wiki_url(code):
     return 'https://wiki.bambulab.com/en/x1/troubleshooting/hmscode/' + quote(display_code(code).replace('-', '_'), safe='_')
+
+
+def is_spaghetti_code(attr, raw):
+    return type(attr) is int and type(raw) is int and attr >> 24 == 0x0C and raw == 0x00030008
 
 
 def lookup_hms_code(code, model_prefix=''):
@@ -46,9 +51,37 @@ def parse_hms_errors(hms_data, model_prefix='', *, quiet_unknown=False):
             continue
         level = code >> 16
         errors[full_code] = dict(code=full_code, attr=attr, raw_code=code,
-            severity={1: 'critical', 2: 'error', 3: 'info', 4: 'info'}.get(level, 'unknown'),
+            severity=hms_severity(code),
             message=message, wiki_url=wiki_url(full_code))
         if quiet_unknown and level != 1 and canonical(full_code) not in load_bundle(model_prefix).get('device_hms', {}):
             errors[full_code].update(severity='info', informational_only=True,
                                      message=message + ' (no description; the printer reports no error)')
     return list(errors.values())
+
+
+def display_hms_errors(entries, model_prefix):
+    """Refresh model-specific copy while preserving each stored entry's attention state."""
+    shown = []
+    for entry in distinct_entries(entries):
+        if not isinstance(entry, dict):
+            entry = {}
+        code = entry.get('code')
+        raw = raw_word(entry)
+        attr = entry.get('attr')
+        decoded = parse_hms_errors([{'attr': attr, 'code': raw}], model_prefix,
+                                   quiet_unknown=entry.get('informational_only') is True)
+        if decoded:
+            event, = decoded
+        elif all(type(v) is int and 0 <= v <= 0xFFFFFFFF for v in (attr, raw)):
+            continue  # The model catalog can explicitly hide a raw code.
+        else:
+            message = entry.get('message')
+            event = {'message': message if isinstance(message, str) and message else 'Unrecognized printer code'}
+            if isinstance(code, str):
+                event['code'] = code
+                event['wiki_url'] = wiki_url(code)
+        event['severity'] = stored_severity(entry)
+        if event['severity'] == 'info':
+            event['informational_only'] = True
+        shown.append(event)
+    return shown

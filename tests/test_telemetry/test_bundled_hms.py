@@ -155,6 +155,22 @@ def test_serial_credentials_and_api_decode(lists,monkeypatch):
     assert 'SYNTHETIC' not in json.dumps(wire,default=str)
 
 
+def test_list_keeps_each_stored_severity_when_refreshing_descriptions(lists):
+    from modules.printers.hms_codes import display_hms_errors
+    from core.hms_state import attention_entries
+    entries = [
+        {'attr': 1, 'code': 0x20001, 'severity': 'info', 'informational_only': True},
+        {'attr': 2, 'code': 0x20002, 'severity': 'error'},
+        {'attr': 0x05010400, 'code': 0x30002},  # Decodable message, no stored severity.
+        {'code': 'legacy', 'severity': {}, 'message': 'Check printer'},
+        {'attr': 3, 'code': 0x10001},
+    ]
+    shown = display_hms_errors(entries, '094')
+    assert [e['severity'] for e in shown] == ['info', 'error', 'info', 'unknown', 'critical']
+    assert shown[2]['message'] == 'Lubricate threaded rods'
+    assert attention_entries(shown) == [shown[1], *shown[3:]]
+
+
 def test_later_fetch_failure_keeps_all_last_good_files(tmp_path):
     fetcher.write_bundle(tmp_path, ['094','00M'], Opener(json.dumps(response()).encode()))
     original = {p.name:p.read_bytes() for p in tmp_path.iterdir()}

@@ -16,6 +16,8 @@ All notable changes to O.D.I.N. are documented here.
 - Print archives, the print log and its CSV export include recorded materials and whether they came from charged spools, the sliced file or the job.
 - Print history now explains which date filters to use when a client sends the unsupported `days` parameter.
 - Starting or updating ODIN no longer takes minutes on installs with a long timelapse history; the startup check of timelapse records does the same checks in seconds.
+- Printers that report only notices, such as maintenance reminders, now keep their normal status. The notices and their troubleshooting links stay visible on the printer card and printer page.
+- Older printer notices now appear on both Foundry card sizes. A paused print keeps its reported cause, and a notice with the same code as a fault no longer hides the fault.
 
 ## [2.6.0] - 2026-11-22
 

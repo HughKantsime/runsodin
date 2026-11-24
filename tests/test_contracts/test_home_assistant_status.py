@@ -2,6 +2,7 @@
 
 Spec: .claude/specs/home-assistant-integration.md (Part A).
 """
+import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -82,6 +83,42 @@ def test_status_payload_shape_and_values(ha_client):
         'printing': 1, 'paused': 1, 'error': 1, 'offline': 1, 'idle': 0,
         'total': 4, 'queue_length': 3}  # 301, 302 and the seeded submitted job 13
     assert floor_keys <= set(body['fleet'])
+
+
+@pytest.mark.parametrize('extra, expected_errors', [
+    ([], 0), ([{'severity': 'warning'}], 1), ([{'severity': 'error'}], 1),
+    ([{}], 1), ([{'severity': {}}], 1),
+])
+def test_finish_with_notices_and_legacy_recorded_notice(ha_client, review_db, extra, expected_errors):
+    client, issue = ha_client
+    notices = [{'code': '05010400_00030002', 'severity': 'info'}, {'attr': 0x05010400, 'code': 0x30004}]
+    review_db.execute(text("UPDATE printers SET api_type='bambu', gcode_state='FINISH', hms_errors=:entries, "
+                           "last_error_code=:code, last_error_at=:at WHERE id=10"),
+                      {'entries': json.dumps(notices + extra + [{'display': False}]),
+                       'code': notices[0]['code'], 'at': _stamp(1)})
+    review_db.commit()
+    headers = issue(['read:jobs', 'read:printers'])
+    printer = next(p for p in client.get(URL, headers=headers).json()['printers'] if p['id'] == 10)
+    assert printer['status'] == ('error' if expected_errors else 'idle')
+    assert (printer['active_errors'], printer['notices']) == (expected_errors, 2)
+    assert printer['last_error']['unresolved'] is False
+
+
+@pytest.mark.parametrize('state, expected_status, unresolved', [
+    ('PAUSE', 'paused', True), ('FAILED', 'error', True), ('FINISH', 'idle', False),
+])
+def test_recorded_hms_cause_follows_the_stopped_print(ha_client, review_db, state, expected_status, unresolved):
+    client, issue = ha_client
+    review_db.execute(text("UPDATE printers SET api_type='bambu', gcode_state=:state, hms_errors='[]', "
+                           "last_error_code='0C000300_00030008', last_error_message='Possible spaghetti', "
+                           "last_error_at=:at WHERE id=10"), {'state': state, 'at': _stamp(1)})
+    review_db.commit()
+    payload = client.get(URL, headers=issue(['read:jobs', 'read:printers'])).json()
+    printer = next(p for p in payload['printers'] if p['id'] == 10)
+    assert (printer['status'], printer['active_errors']) == (expected_status, 0)
+    assert printer['last_error']['unresolved'] is unresolved
+    if state == 'PAUSE':
+        assert printer['bench']['pause_cause'] == 'spaghetti'
 
 
 def test_payload_carries_no_credentials_hosts_or_camera_urls(ha_client):
