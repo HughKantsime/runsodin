@@ -89,3 +89,27 @@ def test_controlled_member_can_start_the_visible_suggestion(queue,review_db,monk
     monkeypatch.setattr(dispatch,'dispatch_job',send)
     result=start_next.start(review_db,queue,user,request(suggestion))
     assert result['state']=='refused' and send.call_count==1
+
+@pytest.mark.parametrize('submitter, expected', [(None, 403), (2, 403), (3, 200)])
+def test_unscoped_suggestion_requires_its_submitter(queue, review_db, monkeypatch, submitter, expected):
+    from fastapi import HTTPException
+    from modules.printers import dispatch
+
+    member = {'id': 3, 'role': 'operator', 'group_id': 1}
+    review_db.execute(text('UPDATE jobs SET submitted_by=:user WHERE id=202'), {'user': submitter})
+    review_db.commit()
+    suggestion = advice(review_db, queue, actor=member)
+    assert suggestion['job_id'] == 202
+    data = request(suggestion)
+    send = Mock(return_value=(True, 'Accepted'))
+    monkeypatch.setattr(dispatch, 'dispatch_job', send)
+    if expected == 403:
+        with pytest.raises(HTTPException) as refusal:
+            start_next.start(review_db, queue, member, data, background=True)
+        assert refusal.value.status_code == 403
+        assert refusal.value.detail == 'This job belongs to no organization. Ask a platform administrator to change it.'
+        send.assert_not_called()
+        assert start_next.load(review_db, start_next.request_key(data.request_id, member)) is None
+    else:
+        assert start_next.start(review_db, queue, member, data)['success']
+        send.assert_called_once()

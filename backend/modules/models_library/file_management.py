@@ -12,7 +12,7 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from core.dependencies import log_audit
 from core.model_preview_access import accessible_preview_file, is_education_owned_file, delete_generic_file_if_unchanged
-from core.rbac import check_org_access, _get_org_filter
+from core.rbac import check_org_access, check_org_write, require_org_write, _get_org_filter
 from core.registry import registry
 
 log = logging.getLogger('odin.api')
@@ -163,6 +163,9 @@ def delete_generic_file(db, file_id, actor):
         row = accessible_preview_file(db, file_id, actor)
         _assert_generic_payload(db, row)
         parent = _generic_parent(db, row, actor)
+        require_org_write(actor, row.org_id, "file")
+        if parent is not None:
+            require_org_write(actor, parent.org_id, "model")
         if file_has_job_references(db, file_id):
             raise HTTPException(409, 'Print file is referenced by a job')
         if not delete_generic_file_if_unchanged(db, row, parent_org_id=parent.org_id if parent else None, require_unreferenced=True):
@@ -207,7 +210,7 @@ def schedule_generic_file(db, file_id, printer_id, actor, ams_mapping=None, hold
         target = None
         if printer_id is not None:
             target = lock_queue_reference(db, 'printers', printer_id, TARGET_FIELDS)
-            if not target or not (check_org_access(actor, target.org_id) or target.shared):
+            if not target or not (check_org_write(actor, target.org_id, operate=True) or target.shared):
                 raise HTTPException(404, 'Printer not found')
         from core.ams_mapping import validate_for_printer
         mapping = validate_for_printer(db, ams_mapping, row.filaments_json, printer_id, actor, stored_path=row.stored_path, check_material=not hold)

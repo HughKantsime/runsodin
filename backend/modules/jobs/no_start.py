@@ -21,6 +21,7 @@ from core.models import AuditLog
 from core.rbac import check_org_access, require_action
 from modules.jobs.education_guard import assert_generic_job_mutation_allowed
 from modules.jobs.models import Job
+from modules.jobs.write_access import require_job_write
 
 router = APIRouter(prefix='/jobs', tags=['Jobs'])
 ACTION = 'operator.dispatch_no_start_reconciled'
@@ -144,6 +145,7 @@ def record_no_start(job_id: int, body: NoStartRequest,
         if not job or not check_org_access(actor, job.charged_to_org_id) or not allowed(db, 'job', job_id, actor):
             raise HTTPException(404, 'Job not found.')
         assert_generic_job_mutation_allowed(db, job_id)
+        require_job_write(actor, job)
         if not job.hold or job.status not in ('pending', 'scheduled'):
             raise HTTPException(409, 'The job must be pending or scheduled and on hold.')
         for query, reason in (

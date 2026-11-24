@@ -24,6 +24,8 @@ def test_policy_inventory_is_complete_and_matches_registered_surfaces() -> None:
         REGISTERED_EXECUTION_SURFACES
     )
     by_surface = {entry["surface"]: entry for entry in POLICY_INVENTORY}
+    for surface in ("jobs.routes.jobs_crud", "models_library.routes.models_crud"):
+        assert by_surface[surface]["focused_test"] == "test_unscoped_jobs_and_models.py"
     for surface in ("printers.routes_controls", "printers.routes_smart_plug"):
         assert by_surface[surface]["focused_test"] == "test_printer_controls_org_scope.py"
     assert by_surface["printers.routes_crud"]["focused_test"] == "test_unscoped_printer_configuration.py"

@@ -13,7 +13,8 @@ from core.controlled_parts import allowed
 from core.interfaces.education_policy import is_education_reserved_filename
 from core.order_production import ProductionLinkageChanged, prepare_job_write, prepare_print_job_write
 from core.print_attempts import attempt_seq, sqlalchemy_runner
-from core.rbac import check_org_access
+from modules.jobs.write_access import is_job_submitter
+from core.rbac import check_org_access, check_org_write, require_org_write
 from modules.archives.services import assert_archive_access
 from modules.jobs.education_guard import assert_generic_job_mutation_allowed
 from modules.jobs.state_machine import transition_job
@@ -88,7 +89,7 @@ def annotate(db, rows, *, archive=False, user=None):
         # One bounded batch for provenance, immutable print identity and read
         # audience. Job mutation eligibility is deliberately not a read policy.
         # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- the joined fragments come from media_visibility and archive_visibility, built from code text with bound values
-        query = text('SELECT p.*,r.org_id AS printer_org,j.charged_to_org_id AS job_org,c.value '
+        query = text('SELECT p.*,r.org_id AS printer_org,j.charged_to_org_id AS job_org,j.submitted_by,c.value '
                      'FROM print_jobs p JOIN printers r ON r.id=p.printer_id '
                      'LEFT JOIN jobs j ON j.id=p.scheduled_job_id '
                      'LEFT JOIN system_config c ON c.key=:prefix || CAST(p.id AS TEXT) '
@@ -99,7 +100,8 @@ def annotate(db, rows, *, archive=False, user=None):
             for row in db.execute(query, dict(parameters, prefix=PREFIX, ids=ids[start:start + 500])).mappings():
                 if not check_org_access(user, row['printer_org']) or not check_org_access(user, row['job_org']):
                     continue
-                if can_correct:
+                if can_correct and (row['scheduled_job_id'] is None or check_org_write(
+                        user, row['job_org'], operate=is_job_submitter(user, row['submitted_by']))):
                     authorized.add(row['id'])
                 saved = decoded(row['value']) if row['value'] else None
                 if saved and saved.get('active') and matches_print(row, saved):
@@ -131,6 +133,9 @@ def _load(db, identifier, user):
     # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- the joined fragment is generic_archive_audience_sql(), fixed code text; the id is bound
     if db.execute(text('SELECT 1 FROM print_archives a WHERE a.print_job_id=:id AND NOT COALESCE((' + education + '), FALSE)'), {'id': identifier}).first():
         fail('This print must be managed through its Education workflow.')
+    if job:
+        require_org_write(user, job['charged_to_org_id'], 'job',
+                          operate=is_job_submitter(user, job['submitted_by']))
     return row, job, archives
 
 

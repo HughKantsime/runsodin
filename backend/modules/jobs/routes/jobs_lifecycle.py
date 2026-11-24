@@ -14,9 +14,10 @@ from core.order_production import prepare_job_write, reconcile_job_write
 from core.db import get_db
 from core.db_compat import sql
 from core.dependencies import get_current_user, log_audit
-from core.rbac import require_role, require_action, check_org_access
+from core.rbac import require_role, require_action, check_org_write
 from core.base import JobStatus, AlertType, AlertSeverity
 from modules.jobs.models import Job
+from modules.jobs.write_access import require_job_write
 from modules.printers.models import Printer
 from modules.inventory.models import Spool
 from modules.jobs.schemas import JobResponse
@@ -62,18 +63,14 @@ class MoveJobRequest(PydanticBaseModel):
 def start_job(job_id: int, current_user: dict = Depends(require_action("jobs.start", scope="write:jobs")), db: Session = Depends(get_db)):
     """Mark a job as started (printing)."""
     job = db.query(Job).filter(Job.id == job_id).first()
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-    if not check_org_access(current_user, job.charged_to_org_id):
-        raise HTTPException(status_code=404, detail="Job not found")
+    require_job_write(current_user, job)
     assert_generic_job_mutation_allowed(db, job_id)
     from core import deploy_freeze
     if deploy_freeze.active() is not None:
         raise HTTPException(status_code=409, detail='deploy_window: ' + deploy_freeze.MESSAGE)
     production_orders = prepare_job_write(db, [job_id])
     job = db.query(Job).filter(Job.id == job_id).populate_existing().first()
-    if not job or not check_org_access(current_user, job.charged_to_org_id):
-        raise HTTPException(404, 'Job not found')
+    require_job_write(current_user, job)
 
     if not transition_job(db, job_id, JobStatus.PRINTING, "operator", where="hold IS NOT TRUE",
                           extra_fields={"actual_start": datetime.now(timezone.utc), "is_locked": True}):
@@ -115,15 +112,11 @@ def complete_job(job_id: int, current_user: dict = Depends(require_action("jobs.
     of which have been race-windows in practice.
     """
     job = db.query(Job).filter(Job.id == job_id).first()
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-    if not check_org_access(current_user, job.charged_to_org_id):
-        raise HTTPException(status_code=404, detail="Job not found")
+    require_job_write(current_user, job)
     assert_generic_job_mutation_allowed(db, job_id)
     production_orders = prepare_job_write(db, [job_id])
     job = db.query(Job).filter(Job.id == job_id).populate_existing().first()
-    if not job or not check_org_access(current_user, job.charged_to_org_id):
-        raise HTTPException(status_code=404, detail="Job not found")
+    require_job_write(current_user, job)
 
     # R5: atomic state transition through the job state machine. The UPDATE's
     # WHERE clause (allowed from-states) is the lock: one caller wins, a retry
@@ -318,15 +311,11 @@ def complete_job(job_id: int, current_user: dict = Depends(require_action("jobs.
 def fail_job(job_id: int, notes: Optional[str] = None, current_user: dict = Depends(require_action("jobs.complete", scope="write:jobs")), db: Session = Depends(get_db)):
     """Mark a job as failed."""
     job = db.query(Job).filter(Job.id == job_id).first()
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-    if not check_org_access(current_user, job.charged_to_org_id):
-        raise HTTPException(status_code=404, detail="Job not found")
+    require_job_write(current_user, job)
     assert_generic_job_mutation_allowed(db, job_id)
     production_orders = prepare_job_write(db, [job_id])
     job = db.query(Job).filter(Job.id == job_id).populate_existing().first()
-    if not job or not check_org_access(current_user, job.charged_to_org_id):
-        raise HTTPException(status_code=404, detail="Job not found")
+    require_job_write(current_user, job)
     # Atomic transition through the state machine: the UPDATE predicate (not a
     # Python read) decides, so a concurrent cancel/reject cannot be overwritten.
     failed_notes = f"{job.notes or ''}\nFailed: {notes}".strip() if notes else job.notes
@@ -355,15 +344,11 @@ def fail_job(job_id: int, notes: Optional[str] = None, current_user: dict = Depe
 def reset_job(job_id: int, current_user: dict = Depends(require_action("jobs.edit", scope="write:jobs")), db: Session = Depends(get_db)):
     """Reset a job back to pending status."""
     job = db.query(Job).filter(Job.id == job_id).first()
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-    if not check_org_access(current_user, job.charged_to_org_id):
-        raise HTTPException(status_code=404, detail="Job not found")
+    require_job_write(current_user, job)
     assert_generic_job_mutation_allowed(db, job_id)
     production_orders = prepare_job_write(db, [job_id])
     job = db.query(Job).filter(Job.id == job_id).populate_existing().first()
-    if not job or not check_org_access(current_user, job.charged_to_org_id):
-        raise HTTPException(status_code=404, detail="Job not found")
+    require_job_write(current_user, job)
 
     # Reset starts a new print attempt and is only allowed from a finished
     # outcome (completed/failed/cancelled) - never from submitted, rejected or
@@ -400,10 +385,7 @@ def dispatch_job_to_printer(
     The assigned printer must be a Bambu printer with credentials configured.
     """
     job = db.query(Job).filter(Job.id == job_id).first()
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-    if not check_org_access(current_user, job.charged_to_org_id):
-        raise HTTPException(status_code=404, detail="Job not found")
+    require_job_write(current_user, job)
 
     if not job.printer_id:
         raise HTTPException(status_code=400, detail="Job is not assigned to a printer")
@@ -451,10 +433,7 @@ def resubmit_job(job_id: int, db: Session = Depends(get_db), current_user: dict 
         raise HTTPException(status_code=401, detail="Not authenticated")
 
     job = db.query(Job).filter(Job.id == job_id).first()
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-    if not check_org_access(current_user, job.charged_to_org_id):
-        raise HTTPException(status_code=404, detail="Job not found")
+    require_job_write(current_user, job)
     assert_generic_job_mutation_allowed(db, job_id)
 
     if job.status != "rejected":
@@ -494,17 +473,12 @@ def resubmit_job(job_id: int, db: Session = Depends(get_db), current_user: dict 
 def link_job_to_print(job_id: int, print_job_id: int, current_user: dict = Depends(require_action("jobs.edit", scope="write:jobs")), db: Session = Depends(get_db)):
     """Link a scheduled job to an MQTT-detected print."""
     # Check job exists and caller has org access
-    job_row = db.execute(text("SELECT id, printer_id, charged_to_org_id FROM jobs WHERE id = :id"), {"id": job_id}).fetchone()
-    if not job_row:
-        raise HTTPException(status_code=404, detail="Job not found")
-    job_dict = dict(job_row._mapping)
-    if not check_org_access(current_user, job_dict.get("charged_to_org_id")):
-        raise HTTPException(status_code=404, detail="Job not found")
+    job_row = db.execute(text("SELECT id, printer_id, charged_to_org_id, submitted_by FROM jobs WHERE id = :id"), {"id": job_id}).fetchone()
+    require_job_write(current_user, job_row)
     assert_generic_job_mutation_allowed(db, job_id)
     production_orders = prepare_job_write(db, [job_id])
-    job_row = db.execute(text("SELECT id,printer_id,charged_to_org_id FROM jobs WHERE id=:id"), {'id': job_id}).fetchone()
-    if not job_row or not check_org_access(current_user, job_row.charged_to_org_id):
-        raise HTTPException(404, 'Job not found')
+    job_row = db.execute(text("SELECT id,printer_id,charged_to_org_id,submitted_by FROM jobs WHERE id=:id"), {'id': job_id}).fetchone()
+    require_job_write(current_user, job_row)
     # Re-alias for downstream use
     job = job_row
 
@@ -518,7 +492,7 @@ def link_job_to_print(job_id: int, print_job_id: int, current_user: dict = Depen
         raise HTTPException(status_code=400, detail="Job and print are on different printers")
 
     printer = db.query(Printer).filter(Printer.id == job.printer_id).first()
-    if not printer or (not printer.shared and not check_org_access(current_user, printer.org_id)):
+    if not printer or (not printer.shared and not check_org_write(current_user, printer.org_id, operate=True)):
         raise HTTPException(404, 'Print job not found')
     if print_job.scheduled_job_id not in (None, job_id):
         raise HTTPException(409, 'This print is already linked to another job')
@@ -576,22 +550,18 @@ def move_job(
 ):
     """Move a job to a different printer and/or time slot (RBAC action timeline.move)."""
     job = db.query(Job).filter(Job.id == job_id).first()
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-    if not check_org_access(current_user, job.charged_to_org_id):
-        raise HTTPException(status_code=404, detail="Job not found")
+    require_job_write(current_user, job)
     assert_generic_job_mutation_allowed(db, job_id)
     production_orders = prepare_job_write(db, [job_id])
     job = db.query(Job).filter(Job.id == job_id).populate_existing().first()
-    if not job or not check_org_access(current_user, job.charged_to_org_id):
-        raise HTTPException(404, 'Job not found')
+    require_job_write(current_user, job)
 
     if job.status not in (JobStatus.PENDING, JobStatus.SCHEDULED):
         raise HTTPException(409, 'Only pending or scheduled jobs can be moved; reset terminal work explicitly')
 
     # Verify printer exists
     printer = db.query(Printer).filter(Printer.id == request.printer_id).first()
-    if not printer or (not printer.shared and not check_org_access(current_user, printer.org_id)):
+    if not printer or (not printer.shared and not check_org_write(current_user, printer.org_id, operate=True)):
         raise HTTPException(status_code=404, detail="Printer not found")
 
     # Calculate end time based on job duration
@@ -655,15 +625,10 @@ async def update_job_failure(
     """Add or update failure reason and notes on a failed job."""
     data = await request.json()
 
-    job = db.execute(text("SELECT id, status, charged_to_org_id FROM jobs WHERE id = :id"), {"id": job_id}).fetchone()
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-
-    job_dict = dict(job._mapping)
-    if not check_org_access(current_user, job_dict.get("charged_to_org_id")):
-        raise HTTPException(status_code=404, detail="Job not found")
+    job = db.execute(text("SELECT status, charged_to_org_id, submitted_by FROM jobs WHERE id=:id"), {"id": job_id}).first()
+    require_job_write(current_user, job)
     assert_generic_job_mutation_allowed(db, job_id)
-    if job_dict["status"] != "failed":
+    if job.status != "failed":
         raise HTTPException(status_code=400, detail="Can only add failure info to failed jobs")
 
     fail_reason = data.get("fail_reason")

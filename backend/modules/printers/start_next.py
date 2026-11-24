@@ -84,6 +84,9 @@ def start(db, printer, user, data, *, background=False):
     suggestion = next_suggestion(db, printer, visible=visible, actor=user)
     if suggestion['job_id'] != data.suggested_job_id or suggestion['fingerprint'] != data.suggestion_fingerprint:
         raise HTTPException(409, {'message': 'Suggestion changed. Review the new suggestion.', 'suggestion': suggestion})
+    from modules.jobs.models import Job
+    from modules.jobs.services import require_job_write
+    require_job_write(user, db.get(Job, data.suggested_job_id))
     record = {'actor': principal(user), 'printer_id': printer_id, 'job_id': data.suggested_job_id,
               'fingerprint': data.suggestion_fingerprint, 'attestation': data.attestation or 'owner_in_app',
               'result': {'success': False, 'state': 'preparing', 'job_id': data.suggested_job_id, 'request_id': str(data.request_id)}}
@@ -118,12 +121,12 @@ def start(db, printer, user, data, *, background=False):
         if not insert(conn, key, record):
             return replay(load(conn, key), user, printer_id)
         from core.order_production import prepare_job_write, reconcile_job_write
-        from modules.jobs.models import Job
         with Session(bind=conn) as claim_db:
             parents = prepare_job_write(claim_db, [data.suggested_job_id], {'printer_id': printer_id})
             job = claim_db.query(Job).filter(Job.id == data.suggested_job_id).with_for_update().one_or_none()
             if job is None or getattr(job.status, 'value', job.status) != 'pending' or job.hold or job.printer_id not in (None, printer_id):
                 raise HTTPException(409, 'Candidate changed before it could be claimed')
+            require_job_write(user, job)
             if kobra_s1 and job.printer_id != printer_id:
                 raise HTTPException(409, 'A Kobra S1 starts only jobs assigned to it')
             record['assigned_by_claim'] = job.printer_id is None

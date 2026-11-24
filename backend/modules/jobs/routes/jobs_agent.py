@@ -46,6 +46,7 @@ from core.rbac import (
 from core.responses import build_next_actions, next_action
 from license_manager import require_feature
 from modules.jobs.models import Job
+from modules.jobs.write_access import require_job_write
 from modules.jobs.schemas import JobResponse
 from modules.jobs.scoped_cancel import assert_cancel_allowed
 
@@ -69,6 +70,7 @@ def _get_job_or_raise(db: Session, job_id: int, current_user: dict) -> Job:
             f"Job {job_id} not found",
             status=404,
         )
+    require_job_write(current_user, job)
     return job
 
 
@@ -116,6 +118,7 @@ def cancel_job(
     job = db.query(Job).filter(Job.id == job_id).populate_existing().first()
     if not job or not check_org_access(current_user, job.charged_to_org_id):
         raise OdinError(ErrorCode.job_not_found, f"Job {job_id} not found", status=404)
+    require_job_write(current_user, job)
     assert_cancel_allowed(db, job, current_user)
     from modules.jobs.state_machine import transition_job
     if not transition_job(db, job_id, JobStatus.CANCELLED, "operator",

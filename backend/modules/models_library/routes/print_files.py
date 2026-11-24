@@ -25,7 +25,7 @@ from core.db import get_db
 from core.db_compat import execute_insert_returning_id
 from core.errors import ErrorCode, OdinError
 from core.middleware.dry_run import dry_run_preview, is_dry_run
-from core.rbac import AGENT_WRITE_SCOPE, check_org_access, require_any_scope, require_role, require_action
+from core.rbac import AGENT_WRITE_SCOPE, check_org_access, check_org_write, require_any_scope, require_role, require_action
 from core.responses import build_next_actions, next_action
 from modules.models_library.printer_fit import uploaded_file_fit
 from modules.models_library.upload_storage import _studio_print_notes, _normalize_model_name, _fresh_upload_actor, _visible_upload_duplicate, _own_upload_model, _new_upload_path
@@ -84,7 +84,7 @@ def _get_accessible_printer(db: Session, printer_id: int, current_user: dict, *,
             status=404,
             retriable=False,
         )
-    if not (check_org_access(current_user, printer._mapping.get("org_id")) or (allow_shared and printer._mapping.get("shared"))):
+    if not (check_org_write(current_user, printer.org_id, operate=True) or (allow_shared and printer._mapping.get("shared"))):
         raise OdinError(
             ErrorCode.printer_not_found,
             f"Printer {printer_id} not found",
@@ -563,7 +563,7 @@ async def submit_studio_print(
             parent = _generic_parent(db, row, current_user)
             assert_generic_model_reference_allowed(db, row.model_id)
             target = lock_queue_reference(db, 'printers', target_printer_id, TARGET_FIELDS)
-            if target is None or not check_org_access(current_user, target.org_id):
+            if target is None or not check_org_write(current_user, target.org_id, operate=True):
                 raise HTTPException(404, 'Printer not found')
             target_capture = capture(target, TARGET_FIELDS)
             if target_capture != initial_target:

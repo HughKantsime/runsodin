@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from core.db import get_db
 from core.dependencies import log_audit
-from core.rbac import require_action
+from core.rbac import require_action, require_org_write
 
 router = APIRouter()
 
@@ -30,6 +30,7 @@ def rename_print_file(file_id: int, body: PrintFileRename,
     from modules.models_library.file_management import _assert_generic_payload
     row = accessible_preview_file(db, file_id, actor)
     _assert_generic_payload(db, row)
+    require_org_write(actor, row.org_id, "file")
     if row.model_id is not None:
         raise HTTPException(409, 'Rename the model for this print file')
     db.execute(text('UPDATE print_files SET original_filename=:name WHERE id=:id'),

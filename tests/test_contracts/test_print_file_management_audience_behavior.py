@@ -126,12 +126,14 @@ def test_authorized_owned_or_global_detail_retains_metadata_without_server_path(
  assert 'stored_path' not in response.json()
  assert response.json()['print_time_formatted'] in ('1m','1.0m')
 
-@pytest.mark.parametrize('file_id',[21,23])
-def test_authorized_owned_or_global_delete_removes_only_requested_record(managed_files,review_db,file_id):
+@pytest.mark.parametrize('file_id,status', [(21,200), (23,403)])
+def test_member_can_delete_only_the_owned_file(managed_files,review_db,file_id,status):
  client,issue=managed_files
  response=client.delete(f'/print-files/{file_id}',headers=issue(['write:models']))
- assert response.status_code==200,response.text
- assert review_db.execute(text('SELECT COUNT(*) FROM print_files WHERE id=:id'),{'id':file_id}).scalar_one()==0
+ assert response.status_code==status,response.text
+ if status==403:
+  assert response.json()['detail']=='This file belongs to no organization. Ask a platform administrator to change it.'
+ assert review_db.execute(text('SELECT COUNT(*) FROM print_files WHERE id=:id'),{'id':file_id}).scalar_one()==int(status==403)
  assert review_db.execute(text('SELECT COUNT(*) FROM print_files WHERE id=22')).scalar_one()==1
 
 

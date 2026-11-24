@@ -8,9 +8,10 @@ from sqlalchemy.orm import Session
 
 from core.db import get_db
 from core.dependencies import log_audit
-from core.rbac import require_action, check_org_access
+from core.rbac import require_action
 from modules.jobs.education_guard import assert_generic_job_mutation_allowed
 from modules.jobs.models import Job
+from modules.jobs.write_access import require_job_write
 from modules.jobs.state_machine import transition_job
 from modules.archives.services import assert_archive_access
 
@@ -28,8 +29,7 @@ def reclassify_outcome(job_id: int, body: OutcomeCorrection,
                        db: Session = Depends(get_db),
                        current_user: dict = Depends(require_action('jobs.edit', scope='write:jobs'))):
     job = db.get(Job, job_id)
-    if not job or not check_org_access(current_user, job.charged_to_org_id):
-        raise HTTPException(404, 'Job not found')
+    require_job_write(current_user, job)
     assert_generic_job_mutation_allowed(db, job_id)
     if body.status == body.from_status:
         raise HTTPException(400, 'Only failed ↔ cancelled corrections are allowed')

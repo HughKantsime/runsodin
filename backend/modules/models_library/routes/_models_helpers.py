@@ -14,7 +14,7 @@ from fastapi import HTTPException
 from sqlalchemy import text
 
 from core.models import SystemConfig
-from core.rbac import check_org_access
+from core.rbac import require_org_write
 from modules.models_library.models import Model
 
 
@@ -65,8 +65,9 @@ def _locked_revision_model(db, model_id, current_user):
     # A no-op parent write serializes numbering on SQLite and PostgreSQL.
     db.execute(text("UPDATE models SET id=id WHERE id=:id"), {"id": model_id})
     model = db.query(Model).filter(Model.id == model_id).populate_existing().first()
-    if not model or not check_org_access(current_user, model.org_id):
+    if not model:
         raise HTTPException(status_code=404, detail="Model not found")
+    require_org_write(current_user, model.org_id, "model")
     return model
 
 
