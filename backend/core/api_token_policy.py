@@ -45,6 +45,22 @@ def token_scope_granted(scopes, required):
     return bool(separator and resource and action in ("read", "write") and action in scopes)
 
 
+# Compare the stored list in the same statement that replaces it. The runtime
+# credential guard recognizes this statement only for exact scope subtraction.
+SET_TOKEN_SCOPES_SQL = "UPDATE api_tokens SET scopes=:scopes WHERE id=:id AND user_id=:uid AND scopes=:previous"
+REMOVE_INELIGIBLE_SETUP_SQL = (
+    SET_TOKEN_SCOPES_SQL + " AND EXISTS (SELECT 1 FROM users WHERE users.id=api_tokens.user_id "
+    "AND (role IS NULL OR role <> 'admin' OR is_active IS NOT TRUE))"
+)
+
+
+def can_manage_square(db, user):
+    from core.rbac import _is_platform_superadmin
+    from core.rbac_policy import action_roles
+    return (user.get("role") == "admin" and
+            (_is_platform_superadmin(user) or "admin" in action_roles(db, "products.square_manage")))
+
+
 def require_square_setup_available(db):
     """Keep the existing products entitlement; delegation is off in Education mode."""
     from fastapi import HTTPException

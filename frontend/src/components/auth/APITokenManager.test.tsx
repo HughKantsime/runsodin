@@ -1,5 +1,5 @@
 import React from 'react'
-import { cleanup, render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import APITokenManager from './APITokenManager'
 import { apiTokens, getEducationMode } from '../../api'
@@ -58,13 +58,14 @@ it('offers explicit production inspection and Square-send delegation',async()=>{
   await waitFor(()=>expect(apiTokens.create).toHaveBeenCalledWith({name:'Production operator',scopes:['write:production'],expires_days:null}))
 })
 
-function setupToken(scopes = ['read']) {
+function setupToken(scopes = ['read'], extra = {}) {
   vi.mocked(getCurrentUser).mockReturnValue({ id: 3, username: 'Admin', role: 'admin' })
-  vi.mocked(apiTokens.list).mockResolvedValue([{ id: 7, name: 'Inventory setup', prefix: 'synthetic', scopes }] as any)
+  vi.mocked(apiTokens.list).mockResolvedValue([{ id: 7, name: 'Inventory setup', prefix: 'synthetic', scopes, ...extra }] as any)
 }
 
 it('grants and revokes Square setup on one named token and updates the list', async () => {
   setupToken()
+  vi.spyOn(window, 'confirm').mockReturnValue(true)
   vi.mocked(apiTokens.squareSetup).mockResolvedValueOnce({ id: 7, scopes: ['read', 'write:square_setup'] })
     .mockResolvedValueOnce({ id: 7, scopes: ['read'] })
   render(<APITokenManager />)
@@ -104,6 +105,7 @@ it('keeps revocation available in Education mode and after license expiry', asyn
 
 it('keeps the original scopes and reports a failed grant', async () => {
   setupToken()
+  vi.spyOn(window, 'confirm').mockReturnValue(true)
   vi.mocked(apiTokens.squareSetup).mockRejectedValue(new Error('Synthetic failure'))
   render(<APITokenManager />)
   fireEvent.click(await screen.findByRole('button', { name: 'Grant Square setup for Inventory setup' }))
@@ -118,4 +120,45 @@ it('offers a viewer personal tokens within the role limits', async () => {
   expect(screen.getByRole('button', {name: 'Read Education'})).toBeEnabled()
   expect(screen.queryByRole('button', {name: 'Full Admin'})).not.toBeInTheDocument()
   expect(screen.queryByRole('button', {name: /Record production inspections/})).not.toBeInTheDocument()
+})
+
+it('lets the owner cancel the grant after reading what it allows', async () => {
+  setupToken()
+  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+  render(<APITokenManager />)
+  fireEvent.click(await screen.findByRole('button', { name: /Grant Square setup/ }))
+  expect(confirm).toHaveBeenCalledWith('Allow this token to map new products to Square and record their first stock baseline in ODIN?')
+  expect(apiTokens.squareSetup).not.toHaveBeenCalled()
+})
+
+it.each([true, false])('only offers revocation on an expired token with a stored grant (%s)', async granted => {
+  setupToken(granted ? ['read', 'write:square_setup'] : ['read'], { expires_at: '2000-01-01T00:00:00Z' })
+  render(<APITokenManager />)
+  await screen.findByText('Inventory setup')
+  expect(screen.queryByRole('button', { name: /Grant Square setup/ })).toBeNull()
+  expect(!!screen.queryByRole('button', { name: /Revoke Square setup/ })).toBe(granted)
+})
+
+it('shows another owner and removes their grant from the list after revocation', async () => {
+  setupToken(['write:square_setup'], { owner_username: 'Alex' })
+  vi.mocked(apiTokens.squareSetup).mockResolvedValue({ id: 7, scopes: ['read'] })
+  render(<APITokenManager />)
+  expect(await screen.findByText('Owned by Alex')).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: /Revoke Square setup/ }))
+  await waitFor(() => expect(screen.queryByText('Inventory setup')).toBeNull())
+  expect(apiTokens.squareSetup).toHaveBeenCalledWith(7, false)
+})
+
+it('removes the grant button when an open account page reaches the token expiry', async () => {
+  vi.useFakeTimers()
+  try {
+    vi.setSystemTime(new Date('2030-01-01T00:00:00Z'))
+    setupToken(['read'], { expires_at: '2030-01-01T00:00:02Z' })
+    await act(async () => { render(<APITokenManager />) })
+    expect(screen.getByRole('button', { name: /Grant Square setup/ })).toBeEnabled()
+    act(() => { vi.advanceTimersByTime(2000) })
+    expect(screen.queryByRole('button', { name: /Grant Square setup/ })).toBeNull()
+  } finally {
+    vi.useRealTimers()
+  }
 })

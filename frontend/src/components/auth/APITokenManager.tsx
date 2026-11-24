@@ -31,6 +31,7 @@ export default function APITokenManager() {
     (scope.value !== 'admin' || isAdmin) && (scope.value !== 'write:production' || isAdmin || role === 'operator'))
   const [educationMode, setEducationMode] = useState(true)
   const [tokens, setTokens] = useState([])
+  const [now, setNow] = useState(Date.now)
   const [loading, setLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)
   const [name, setName] = useState('')
@@ -43,7 +44,7 @@ export default function APITokenManager() {
 
   const loadTokens = async () => {
     try {
-      const data = await apiTokens.list()
+      const data = await apiTokens.list(isAdmin)
       setTokens(data)
     } catch { setError('Unable to load API tokens. Try again.') }
     setLoading(false)
@@ -54,13 +55,28 @@ export default function APITokenManager() {
     if (isAdmin) getEducationMode().then(data => setEducationMode(data.enabled)).catch(() => setEducationMode(true))
   }, [isAdmin])
 
+  useEffect(() => {
+    const nextExpiry = tokens.reduce((next, token) => {
+      const expiry = parseServerDate(token.expires_at).getTime()
+      return expiry > now ? Math.min(next, expiry) : next
+    }, Infinity)
+    if (!Number.isFinite(nextExpiry)) return
+    const timer = window.setTimeout(() => setNow(Date.now()), Math.min(nextExpiry - Date.now(), 2_147_483_647))
+    return () => window.clearTimeout(timer)
+  }, [tokens, now])
+
   const handleSquareSetup = async (id: number, enabled: boolean) => {
+    if (enabled && !window.confirm("Allow this token to map new products to Square and record their first stock baseline in ODIN?")) return
     setActionLoading(true)
     setError('')
     try {
       const updated = await apiTokens.squareSetup(id, enabled)
-      setTokens(previous => previous.map(token => token.id === id ? { ...token, scopes: updated.scopes } : token))
-    } catch { setError('Unable to change Square setup permission. Reload the token list and try again.') }
+      setTokens(previous => previous.filter(token => !(token.id === id && token.owner_username && !enabled))
+        .map(token => token.id === id ? { ...token, scopes: updated.scopes } : token))
+    } catch (error) {
+      setError(error instanceof Error && 'detail' in error && typeof error.detail === 'string'
+        ? error.detail : 'Unable to change Square setup permission. Reload the token list and try again.')
+    }
     finally { setActionLoading(false) }
   }
 
@@ -236,7 +252,9 @@ export default function APITokenManager() {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
                   <span className="font-medium text-sm">{t.name}</span>
-                  <code className="text-xs text-[var(--brand-text-muted)] font-mono">{t.prefix}...</code>
+                  {t.owner_username
+                    ? <span className="text-xs text-[var(--brand-text-muted)]">Owned by {t.owner_username}</span>
+                    : <code className="text-xs text-[var(--brand-text-muted)] font-mono">{t.prefix}...</code>}
                 </div>
                 <div className="flex flex-wrap gap-1">
                   {(t.scopes || []).map(s => (
@@ -258,7 +276,8 @@ export default function APITokenManager() {
                 </div>
               </div>
               {isAdmin && t.scopes?.length > 0 && !t.scopes.includes('read:cameras') && (
-                (license.hasFeature('products') && !educationMode) || t.scopes.includes('write:square_setup')
+                t.scopes.includes('write:square_setup') || (!t.owner_username && license.hasFeature('products') && !educationMode &&
+                  (!t.expires_at || parseServerDate(t.expires_at).getTime() > now))
               ) && <button
                 type="button"
                 disabled={actionLoading}
@@ -268,13 +287,13 @@ export default function APITokenManager() {
               >
                 {t.scopes.includes('write:square_setup') ? 'Revoke Square setup' : 'Grant Square setup'}
               </button>}
-              <button
+              {!t.owner_username && <button
                 aria-label={`Revoke token ${t.name}`}
                 onClick={() => handleRevoke(t.id)}
                 className="p-2 rounded hover:bg-red-900/30 text-[var(--brand-text-muted)] hover:text-red-400"
               >
                 <Trash2 size={14} />
-              </button>
+              </button>}
             </div>
           ))}
         </div>

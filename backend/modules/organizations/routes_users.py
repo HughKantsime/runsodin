@@ -27,6 +27,7 @@ from core.auth_helpers import _validate_password
 from core.auth import ACCESS_TOKEN_EXPIRE_HOURS, hash_password, UserCreate, UserRole
 from core.models import SystemConfig
 from license_manager import require_feature
+from modules.organizations.square_setup_grants import revoke_owner_grants
 from modules.organizations.user_creation import create_user_record
 
 log = logging.getLogger("odin.api")
@@ -226,8 +227,11 @@ class UserUpdateRequest(PydanticBaseModel):
 @router.patch("/users/{user_id}", tags=["Users"], dependencies=[Depends(require_scope("admin"))])
 async def update_user(user_id: int, body: UserUpdateRequest, current_user: dict = Depends(require_role("admin")), request: Request = None, db: Session = Depends(get_db)):
     updates = body.model_dump(exclude_unset=True)
+    changes_access = "role" in updates or "is_active" in updates
+    if changes_access:
+        db.execute(text("UPDATE users SET id=id WHERE id=:id"), {"id": user_id})
     target = db.execute(
-        text("SELECT group_id FROM users WHERE id = :id"), {"id": user_id}
+        text("SELECT group_id, role, is_active FROM users WHERE id = :id"), {"id": user_id}
     ).fetchone()
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
@@ -283,11 +287,18 @@ async def update_user(user_id: int, body: UserUpdateRequest, current_user: dict 
     email_changed = 'email' in updates and updates['email'] != current_recovery.email
     password_changed = 'password_hash' in updates
     role_changed = 'role' in updates
+    if changes_access and (not target.is_active or target.role != "admin"):
+        # Clear grants retained by older versions before restoring access.
+        revoke_owner_grants(db, user_id, current_user, "owner_previously_ineligible")
     if updates:
         set_clause = ", ".join(f"{k} = :{k}" for k in updates.keys())
         updates['id'] = user_id
         db.execute(text(f"UPDATE users SET {set_clause} WHERE id = :id"), updates)  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
         db.flush()
+    if "is_active" in updates and not updates["is_active"]:
+        revoke_owner_grants(db, user_id, current_user, "owner_deactivated")
+    elif role_changed and updates["role"] != "admin":
+        revoke_owner_grants(db, user_id, current_user, "owner_role_changed")
     if any(k in updates for k in ('role', 'group_id', 'is_active')):
         from modules.organizations.education_program_policy import deactivate_schedules
         deactivate_schedules(db)
@@ -344,6 +355,7 @@ async def delete_user(user_id: int, current_user: dict = Depends(require_role("a
         )
     target_row = db.execute(text("SELECT username,email FROM users WHERE id = :id"), {"id": user_id}).fetchone()
     try:
+        revoke_owner_grants(db, user_id, current_user, "owner_deleted")
         _revoke_user_credentials(db, user_id)
         from core.traceability_privacy import erase_personal
         erase_personal(db, user_id, {v for v in (target_row.username, target_row.email) if v})

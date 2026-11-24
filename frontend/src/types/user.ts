@@ -94,12 +94,15 @@ export interface AdminSession extends Omit<Session, 'is_current'> {
 export interface ApiToken {
   id: number;
   name: string;
-  token_prefix: string;
+  prefix: string;
   scopes: string[];
   created_at: string;
   expires_at: string | null;
   last_used_at: string | null;
 }
+
+/** A signed-in administrator can see another owner's Square grant. */
+export type ManagedSquareGrant = Pick<ApiToken, 'id' | 'name' | 'scopes'> & { owner_username: string }
 
 export interface ApiTokenCreate {
   name: string;

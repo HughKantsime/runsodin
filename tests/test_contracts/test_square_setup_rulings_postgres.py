@@ -13,6 +13,11 @@ from tests.test_contracts.test_square_setup_rulings import (
     education_mode_gate, test_two_token_baselines_race_one_wins,
 )
 
+from tests.test_contracts.test_square_setup_leftovers import (
+    test_audit_failure_rolls_back_demotion_and_grants, test_owner_change_removes_each_grant,
+    test_refusal_window_serializes_concurrent_requests, test_demotion_while_grant_waits_requires_a_new_grant,
+)
+
 pytestmark = pytest.mark.postgresql
 
 

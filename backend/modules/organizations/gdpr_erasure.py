@@ -88,6 +88,8 @@ def erase_user_data_sync(user_id, current_user, db):
     db.execute(text("DELETE FROM mfa_recovery_codes WHERE user_id = :uid"), {"uid": user_id})
     db.execute(text("DELETE FROM mfa_enrollments WHERE user_id = :uid"), {"uid": user_id})
     db.execute(text("DELETE FROM active_sessions WHERE user_id = :uid"), {"uid": user_id})
+    from modules.organizations.square_setup_grants import revoke_owner_grants
+    revoke_owner_grants(db, user_id, current_user, "owner_erased")
     db.execute(text("DELETE FROM api_tokens WHERE user_id = :uid"), {"uid": user_id})
     db.execute(text("DELETE FROM alert_preferences WHERE user_id = :uid"), {"uid": user_id})
     db.execute(text("DELETE FROM push_subscriptions WHERE user_id = :uid"), {"uid": user_id})

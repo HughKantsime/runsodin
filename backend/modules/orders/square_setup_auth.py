@@ -7,7 +7,9 @@ from pydantic import StringConstraints
 from slowapi.util import get_remote_address
 from sqlalchemy import text
 
-from core.api_token_policy import SQUARE_SETUP_SCOPE, parse_token_scopes, require_square_setup_available
+from core.api_token_policy import (
+    SQUARE_SETUP_SCOPE, can_manage_square, parse_token_scopes, require_square_setup_available, token_scope_granted,
+)
 from core.audit import validate_setup_note
 from core.db import get_db
 from core.rbac import mark_token_scope_checker, require_action, require_role
@@ -101,9 +103,7 @@ def fresh_setup_actor(db, user):
     fresh = {**user, '_token_scopes': parse_token_scopes(token.scopes) or [], '_token_name': token.name}
     assert_square_setup(fresh)
     require_square_setup_available(db)
-    from core.rbac import _is_platform_superadmin
-    from core.rbac_policy import action_roles
-    if not _is_platform_superadmin(fresh) and fresh['role'] not in action_roles(db, 'products.square_manage'):
+    if not can_manage_square(db, fresh):
         raise HTTPException(403, 'Insufficient permissions')
     return fresh
 
@@ -115,3 +115,20 @@ def same_mapping(doc, product_id, location, variation):
     if (mapping['location_id'], mapping['variation_id']) != (location, variation):
         raise HTTPException(409, 'This product is already mapped in Square. A signed-in administrator must change the mapping.')
     return True
+
+
+def limited_setup_reply(user):
+    return (user.get('_auth_kind') == 'user_api_token'
+            and not token_scope_granted(user.get('_token_scopes') or [], 'read'))
+
+
+def setup_result(db, user, owner, doc, product_id, *, tracked, include_baseline=False):
+    if not limited_setup_reply(user):
+        return store.public(db, owner, doc)
+    mapping = doc['mappings'][str(product_id)]
+    item = {'product_id': product_id, 'location_id': mapping['location_id'],
+            'variation_id': mapping['variation_id'], 'tracked': tracked}
+    if include_baseline:
+        baseline = mapping['stock_baseline']
+        item['stock_baseline'] = {key: baseline[key] for key in ('quantity', 'at', 'version')}
+    return {'revision': doc['revision'], 'mappings': [item]}

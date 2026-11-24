@@ -13,6 +13,7 @@ import type {
   Session,
   AdminSession,
   ApiToken,
+  ManagedSquareGrant,
   ApiTokenCreate,
   ApiTokenCreateResponse,
   License,
@@ -119,7 +120,7 @@ export const sessions = {
 
 // Scoped API tokens
 export const apiTokens = {
-  list: (): Promise<ApiToken[]> => fetchAPI('/tokens'),
+  list: (managedSquareSetup = false): Promise<(ApiToken | ManagedSquareGrant)[]> => fetchAPI(managedSquareSetup ? '/tokens?managed_square_setup=true' : '/tokens'),
   create: (data: ApiTokenCreate): Promise<ApiTokenCreateResponse> => fetchAPI('/tokens', { method: 'POST', body: JSON.stringify(data) }),
   revoke: (id: number): Promise<void> => fetchAPI(`/tokens/${id}`, { method: 'DELETE' }),
   squareSetup: (id: number, enabled: boolean): Promise<{ id: number; scopes: string[] }> => fetchAPI(`/tokens/${id}/square-setup`, { method: 'PUT', body: JSON.stringify({ enabled }) }),

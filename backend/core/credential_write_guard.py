@@ -22,9 +22,11 @@ are not seen.
 from __future__ import annotations
 
 import re
+import json
 from contextvars import ContextVar
 from typing import Any, Iterable
 
+from core.api_token_policy import REMOVE_INELIGIBLE_SETUP_SQL, SQUARE_SETUP_SCOPE, parse_token_scopes
 from fastapi import HTTPException
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
@@ -190,6 +192,24 @@ def _like_patterns_cannot_match_guarded(sql: str, rest: str, parameters: Any) ->
     return True
 
 
+_SQLITE_SCOPE_CAS = re.sub(r":\w+", "?", REMOVE_INELIGIBLE_SETUP_SQL)
+_POSTGRES_SCOPE_CAS = re.sub(r":(\w+)", r"%(\1)s", REMOVE_INELIGIBLE_SETUP_SQL)
+
+
+def _only_removes_square_setup(statement, parameters):
+    """Allow account demotion to withdraw this one grant, including on token-authenticated PATCH."""
+    if statement == _SQLITE_SCOPE_CAS and isinstance(parameters, (list, tuple)) and len(parameters) == 4:
+        after, _, _, before = parameters
+    elif statement in (_POSTGRES_SCOPE_CAS, REMOVE_INELIGIBLE_SETUP_SQL) and isinstance(parameters, dict):
+        before, after = parameters.get("previous"), parameters.get("scopes")
+    else:
+        return False
+    scopes = parse_token_scopes(before)
+    if not scopes or SQUARE_SETUP_SCOPE not in scopes or "read:cameras" in scopes:
+        return False
+    return after == json.dumps([scope for scope in scopes if scope != SQUARE_SETUP_SCOPE])
+
+
 def guarded_write_target(statement: str, parameters: Any) -> str | None:
     """Return the guarded target a statement writes, or None."""
     sql = _COMMENT.sub(" ", statement or "")
@@ -213,6 +233,8 @@ def guarded_write_target(statement: str, parameters: Any) -> str | None:
         if verb == "UPDATE" and not columns:
             continue  # SET x = x row-lock idiom: writes nothing
         if table in GUARDED_TABLES:
+            if table == "api_tokens" and _only_removes_square_setup(statement, parameters):
+                continue
             if (table, columns) in _ALLOWED_TOKEN_TELEMETRY:
                 continue
             return table

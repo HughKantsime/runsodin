@@ -4,6 +4,10 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Square setup access on an API token: other administrators can now see and revoke it, it is removed when its owner stops being an administrator, refused attempts are recorded in the audit log, and granting it asks for confirmation.
+
 ## [2.7.0] - 2026-11-24
 
 
