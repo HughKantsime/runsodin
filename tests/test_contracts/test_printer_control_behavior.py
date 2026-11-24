@@ -190,6 +190,15 @@ def test_pause_accepts_control_tokens(control_client, scope):
     assert calls == [(299, 'pause_print', ())]
 
 
+@pytest.mark.parametrize('scope', ['write', 'write:printers'])
+def test_printer_write_token_can_stop_the_print_it_paused(control_client, scope):
+    client, issue, calls = control_client
+    headers = issue([scope])
+    assert client.post('/printers/299/pause', headers=headers).status_code == 200
+    assert client.post('/printers/299/stop', headers=headers).status_code == 200
+    assert calls == [(299, 'pause_print', ()), (299, 'stop_print', ())]
+
+
 @pytest.mark.parametrize('scope', ['read:printers', 'write:jobs'])
 def test_pause_refusal_lists_allowed_scopes(control_client, scope):
     client, issue, calls = control_client
@@ -209,3 +218,16 @@ def test_pause_session_requires_printer_edit(control_client, review_db, role, ex
     client.cookies.set('session', interactive_headers()['Authorization'][7:])
     assert client.post('/printers/299/pause').status_code == expected
     assert calls == ([(299, 'pause_print', ())] if role == 'operator' else [])
+
+
+@pytest.mark.parametrize('action', ['pause', 'resume', 'stop'])
+def test_viewer_owned_printer_write_token_cannot_control_print(control_client, review_db, action):
+    client, issue, calls = control_client
+    headers = issue(['write:printers'])
+    review_db.execute(text("UPDATE users SET role='viewer' WHERE id=3"))
+    review_db.commit()
+    if action == 'resume':
+        _pause_printer(review_db)
+    response = client.post(f'/printers/299/{action}', headers=headers)
+    assert response.status_code == 403
+    assert calls == []

@@ -212,7 +212,7 @@ def test_internal_command_helper_refuses_without_opt_in_but_never_a_safety_comma
 # ---- HTTP: controls, opt-in route, monitoring ----
 
 @pytest.fixture
-def experimental_app(token_client, review_db, monkeypatch):
+def experimental_app(token_client, review_db, monkeypatch, request):
     from modules.printers import routes_controls, routes_experimental, routes_crud
     experimental(monkeypatch, 'bambu')
     review_db.execute(text("UPDATE printers SET shared=FALSE,tags='[]',timelapse_enabled=FALSE,slot_count=COALESCE(slot_count,4) WHERE id=9")); review_db.commit()
@@ -224,7 +224,8 @@ def experimental_app(token_client, review_db, monkeypatch):
     sent = []
     monkeypatch.setattr(routes_controls, '_send_printer_command', lambda printer, action: sent.append(action) or True)
     monkeypatch.setattr(routes_controls, '_bambu_command_direct', lambda printer, name, *a, **k: sent.append(name) or True)
-    return client, issue(['admin', 'write:printers', 'read:printers']), sent
+    scopes = getattr(request, 'param', ['admin', 'write:printers', 'read:printers'])
+    return client, issue(scopes), sent
 
 
 def make_superadmin(db):
@@ -243,7 +244,10 @@ def test_each_control_is_refused_without_opt_in(experimental_app, action):
 
 @pytest.mark.parametrize('action', SAFETY_ACTIONS)
 @pytest.mark.parametrize('case', ['generic', 'rack', 'rack_store_unavailable'])
-def test_pause_and_stop_always_work_on_an_experimental_printer(experimental_app, token_client, action, case, review_db, monkeypatch):
+@pytest.mark.parametrize('experimental_app', [
+    ['admin', 'write:printers', 'read:printers'], ['write:printers'],
+], indirect=True, ids=['original_scopes', 'printer_write_only'])
+def test_pause_and_stop_always_work_on_an_experimental_printer(experimental_app, action, case, review_db, monkeypatch):
     if case != 'generic':
         review_db.execute(text("UPDATE printers SET model='H3C' WHERE id=9"))
         review_db.commit()
@@ -251,9 +255,8 @@ def test_pause_and_stop_always_work_on_an_experimental_printer(experimental_app,
         def unavailable(*args):
             raise RuntimeError('store unavailable')
         monkeypatch.setattr(support_levels, '_read_store', unavailable)
-    client, _, sent = experimental_app
-    _, issue = token_client
-    response = client.post(f'/printers/9/{action}', headers=issue(['write:printers']), json=CONTROL_BODIES.get(action))
+    client, headers, sent = experimental_app
+    response = client.post(f'/printers/9/{action}', headers=headers, json=CONTROL_BODIES.get(action))
     assert response.status_code == 200, response.text
     assert sent == [{'pause': 'pause_print', 'stop': 'stop_print'}[action]]
 

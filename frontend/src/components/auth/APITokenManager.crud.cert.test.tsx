@@ -71,7 +71,7 @@ it('F11-11.6-01 lists the wire token with its odin_ prefix and scopes, never the
 it('F11-11.6-02 offers the granular resource scopes read:printers and write:jobs', async () => {
   vi.spyOn(permissions, 'getCurrentUser').mockReturnValue({ username: 'Admin', role: 'admin' })
   render(<APITokenManager />); fireEvent.click(await screen.findByText('New Token'))
-  for (const label of ['Read Printers', 'Edit printers (includes pause, resume, and stop)', 'Read Jobs', 'Write Jobs', 'Read Spools', 'Write Spools', 'Read Models', 'Write Models', 'Read Analytics', 'Full Admin']) {
+  for (const label of ['Read Printers', 'Write Printers', 'Read Jobs', 'Write Jobs', 'Read Spools', 'Write Spools', 'Read Models', 'Write Models', 'Read Analytics', 'Full Admin']) {
     expect(screen.getByRole('button', { name: label })).toBeInTheDocument()
   }
 })

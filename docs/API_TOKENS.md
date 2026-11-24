@@ -2,7 +2,7 @@
 
 ## Printer controls
 
-A token with `write:printers` can pause, resume, or stop a print if its owner has permission to edit the printer. Broad `write` includes these controls. Pause and resume also accept `agent:write` or `admin`.
+A token with `write:printers` can request a pause, resume, or stop if its owner has permission to edit the printer. Broad `write` includes these controls. Pause and resume also accept `agent:write` or `admin`. Printer safety checks still apply. If an open fault blocks a resume request, a person must review the printer and resume the print from the ODIN web app.
 
 ## Square setup
 
