@@ -5,6 +5,7 @@ import {QueryClient,QueryClientProvider} from '@tanstack/react-query'
 import Alerts from './Alerts'
 import {alerts as api, fetchAPI, printers} from '../../api'
 import {getCurrentUser} from '../../permissions'
+import type {AlertType} from '../../types/notification'
 import toast from 'react-hot-toast'
 vi.mock('../../api',()=>({alerts:{list:vi.fn(),remove:vi.fn(),markRead:vi.fn(),markAllRead:vi.fn(),dismiss:vi.fn()},fetchAPI:vi.fn(async()=>({user_digest:null})),approveJob:vi.fn(),rejectJob:vi.fn(),printers:{list:vi.fn()}}))
 vi.mock('../../permissions',()=>({getCurrentUser:vi.fn()}))
@@ -12,6 +13,19 @@ const row={id:701,title:'Synthetic retained alert',message:'Synthetic details',s
 function show(){render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><MemoryRouter><Alerts/></MemoryRouter></QueryClientProvider>)}
 beforeEach(()=>{vi.mocked(api.list).mockResolvedValue([row] as any);vi.mocked(getCurrentUser).mockReturnValue({username:'Synthetic operator',role:'operator'});vi.mocked(api.remove).mockResolvedValue({status:"ok",alert_id:701})})
 afterEach(()=>{cleanup();vi.clearAllMocks()})
+test.each(['printer_error', 'PRINTER_ERROR'])('shows the server’s %s alert in the list', async (alertType) => {
+ const alert = {
+   ...row, user_id:1, alert_type:alertType as AlertType, severity:'warning' as const,
+   title:'Printer command not confirmed', message:'Check the printer before trying again.',
+   is_dismissed:false, printer_id:9, printer_name:'Printer 9', job_id:null, job_name:null,
+   spool_id:null, spool_name:null, metadata_json:{kind:'control_timeout'},
+ }
+ vi.mocked(api.list).mockResolvedValue([alert])
+ show()
+ expect(await screen.findByText(alert.title)).toBeVisible()
+ expect(screen.getByText(alert.message)).toBeVisible()
+})
+
 test('confirmed deletion removes row and refreshes unread consumers',async()=>{
  const changed=vi.fn();window.addEventListener('odin:alerts-changed',changed)
  try {show();await screen.findByText(row.title);fireEvent.click(screen.getByRole('button',{name:'Delete alert'}));await waitFor(()=>expect(screen.queryByText(row.title)).toBeNull());expect(api.remove).toHaveBeenCalledWith(701);expect(changed).toHaveBeenCalledTimes(1)}

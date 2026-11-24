@@ -116,7 +116,10 @@ def _check_printers(db, job, receipts, actor):
             SECRET_KEY.encode(), r.claim_token, printer['api_type'] if printer else None, name, r.observed_filename_key
         ) for name in observed for r in targets[pid])
         name_match = any(filename_stem(name).casefold() in names for name in observed)
-        if fingerprint_match or (name_match and state is not None):
+        if fingerprint_match:
+            raise HTTPException(409, 'ODIN has a record of a print from this start request on the printer. '
+                                     'Check the printer; if nothing is printing, an administrator can clear it.')
+        if name_match and state is not None:
             raise HTTPException(409, 'The printer is printing a file with the same name. Try again when it ends.')
         if name_match:
             checks[str(pid)] = 'stale_open_print_ignored'

@@ -682,6 +682,23 @@ def test_verified_new_pro_user_has_ordinary_viewer_scope_after_upgrade(oidc_db, 
     assert check_org_access(user, None) and not check_org_access(user, 1)
 
 
+def test_education_verified_placeholder_requires_default_organization(oidc_db, tier_license):
+    from modules.organizations.routes_oidc import OIDCIdentityError, _resolve_oidc_user
+
+    tier_license("education")
+    oidc_db.execute(text(
+        "INSERT INTO users (username,email,password_hash,role,is_active,group_id) "
+        "VALUES ('placeholder','student@example.test','','viewer',1,NULL)"
+    ))
+    with pytest.raises(OIDCIdentityError) as exc:
+        _resolve_oidc_user(oidc_db, _config(default_group_id=None), _claims(), {}, verified_email=True)
+    assert exc.value.code == "oidc_default_tenant_required"
+    binding = oidc_db.execute(text(
+        "SELECT oidc_issuer, oidc_subject, oidc_provider FROM users WHERE username='placeholder'"
+    )).one()
+    assert tuple(binding) == (None, None, None)
+
+
 def test_pro_verified_email_refuses_to_link_platform_admin(oidc_db, tier_license):
     from modules.organizations.routes_oidc import OIDCIdentityError, _resolve_oidc_user
 

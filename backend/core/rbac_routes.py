@@ -366,6 +366,7 @@ WRITE_EXEMPTIONS: dict[tuple[str, str], str] = {
         ("PUT", "/api/settings/siem/{destination_id}"), ("DELETE", "/api/settings/siem/{destination_id}"),
         ("PUT", "/api/admin/oidc"), ("POST", "/api/admin/retention/cleanup"),
         ("POST", "/api/archives/reconcile-ownership"),
+        ("POST", "/api/print-files/plates/backfill"),
         ("POST", "/api/timelapses/recheck-facts"),  # re-admit timelapses after a restart, by content digest
         ("POST", "/api/backups"), ("POST", "/api/backups/restore"), ("DELETE", "/api/backups/{filename}"),
         ("POST", "/api/backups/{filename}/stage"),

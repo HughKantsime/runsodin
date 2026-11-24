@@ -42,7 +42,10 @@ def test_scoped_cancel_requires_no_start_for_every_receipt(review_db,evidence):
 
 URL = '/jobs/401/dispatch-attempts/no-start'
 BODY = {'attestation': {'version': 1, 'printer_checked': True, 'job_did_not_start': True}}
-SAME_NAME = 'printing a file with the same name. Try again when it ends.'
+SAME_NAME = 'The printer is printing a file with the same name. Try again when it ends.'
+START_REQUEST_MATCH = ('ODIN has a record of a print from this start request on the printer. '
+                       'Check the printer; if nothing is printing, an administrator can clear it.')
+BUSY = 'The job or printer is being updated. Check again in a moment.'
 
 
 def receipt(db, token, *, job=401, printer=301, age=60):
@@ -116,7 +119,7 @@ def test_reconciled_receipts_can_cancel_through_scoped_http_route(held):
     ('claim', 409, 'Dispatch recovery panel'), ('bound', 409, 'linked to this job'),
     ('sender', 409, 'sender is still recorded'), ('observed', 409, 'observed a print'),
     ('young', 409, '10 minutes'), ('empty', 409, 'no recorded start'),
-    ('same_file', 409, SAME_NAME), ('fresh_observation', 409, SAME_NAME), ('wire_name', 409, SAME_NAME),
+    ('same_file', 409, SAME_NAME), ('fresh_observation', 409, START_REQUEST_MATCH), ('wire_name', 409, START_REQUEST_MATCH),
     ('uploaded_name', 409, SAME_NAME),
     ('education', 409, 'Education'), ('viewer', 403, 'permissions'),
     ('scope', 403, 'scope'), ('foreign', 404, 'Job not found'), ('foreign_printer', 403, 'administrator must record'),
@@ -165,13 +168,13 @@ def test_action_refuses_without_writing(held, case, expected, reason):
         assert not no_start_states(db, [SimpleNamespace(id=401, hold=True, status='pending')])
 
 
-@pytest.mark.parametrize(('name', 'status', 'fresh_idle', 'refuses'), [
-    ('odin-dispatch-' + 'a'*32, 'running', False, True),
-    ('odin-dispatch-' + 'a'*32, 'preparing', True, True),
-    ('Never sent', 'running', False, True),
-    ('Never sent', 'running', True, False),
+@pytest.mark.parametrize(('name', 'status', 'fresh_idle', 'reason'), [
+    ('odin-dispatch-' + 'a'*32, 'running', False, START_REQUEST_MATCH),
+    ('odin-dispatch-' + 'a'*32, 'preparing', True, START_REQUEST_MATCH),
+    ('Never sent', 'running', False, SAME_NAME),
+    ('Never sent', 'running', True, None),
 ])
-def test_old_unfinished_print_evidence(held, name, status, fresh_idle, refuses):
+def test_old_unfinished_print_evidence(held, name, status, fresh_idle, reason):
     client, _, db = held
     old = datetime.now(timezone.utc) - timedelta(hours=1)
     db.execute(text("UPDATE printers SET gcode_state='IDLE',last_seen=:seen WHERE id=301"),
@@ -180,8 +183,8 @@ def test_old_unfinished_print_evidence(held, name, status, fresh_idle, refuses):
                     "WHERE scheduled_job_id=302"), {'status': status, 'old': old, 'name': name})
     db.commit()
     response = client.post(URL, json=BODY)
-    if refuses:
-        assert response.status_code == 409 and SAME_NAME in response.text
+    if reason:
+        assert response.status_code == 409 and response.json()['detail'] == reason
         assert audits(db) == []
     else:
         assert response.json() == {'recorded': 2}
@@ -275,6 +278,7 @@ def test_sqlite_request_with_open_transaction(held, busy):
             with pytest.raises(HTTPException) as error:
                 record_no_start(401, NoStartRequest(**BODY), actor, db)
             assert error.value.status_code == 409
+            assert error.value.detail == BUSY
             assert audits(db) == []
         else:
             assert record_no_start(401, NoStartRequest(**BODY), actor, db) == {'recorded': 2}
@@ -285,22 +289,18 @@ def test_sqlite_request_with_open_transaction(held, busy):
 def test_postgres_concurrent_checks_during_telemetry(slot_engine, job_with_receipts):
     from core.models import AuditLog
     actor, jid, pid = job_with_receipts
-    start = Barrier(2)
-
-    def submit():
-        with Session(slot_engine) as db:
-            start.wait(timeout=5)
-            try:
-                return record_no_start(jid, NoStartRequest(**BODY), actor, db)['recorded']
-            except HTTPException as error:
-                assert error.status_code == 409
-                return 0
-
+    body = NoStartRequest(**BODY)
     with slot_engine.begin() as telemetry:
         telemetry.execute(text('UPDATE printers SET last_seen=CURRENT_TIMESTAMP WHERE id=:pid'), {'pid': pid})
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            submissions = [pool.submit(submit) for _ in range(2)]
-            assert sorted(call.result() for call in submissions) == [0, 2]
+        with Session(slot_engine) as holder, Session(slot_engine) as contender:
+            holder.execute(text('SELECT id FROM jobs WHERE id=:id FOR UPDATE'), {'id': jid}).scalar_one()
+            contender.execute(text("SET LOCAL statement_timeout = '5s'"))
+            with pytest.raises(HTTPException) as error:
+                record_no_start(jid, body, actor, contender)
+            assert error.value.status_code == 409
+            assert error.value.detail == BUSY
+            assert record_no_start(jid, body, actor, holder) == {'recorded': 2}
+            assert record_no_start(jid, body, actor, contender) == {'recorded': 0}
     with Session(slot_engine) as db:
         entries = db.query(AuditLog).filter_by(action=ACTION, entity_type='job', entity_id=jid).all()
         tokens = db.execute(text('SELECT claim_token FROM dispatch_attempt_receipts WHERE job_id=:id'), {'id': jid})

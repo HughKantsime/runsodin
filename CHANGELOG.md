@@ -4,6 +4,20 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- On Pro, single sign-on can create viewer accounts without an organization.
+- The permissions table shows which pages require an administrator, and those pages stay hidden from other roles.
+- The Home Assistant integration shows where to create a token under Account > API Tokens.
+- When ODIN cannot create its printer lock folder, it tells you which folder needs write access. Applying a printer profile also shows the storage error.
+- You can paste a six-digit authenticator code with a space when setting up two-factor sign-in on the Account page.
+- The Kobra S1 filament mapping preview only offers ACE slots 1–4.
+- API tokens with printer write access can now pause a print. Previously they could stop and resume a print but could not pause it.
+
+### Changed
+
+- Repeating a job whose print file is no longer stored is refused with a plain reason.
+
 ### Fixed
 
 - Printer errors, including temperature problems and unconfirmed pause, resume, or stop commands, now reach you in the app and by push by default. Previously, unconfirmed commands and temperature problems reached only subscribed webhooks unless you had a printer-error preference.
@@ -19,14 +33,6 @@ All notable changes to O.D.I.N. are documented here.
 - Printers that report only notices, such as maintenance reminders, now keep their normal status. The notices and their troubleshooting links stay visible on the printer card and printer page.
 - Older printer notices now appear on both Foundry card sizes. A paused print keeps its reported cause, and a notice with the same code as a fault no longer hides the fault.
 - Operators using a jobs token can now cancel a held job after checking the printer and recording that its requested start never began. Previously, only an administrator could cancel such a job.
-### Added
-- On Pro, single sign-on can create viewer accounts without an organization.
-- The permissions table shows which pages require an administrator, and those pages stay hidden from other roles.
-- The Home Assistant integration shows where to create a token under Account > API Tokens.
-- When ODIN cannot create its printer lock folder, it tells you which folder needs write access. Applying a printer profile also shows the storage error.
-- You can paste a six-digit authenticator code with a space when setting up two-factor sign-in on the Account page.
-- The Kobra S1 filament mapping preview only offers ACE slots 1–4.
-- API tokens with printer write access can now pause a print. Previously they could stop and resume a print but could not pause it.
 
 ## [2.6.0] - 2026-11-22
 
