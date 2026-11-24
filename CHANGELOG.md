@@ -6,7 +6,6 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [2.7.0] - 2026-11-24
 
-<!-- release-date placeholder: set by ops/bump-version.sh -->
 
 <!-- summary: Bambu Lab H3C job sending and controls no longer need the Experimental switch. Printer errors reach you in the app and by push by default, maintenance reminders no longer show a printer as in error, and ODIN starts in seconds on installs with a long timelapse history. Also a display currency setting, pause by API token, and a way for operators to cancel a held job that never started. -->
 

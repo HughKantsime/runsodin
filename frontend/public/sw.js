@@ -1,6 +1,6 @@
 // O.D.I.N. - Service Worker for Push Notifications
 
-const CACHE_NAME = 'odin-v2.6.0';
+const CACHE_NAME = 'odin-v2.7.0';
 
 function isAuthCallback(url) {
   return (url.pathname === '/' || url.pathname === '/login') &&
