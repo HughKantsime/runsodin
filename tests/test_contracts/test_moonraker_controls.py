@@ -50,7 +50,7 @@ def test_route(control_client, review_db, monkeypatch, action, expected, transpo
         review_db.execute(text("INSERT INTO print_jobs(printer_id,status,started_at) VALUES(299,'running',CURRENT_TIMESTAMP)"))
     review_db.commit()
     posts, clock = wire(monkeypatch, transport, expected if outcome == "confirmed" else "unknown")
-    response = client.post(f"/printers/299/{action}", headers=issue(["agent:write", "write:printers"]))
+    response = client.post(f"/printers/299/{action}", headers=issue(["write:printers"]))
     assert posts == [action]
     assert review_db.execute(text("SELECT gcode_state,print_stage FROM printers WHERE id=299")).one() == ("PAUSE","Original stage")
     record = controls._read(review_db, 299)

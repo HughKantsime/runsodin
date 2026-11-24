@@ -47,13 +47,6 @@ class TestResumePrinterSourceContract:
             fn_src,
         ), "resume_printer must accept agent:write and write:printers tokens."
 
-    def test_pause_stays_agent_write_only(self):
-        src = _get_function_source(ROUTES_CONTROLS.read_text(), "pause_printer")
-        assert re.search(r"require_any_scope\(\s*['\"]admin['\"]\s*,\s*AGENT_WRITE_SCOPE\s*\)", src), (
-            "write:printers opens resume only; pause keeps its own gate."
-        )
-
-
     def test_checks_dry_run_before_any_side_effect(self, fn_src: str):
         assert "is_dry_run(request)" in fn_src
         dry_run_pos = fn_src.index("is_dry_run(request)")

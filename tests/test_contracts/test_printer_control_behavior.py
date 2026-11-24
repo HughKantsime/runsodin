@@ -3,7 +3,7 @@ import json
 
 import pytest
 from sqlalchemy import text
-from tests.test_contracts.test_api_token_delegation_behavior import token_client,review_db
+from tests.test_contracts.test_api_token_delegation_behavior import interactive_headers, token_client, review_db
 
 @pytest.fixture
 def control_client(token_client,review_db,monkeypatch):
@@ -181,8 +181,31 @@ def test_failed_resume_send_leaves_a_trace_and_no_state_change(control_client,re
     assert review_db.execute(text("SELECT gcode_state FROM printers WHERE id=299")).scalar()=='PAUSE'
 
 
-@pytest.mark.parametrize('scopes',[['write:printers'],['write']])
-def test_write_printers_opens_resume_but_not_pause(control_client,scopes):
-    client,issue,calls=control_client
-    assert client.post('/printers/299/pause',headers=issue(scopes)).status_code==403
-    assert calls==[]
+@pytest.mark.parametrize('scope', ['write:printers', 'write', 'agent:write', 'admin'])
+def test_pause_accepts_control_tokens(control_client, scope):
+    client, issue, calls = control_client
+    response = client.post('/printers/299/pause', headers=issue([scope]))
+    assert response.status_code == 200
+    assert response.json()['state'] == 'PAUSED'
+    assert calls == [(299, 'pause_print', ())]
+
+
+@pytest.mark.parametrize('scope', ['read:printers', 'write:jobs'])
+def test_pause_refusal_lists_allowed_scopes(control_client, scope):
+    client, issue, calls = control_client
+    response = client.post('/printers/299/pause', headers=issue([scope]))
+    assert response.status_code == 403
+    error = response.json()['error']
+    assert error['code'] == 'scope_denied'
+    assert error['allowed_scopes'] == ['admin', 'agent:write', 'write:printers']
+    assert calls == []
+
+
+@pytest.mark.parametrize('role,expected', [('viewer', 403), ('operator', 200)])
+def test_pause_session_requires_printer_edit(control_client, review_db, role, expected):
+    client, _, calls = control_client
+    review_db.execute(text('UPDATE users SET role=:role WHERE id=3'), {'role': role})
+    review_db.commit()
+    client.cookies.set('session', interactive_headers()['Authorization'][7:])
+    assert client.post('/printers/299/pause').status_code == expected
+    assert calls == ([(299, 'pause_print', ())] if role == 'operator' else [])

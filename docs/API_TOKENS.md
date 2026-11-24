@@ -1,4 +1,10 @@
-# API tokens: Square setup
+# API tokens
+
+## Printer controls
+
+A token with `write:printers` can pause, resume, or stop a print if its owner has permission to edit the printer. Broad `write` includes these controls. Pause and resume also accept `agent:write` or `admin`.
+
+## Square setup
 
 Square setup permission (`write:square_setup`) is off by default. Upgrading ODIN grants it to nobody. A signed-in administrator can create a named personal token in Settings → Access → API Tokens, then choose **Grant Square setup** on that token's list entry. **Revoke Square setup** removes this permission immediately for subsequent requests and keeps the token's other permissions. Both changes are audited with the administrator and token identity. Tokens cannot grant or revoke this permission themselves.
 

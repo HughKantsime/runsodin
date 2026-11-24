@@ -140,7 +140,7 @@ def test_pause_hint_matches_scope_gate(audited, review_db, monkeypatch, kind, dr
     response = client.post(URL, headers=headers)
     assert response.status_code == 200
     tools = [a['tool'] for a in response.json()['next_actions']]
-    assert tools == (['get_printer'] if kind in ('write:printers', 'write') else ['get_printer', 'pause_printer'])
+    assert tools == ['get_printer', 'pause_printer']
     assert len(calls) == (0 if dry else 1)
     assert len(rows(review_db)) == (0 if dry else 1)
 
@@ -179,7 +179,7 @@ def test_failed_refusal_audit_still_sends_no_command(audited, review_db, fail_au
 def test_fault_does_not_block_pause_or_stop(audited, review_db, endpoint):
     client, issue, calls = audited
     seed(review_db, hms=HMS, detection='auto_paused')
-    response = client.post(URL.replace('resume', endpoint), headers=issue(['agent:write', 'write:printers']))
+    response = client.post(URL.replace('resume', endpoint), headers=issue(['write:printers']))
     assert response.status_code == 200
     assert calls == [(299, endpoint + '_print', ())]
 

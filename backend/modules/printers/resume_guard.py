@@ -59,9 +59,3 @@ def resume_refusal(db, printer, actor):
     if detection:
         return ErrorCode.detection_open
     return None
-
-
-def may_suggest_pause(actor):
-    """Mirror pause's scope gate; broad write does not grant agent:write."""
-    scopes = actor.get("_token_scopes")
-    return not scopes or bool({"admin", "agent:write"}.intersection(scopes))

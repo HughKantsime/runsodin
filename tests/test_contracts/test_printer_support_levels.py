@@ -242,16 +242,18 @@ def test_each_control_is_refused_without_opt_in(experimental_app, action):
 
 
 @pytest.mark.parametrize('action', SAFETY_ACTIONS)
-@pytest.mark.parametrize('unreadable_h3c', [False, True])
-def test_pause_and_stop_always_work_on_an_experimental_printer(experimental_app, action, unreadable_h3c, review_db, monkeypatch):
-    if unreadable_h3c:
+@pytest.mark.parametrize('case', ['generic', 'rack', 'rack_store_unavailable'])
+def test_pause_and_stop_always_work_on_an_experimental_printer(experimental_app, token_client, action, case, review_db, monkeypatch):
+    if case != 'generic':
         review_db.execute(text("UPDATE printers SET model='H3C' WHERE id=9"))
         review_db.commit()
+    if case == 'rack_store_unavailable':
         def unavailable(*args):
             raise RuntimeError('store unavailable')
         monkeypatch.setattr(support_levels, '_read_store', unavailable)
-    client, headers, sent = experimental_app
-    response = client.post(f'/printers/9/{action}', headers=headers, json=CONTROL_BODIES.get(action))
+    client, _, sent = experimental_app
+    _, issue = token_client
+    response = client.post(f'/printers/9/{action}', headers=issue(['write:printers']), json=CONTROL_BODIES.get(action))
     assert response.status_code == 200, response.text
     assert sent == [{'pause': 'pause_print', 'stop': 'stop_print'}[action]]
 

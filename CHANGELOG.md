@@ -4,6 +4,10 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- API tokens with printer write access can now pause a print. Previously they could stop and resume a print but could not pause it.
+
 ## [2.6.0] - 2026-11-22
 
 

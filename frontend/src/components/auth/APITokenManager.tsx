@@ -8,7 +8,7 @@ import { useLicense } from '../../LicenseContext'
 
 const AVAILABLE_SCOPES = [
   { value: 'read:printers', label: 'Read Printers' },
-  { value: 'write:printers', label: 'Write Printers' },
+  { value: 'write:printers', label: 'Edit printers (includes pause, resume, and stop)' },
   { value: 'read:jobs', label: 'Read Jobs' },
   { value: 'write:jobs', label: 'Write Jobs' },
   { value: 'read:spools', label: 'Read Spools' },

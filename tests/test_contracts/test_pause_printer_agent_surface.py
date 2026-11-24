@@ -5,7 +5,7 @@ Guards the per-route retrofit pattern from regression. The route
 `POST /api/v1/printers/{printer_id}/pause` must:
 
   1. Accept both JWT operator role (backward compat) AND
-     `agent:write`-scoped tokens (new agent surface).
+     tokens with `admin`, `agent:write`, or `write:printers`.
   2. Honor `X-Dry-Run: true` by returning the standard
      `dry_run_preview(...)` envelope *before* any MQTT send or DB
      commit.
@@ -71,19 +71,8 @@ class TestPausePrinterSourceContract:
         return src
 
     def test_stacks_role_and_agent_scope_dependencies(self, fn_src: str):
-        """Both require_role (JWT compat) AND require_any_scope (agent tokens)."""
-        assert re.search(r'(?:require_action\(\s*["\'][a-z_]+\.[a-z_]+["\'][^)]*\)|require_role\(\s*["\']operator["\']\s*\))', fn_src), (
-            "pause_printer must keep require_role('operator') so JWT operator "
-            "sessions continue to authorize (backward-compat with portal UI)."
-        )
-        assert re.search(
-            r"require_any_scope\(\s*['\"]admin['\"]\s*,\s*AGENT_WRITE_SCOPE\s*\)",
-            fn_src,
-        ), (
-            "pause_printer must add require_any_scope('admin', AGENT_WRITE_SCOPE) "
-            "so agent:write-scoped tokens can invoke the route. Stacking both "
-            "gates preserves JWT RBAC while enabling scoped-token auth."
-        )
+        assert 'Depends(require_action("printers.edit"))' in fn_src
+        assert 'Depends(require_any_scope("admin", AGENT_WRITE_SCOPE, "write:printers"))' in fn_src
 
     def test_checks_dry_run_before_any_side_effect(self, fn_src: str):
         """is_dry_run(request) branch must precede _send_printer_command and db.commit."""
