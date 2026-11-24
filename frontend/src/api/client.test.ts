@@ -56,7 +56,7 @@ test.each([
 test.each(['http', 'education'])('reads the storage refusal from the %s error envelope', async kind => {
   const message = 'Set the printer lock file inside the ODIN data folder to mode 600. No command was sent.'
   const body = kind === 'http' ? { detail: { message, storage_reason: 'lock_permissions' } }
-    : { detail: message, error: { code: 'revision_conflict', detail: message, storage_reason: 'lock_permissions' } }
+    : { detail: message, error: { code: 'resource_conflict', detail: message, retriable: false, storage_reason: 'lock_permissions' } }
   vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json(body, { status: 409 }))
   const refusal = await fetchAPI('/owned-test', { quiet: true }).catch(dataFolderLockMessage)
   expect(refusal).toBe(message)

@@ -161,3 +161,34 @@ def test_first_save_may_leave_generic_provider_disabled(setup_client):
     assert client.put("/admin/oidc", json={
         "is_enabled": True, "discovery_url": "https://idp.example.test/discovery",
     }).status_code == 200
+
+
+@pytest.mark.parametrize("page", ["admin", "settings", "audit", "branding"])
+def test_locked_page_refuses_non_admin_roles_and_ignores_stored_grants(setup_client, page):
+    from core.models import SystemConfig
+    from core.rbac_policy import page_roles
+
+    client, engine, _ = setup_client
+    stale = {"page_access": {page: ["admin", "operator", "viewer"]}, "action_access": {}}
+    with Session(engine) as db:
+        db.add(SystemConfig(key="rbac_permissions", value=stale))
+        db.commit()
+    matrix = client.get("/permissions?include_locks=true").json()
+    assert matrix["page_access"][page] == ["admin"]
+    response = client.put("/permissions", json=stale)
+    assert response.status_code == 422
+    assert response.json()["detail"] == matrix["locked_pages"][page]
+    assert page in response.json()["detail"].lower()
+    with Session(engine) as db:
+        assert page_roles(db, page) == ["admin"]
+        assert db.query(SystemConfig).filter_by(key="rbac_permissions").one().value == stale
+
+
+def test_pro_auto_create_accepts_viewers_without_an_organization(setup_client, tier_license):
+    client, _, _ = setup_client
+    tier_license("pro")
+    assert client.put("/admin/oidc", json={"auto_create_users": True}).status_code == 200
+    assert client.put("/admin/oidc", json={"default_role": "operator"}).status_code == 422
+    stored = client.get("/admin/oidc").json()
+    assert stored["auto_create_users"] and stored["default_role"] == "viewer"
+    assert stored["default_group_id"] is None

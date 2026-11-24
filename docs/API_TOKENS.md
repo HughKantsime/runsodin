@@ -1,6 +1,6 @@
 # API tokens: Square setup
 
-Square setup permission (`write:square_setup`) is off by default. Upgrading ODIN grants it to nobody. A signed-in administrator can create a named personal token in Settings → Access → API Tokens, then choose **Grant Square setup** on that token's list entry. **Revoke Square setup** removes this permission immediately for subsequent requests and keeps the token's other permissions. Both changes are audited with the administrator and token identity. Tokens cannot grant or revoke this permission themselves.
+Square setup permission (`write:square_setup`) is off by default. Upgrading ODIN grants it to nobody. A signed-in administrator can create a named personal token in Account → API Tokens, then choose **Grant Square setup** on that token's list entry. **Revoke Square setup** removes this permission immediately for subsequent requests and keeps the token's other permissions. Both changes are audited with the administrator and token identity. Tokens cannot grant or revoke this permission themselves.
 
 The token's owner must still be an administrator and have the **Manage Square** permission (`products.square_manage`). This does not give operators administrator access. Broad `write`, `admin`, `agent:write` and `write:production` scopes do not include Square setup. Camera-only tokens cannot receive it. The existing Products license requirement applies; this permission cannot be granted or used while Education mode is enabled. Revocation remains available.
 

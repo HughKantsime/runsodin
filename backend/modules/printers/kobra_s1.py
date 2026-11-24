@@ -17,6 +17,10 @@ class S1Refusal(ValueError):
         super().__init__(f'{code}: {detail}')
 
 
+def is_ace_slot(slot_number):
+    return 1 <= slot_number <= ACE_SLOTS
+
+
 def parse_ace(hub):
     hub = hub if isinstance(hub, dict) else {}
     hubs = hub.get('filament_hubs') or []
@@ -167,7 +171,7 @@ def mapping_vector(value, filaments):
     if value is None:
         raise S1Refusal('ams_mapping_required', 'Choose an ACE slot for every file filament')
     if (type(value) is not list or len(value) != len(filaments)
-            or any(type(n) is not int or not 0 <= n < 4 for n in value)):
+            or any(type(n) is not int or not is_ace_slot(n + 1) for n in value)):
         raise S1Refusal('s1_mapping_incomplete', 'AMS mapping must cover every file filament with an ACE slot')
     # Bambu sources may share a tray since 2.0.36. gklib is proven with one slot per
     # paint index only, so the shared validate_mapping no longer enforces this for us.

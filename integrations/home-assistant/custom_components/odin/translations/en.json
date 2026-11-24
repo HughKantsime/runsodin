@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Connect to ODIN",
-        "description": "Home Assistant reads printer status from ODIN only and never connects to the printers. Create an API token in ODIN (Settings > API Tokens) with the read:printers and read:jobs scopes (or read).",
+        "description": "Home Assistant reads printer status from ODIN only and never connects to the printers. Create an API token in ODIN (Account > API Tokens) with the read:printers and read:jobs scopes (or read).",
         "data": {
           "url": "ODIN URL",
           "api_key": "API token",

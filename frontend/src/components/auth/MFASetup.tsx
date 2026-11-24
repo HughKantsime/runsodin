@@ -248,9 +248,8 @@ export default function MFASetup({ principalKey }: { principalKey?: string | num
                 type="text"
                 id="mfa-setup-code"
                 inputMode="numeric"
-                maxLength={6}
                 value={confirmCode}
-                onChange={(e) => setConfirmCode(e.target.value.replace(/\D/g, ''))}
+                onChange={(e) => setConfirmCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                 className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded px-3 py-2 text-sm font-mono tracking-widest"
                 placeholder="000000"
                 autoFocus

@@ -639,3 +639,87 @@ def test_oidc_callback_refuses_another_logins_state_login_csrf(oidc_db, monkeypa
     assert response.headers["location"] == "/?error=invalid_state"
     assert consumed == []  # refused before the attacker's state is even consumed
     assert oidc_db.execute(text("SELECT COUNT(*) FROM oidc_auth_codes")).scalar_one() == 0
+
+
+@pytest.mark.parametrize("existing,group", [(False, None), (True, None), (True, 1)])
+def test_pro_sign_in_without_a_default_organization(oidc_db, tier_license, monkeypatch, existing, group):
+    from cryptography.fernet import Fernet
+    from modules.organizations import oidc_handler
+
+    tier_license("pro")
+    monkeypatch.setenv("ENCRYPTION_KEY", Fernet.generate_key().decode())
+    monkeypatch.setattr(oidc_handler, "create_handler_from_config", lambda *_: _CallbackHandler())
+    _seed_oidc_config(oidc_db)
+    oidc_db.execute(text("UPDATE oidc_config SET default_group_id=NULL, auto_create_users=:create"),
+                    {"create": not existing})
+    if existing:
+        oidc_db.execute(text(
+            "INSERT INTO users (username,email,password_hash,role,is_active,group_id,oidc_issuer,oidc_subject) "
+            "VALUES ('existing','student@example.test','','operator',1,:group,'https://issuer.example','subject-1')"
+        ), {"group": group})
+    oidc_db.commit()
+    with _oidc_client(oidc_db) as client:
+        callback = client.get("/auth/oidc/callback?code=fixture-code&state=fixture-state", follow_redirects=False)
+        location = callback.headers["location"]
+        assert location.startswith("/#oidc_code=")
+        exchange = client.post("/auth/oidc/exchange", json={"code": location.split("=", 1)[1]})
+        assert exchange.status_code == 200
+        assert exchange.json()["access_token"]
+    user = oidc_db.execute(text("SELECT role,group_id FROM users WHERE oidc_subject='subject-1'")).one()
+    assert tuple(user) == ("operator" if existing else "viewer", group)
+
+
+@pytest.mark.parametrize("default_group", [None, 1])
+def test_verified_new_pro_user_has_ordinary_viewer_scope_after_upgrade(oidc_db, tier_license, default_group):
+    from core.rbac import check_org_access, get_org_scope, should_filter_org
+    from modules.organizations.routes_oidc import _resolve_oidc_user
+
+    tier_license("pro")
+    user = _resolve_oidc_user(oidc_db, _config(default_group_id=default_group), _claims(), {}, verified_email=True)
+    assert (user["role"], user["group_id"]) == ("viewer", None)
+    tier_license("education")
+    assert get_org_scope(user) is None and should_filter_org(user, None)
+    assert check_org_access(user, None) and not check_org_access(user, 1)
+
+
+def test_pro_verified_email_refuses_to_link_platform_admin(oidc_db, tier_license):
+    from modules.organizations.routes_oidc import OIDCIdentityError, _resolve_oidc_user
+
+    tier_license("pro")
+    oidc_db.execute(text(
+        "INSERT INTO users (username,email,password_hash,role,is_active) "
+        "VALUES ('placeholder','student@example.test','','admin',1)"
+    ))
+    with pytest.raises(OIDCIdentityError, match="oidc_email_conflict"):
+        _resolve_oidc_user(oidc_db, _config(default_group_id=None), _claims(), {}, verified_email=True)
+    assert oidc_db.execute(text("SELECT oidc_subject FROM users WHERE username='placeholder'")).scalar_one() is None
+
+
+@pytest.mark.parametrize("default_group", [None, 1])
+def test_pro_verified_email_adopts_unassigned_placeholder(oidc_db, tier_license, default_group):
+    from modules.organizations.routes_oidc import _resolve_oidc_user
+
+    tier_license("pro")
+    oidc_db.execute(text(
+        "INSERT INTO users (username,email,password_hash,role,is_active) "
+        "VALUES ('placeholder','student@example.test','','viewer',1)"
+    ))
+    user = _resolve_oidc_user(oidc_db, _config(default_group_id=default_group), _claims(), {}, verified_email=True)
+    stored = oidc_db.execute(text(
+        "SELECT username, group_id, oidc_subject FROM users WHERE id=:id"
+    ), {"id": user["id"]}).one()
+    assert tuple(stored) == ("placeholder", None, _claims()["sub"])
+
+
+@pytest.mark.parametrize("group_id,password,mfa", [(1, "", False), (None, "fixture", False), (None, "", True)])
+def test_pro_verified_email_refuses_organization_or_credentials(oidc_db, tier_license, group_id, password, mfa):
+    from modules.organizations.routes_oidc import OIDCIdentityError, _resolve_oidc_user
+
+    tier_license("pro")
+    oidc_db.execute(text(
+        "INSERT INTO users (username,email,password_hash,role,is_active,group_id,mfa_enabled) "
+        "VALUES ('placeholder','student@example.test',:password,'viewer',1,:group_id,:mfa)"
+    ), {"group_id": group_id, "password": password, "mfa": mfa})
+    with pytest.raises(OIDCIdentityError, match="oidc_email_conflict"):
+        _resolve_oidc_user(oidc_db, _config(default_group_id=1), _claims(), {}, verified_email=True)
+    assert oidc_db.execute(text("SELECT oidc_subject FROM users WHERE username='placeholder'")).scalar_one() is None

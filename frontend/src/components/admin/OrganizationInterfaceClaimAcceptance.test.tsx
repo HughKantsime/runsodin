@@ -24,10 +24,14 @@ async function settingsAccess() { show(<Settings />); fireEvent.click(screen.get
 function response(data: any, ok = true) { return { ok, status: ok ? 200 : 403, headers: new Headers(), json: async () => data, text: async () => JSON.stringify(data) } }
 beforeEach(() => {
   vi.clearAllMocks(); boundary.role = 'admin'; boundary.failMember = false; boundary.invalidCandidates = false
-  let permissions = { page_access: {settings: ['admin', 'operator']}, action_access: {} }
+  const locks = {settings: 'Only administrators can open Settings', admin: 'Only administrators can open user administration', audit: 'Only platform administrators can open the audit log', branding: 'Only administrators can open Branding in Settings'}
+  let permissions = { page_access: {settings: ['admin'], admin: ['admin'], audit: ['admin'], branding: ['admin'], jobs: ['admin']}, action_access: {} }
   boundary.fetch.mockImplementation(async (url: unknown, options: any = {}) => {
     const path = String(url); const method = options.method || 'GET'
     if (path === '/api/orgs/17/members' && method === 'POST' && boundary.failMember) return response({ detail: 'Fixture membership denied' },false)
+    if (path === '/api/permissions?include_locks=true') return response({...permissions, locked_pages: locks})
+    if (path === '/api/admin/sessions') return response([{id: 5, username: 'Session user', user_agent: 'Firefox', last_seen_at: null}])
+    if (path === '/api/sessions') return response([])
     if (path === '/api/permissions') {
       if (method === 'PUT') permissions = JSON.parse(options.body)
       return response(permissions)
@@ -137,21 +141,31 @@ it('keeps the organization card usable when the candidate list has the wrong sha
   expect(screen.getByRole('button', { name: 'Organization settings' })).toBeEnabled()
 })
 
-it('prevents new Settings grants and lets the administrator remove an existing grant', async () => {
+it('shows each server-locked page as fixed and leaves ordinary pages editable', async () => {
   await settingsAccess()
   fireEvent.click(screen.getByRole('button', { name: 'Permissions' }))
-  const operator = await screen.findByRole('switch', { name: 'operator: settings' })
-  expect(screen.getByRole('switch', { name: 'viewer: settings' })).toBeDisabled()
-  expect(operator).toBeChecked()
-  fireEvent.click(operator)
-  expect(operator).not.toBeChecked()
-  expect(operator).toBeEnabled()
-  fireEvent.click(operator)
-  expect(operator).toBeChecked()
-  fireEvent.click(operator)
-  fireEvent.click(screen.getByRole('button', {name: 'Save Changes'}))
-  await screen.findByText('Saved', {exact: true})
-  expect(operator).toBeDisabled()
-  expect(operator).not.toBeChecked()
-  expect(screen.getByText(/Settings is admin-only.*Account/)).toBeVisible()
+  expect(await screen.findByText('Only administrators can open Settings')).toBeVisible()
+  for (const page of ['settings', 'admin', 'audit', 'branding']) {
+    for (const role of ['admin', 'operator', 'viewer']) {
+      const cell = screen.getByRole('switch', { name: `${role}: ${page}` })
+      expect(cell).toBeDisabled()
+      expect(cell).toHaveAttribute('aria-checked', String(role === 'admin'))
+    }
+  }
+  expect(screen.getByRole('switch', {name: 'operator: jobs'})).toBeEnabled()
+})
+
+it.each(['admin', 'operator'])('limits the Settings session list for %s', async role => {
+  boundary.role = role
+  show(<Settings />)
+  fireEvent.click(screen.getByRole('button', {name: 'Access'}))
+  const section = screen.queryByRole('button', {name: 'Sessions'})
+  if (role === 'admin') {
+    fireEvent.click(section!)
+    expect(await screen.findByText('Session user')).toBeVisible()
+    expect(screen.getByText('Firefox on Desktop')).toBeVisible()
+  } else {
+    expect(section).not.toBeInTheDocument()
+    expect(calls('/api/admin/sessions', 'GET')).toHaveLength(0)
+  }
 })

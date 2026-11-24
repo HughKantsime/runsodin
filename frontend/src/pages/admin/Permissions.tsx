@@ -2,7 +2,7 @@ import PageState from '../../components/ui/PageState'
 import Table from '../../components/ui/Table'
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Shield, RotateCcw, Save, Check, Eye, UserCog, Crown, Lock } from 'lucide-react'
+import { Shield, RotateCcw, Save, Check, Eye, UserCog, Crown } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { refreshPermissions } from '../../permissions'
 import ConfirmModal from '../../components/shared/ConfirmModal'
@@ -10,7 +10,7 @@ import { PageHeader, Button, Card } from '../../components/ui'
 
 async function fetchPerms() {
   const headers = { 'Content-Type': 'application/json' }
-  const res = await fetch('/api/permissions', { headers, credentials: 'include' })
+  const res = await fetch('/api/permissions?include_locks=true', { headers, credentials: 'include' })
   if (!res.ok) throw new Error('Failed to load permissions')
   return res.json()
 }
@@ -70,13 +70,6 @@ const ACTION_GROUPS = [
   { label: 'Other', actions: ['timeline.move', 'upload.upload', 'upload.schedule', 'upload.delete', 'maintenance.log', 'maintenance.tasks', 'alerts.read', 'settings.edit'] },
 ]
 
-// These combos can never be toggled off (safety)
-const LOCKED = {
-  'admin:admin': true,
-  'admin:settings': true,
-  'admin:audit': true,
-}
-
 function formatName(key: string) {
   // "jobs.create" → "Create", "printers" → "Printers", "education_reports" → "Education reports"
   const parts = key.split('.')
@@ -84,14 +77,7 @@ function formatName(key: string) {
   return word.charAt(0).toUpperCase() + word.slice(1)
 }
 
-function Toggle({ checked, onChange, disabled, locked, label }: { checked: boolean; onChange: () => void; disabled: boolean; locked?: boolean; label?: string }) {
-  if (locked) {
-    return (
-      <div className="flex items-center justify-center" title="Required — cannot be disabled">
-        <Lock size={14} className="text-[var(--brand-text-muted)]" />
-      </div>
-    )
-  }
+function Toggle({ checked, onChange, disabled, label }: { checked: boolean; onChange: () => void; disabled: boolean; label?: string }) {
   return (
     <button onClick={onChange} disabled={disabled} role="switch" aria-checked={checked} aria-label={label}
       className={`w-9 h-5 rounded-full transition-colors flex items-center px-0.5 ${
@@ -102,11 +88,11 @@ function Toggle({ checked, onChange, disabled, locked, label }: { checked: boole
   )
 }
 
-function MatrixTable({ title, groups, access, type, onToggle, saving, settingsGrants = [] }: { settingsGrants?: string[]; title: string; groups: any[]; access: Record<string, string[]>; type: string; onToggle: (type: string, item: string, role: string, enabled: boolean) => void; saving: boolean }) {
+function MatrixTable({ title, groups, access, type, onToggle, saving, lockedPages = {} }: { lockedPages?: Record<string, string>; title: string; groups: any[]; access: Record<string, string[]>; type: string; onToggle: (type: string, item: string, role: string, enabled: boolean) => void; saving: boolean }) {
   return (
     <div>
       <h3 className="text-sm font-medium text-[var(--brand-text-secondary)] uppercase tracking-wider mb-3">{title}</h3>
-      {type === 'page' && <p className="mb-3 text-sm">Settings is admin-only. Personal security is on the Account page.</p>}
+      {type === 'page' && <p className="mb-3 text-sm">Manage personal security on the Account page.</p>}
       <div className="border border-[var(--brand-card-border)] rounded-md overflow-hidden overflow-x-auto">
         <Table className="w-full text-sm min-w-[400px]">
           <thead>
@@ -148,18 +134,16 @@ function MatrixTable({ title, groups, access, type, onToggle, saving, settingsGr
                           {formatName(item)}
                         </span>
                       )}
+                      {lockedPages[item] && <p className="text-xs text-[var(--brand-text-muted)]">{lockedPages[item]}</p>}
                     </td>
                     {ROLES.map(role => {
                       const isChecked = (access[item] || []).includes(role)
-                      const lockKey = `${role}:${item}`
-                      const isLocked = LOCKED[lockKey]
                       return (
                         <td key={role} className="text-center px-4 py-2.5">
                           <div className="flex justify-center">
                             <Toggle
                               checked={isChecked}
-                              locked={isLocked}
-                              disabled={saving || (item === 'settings' && role !== 'admin' && !settingsGrants.includes(role))}
+                              disabled={saving || !!lockedPages[item]}
                               label={`${role}: ${item}`}
                               onChange={() => onToggle(type, item, role, !isChecked)}
                             />
@@ -202,7 +186,7 @@ export default function Permissions() {
   const saveMutation = useMutation({
     mutationFn: savePerms,
     onSuccess: async (result) => {
-      queryClient.setQueryData(['permissions'], result)
+      queryClient.setQueryData(['permissions'], { ...result, locked_pages: data.locked_pages })
       queryClient.invalidateQueries({ queryKey: ['permissions'] })
       await refreshPermissions()
       setSaveMsg('Saved')
@@ -310,7 +294,7 @@ export default function Permissions() {
       <div className="overflow-x-auto">
         <MatrixTable
           title="Page Access"
-          settingsGrants={data?.page_access.settings}
+          lockedPages={data?.locked_pages}
           groups={PAGE_GROUPS}
           access={localPageAccess}
           type="page"

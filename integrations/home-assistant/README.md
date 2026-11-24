@@ -4,7 +4,7 @@ Print farm status and plate clearing from an ODIN server. Home Assistant talks o
 
 ## Requirements
 - ODIN with the Home Assistant status endpoint (`/api/v1/integrations/home-assistant/status`), the release after 2.0.50.
-- An ODIN API token with `read:printers` and `read:jobs` (or `read`). Create it in ODIN under Settings > API Tokens.
+- An ODIN API token with `read:printers` and `read:jobs` (or `read`). Create it in ODIN under Account > API Tokens.
 - Optional: a separate camera-only token (`read:cameras`) for camera entities through ODIN's relay.
 - Next job, Waiting on, Out of service and the day and queue totals need an ODIN that reports status schema 2 (2.2.0). Against an older ODIN (schema 1) those entities report unknown and everything else works as before.
 - Spools loaded, Last print finished, Plate cleared, the Status time attributes and the Next job attributes `queued_after`, `short_spools` and `ready` (integration 0.3.0) need the ODIN release after 2.2.0. Against an older ODIN they report unknown and everything else works as before.

@@ -7,6 +7,7 @@ import json
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from modules.printers.kobra_s1 import is_ace_slot  # Public printer service used by core AMS mapping.
 from modules.printers.printer_models import is_h3c_printer, rack_model_identity, rack_printer_refusal
 from modules.printers.education_compatibility import evaluate_education_compatibility
 from modules.printers.dispatch_support import (

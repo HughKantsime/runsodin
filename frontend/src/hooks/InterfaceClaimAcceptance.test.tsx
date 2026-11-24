@@ -2,6 +2,7 @@ import React from 'react'
 import {afterEach,beforeEach,expect,it,vi} from 'vitest'
 import {cleanup,fireEvent,render,screen} from '@testing-library/react'
 import {MemoryRouter,useLocation} from 'react-router-dom'
+import * as permissions from '../permissions'
 import useKeyboardShortcuts from './useKeyboardShortcuts'
 import KeyboardShortcutsModal from '../components/shared/KeyboardShortcutsModal'
 import ThemeToggle from '../components/layout/ThemeToggle'
@@ -12,6 +13,16 @@ beforeEach(()=>{localStorage.clear();document.documentElement.classList.remove('
 afterEach(()=>{cleanup();vi.unstubAllGlobals();vi.restoreAllMocks()})
 it('opens actual help and closes with Escape',()=>{show();key('?');expect(screen.getByRole('dialog')).toBeTruthy();expect(screen.getByText('Keyboard Shortcuts')).toBeTruthy();key('Escape');expect(screen.queryByRole('dialog')).toBeNull()})
 it.each([['d','/'],['j','/jobs'],['p','/printers']])('navigates g then %s to %s',(letter,path)=>{show();key('g');key(letter);expect(screen.getByTestId('path').textContent).toBe(path)})
+it.each([true, false])('shows and follows the Settings shortcut when page access is %s', allowed => {
+  vi.spyOn(permissions, 'canAccessPage').mockImplementation(page => allowed && page === 'settings')
+  show()
+  key('?')
+  expect(!!screen.queryByText('Settings')).toBe(allowed)
+  key('Escape')
+  key('g')
+  key('x')
+  expect(screen.getByTestId('path')).toHaveTextContent(allowed ? '/settings' : '/orders')
+})
 it('protects editing from navigation and help shortcuts',()=>{show();const input=screen.getByRole('textbox',{name:'Editing'});key('g',input);key('j',input);key('?',input);expect(screen.getByTestId('path').textContent).toBe('/orders');expect(screen.queryByRole('dialog')).toBeNull()})
 it('protects the page behind an open modal',()=>{show();key('?');key('g');key('j');expect(screen.getByTestId('path').textContent).toBe('/orders')})
 it('dispatches the context-specific order creation event',()=>{show();const listener=vi.fn();window.addEventListener('new-item',listener);try{key('n');expect(listener).toHaveBeenCalledTimes(1);expect(listener.mock.calls[0][0].detail).toEqual({page:'/orders'})}finally{window.removeEventListener('new-item',listener)}})
