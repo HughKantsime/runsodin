@@ -19,6 +19,7 @@ from core.rbac import (
     AGENT_READ_SCOPE,
     AGENT_WRITE_SCOPE,
     check_org_access,
+    require_org_write,
     get_org_scope,
     require_any_scope,
     require_role,
@@ -48,8 +49,9 @@ def _fulfillment():
 def _locked_order(db, order_id, current_user):
     _fulfillment().lock_orders(db, [order_id])
     order = db.query(Order).options(selectinload(Order.items)).filter(Order.id == order_id).populate_existing().first()
-    if not order or not check_org_access(current_user, order.org_id):
+    if not order:
         raise HTTPException(404, "Order not found")
+    require_org_write(current_user, order.org_id, "order")
     return order
 
 
@@ -260,8 +262,7 @@ def update_order(order_id: int, data: OrderUpdate, current_user: dict = Depends(
     order = db.query(Order).options(selectinload(Order.items)).filter(Order.id == order_id).first()
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
-    if not check_org_access(current_user, order.org_id):
-        raise HTTPException(status_code=404, detail="Order not found")
+    require_org_write(current_user, order.org_id, "order")
 
     order = _locked_order(db, order_id, current_user)
     if data.status == OrderStatus.FULFILLED:
@@ -292,8 +293,7 @@ def delete_order(order_id: int, current_user: dict = Depends(require_action("ord
     order = db.query(Order).filter(Order.id == order_id).first()
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
-    if not check_org_access(current_user, order.org_id):
-        raise HTTPException(status_code=404, detail="Order not found")
+    require_org_write(current_user, order.org_id, "order")
     _fulfillment().assert_order_structure_edit_allowed(db,order_id)
     from modules.orders.show_fulfillment import guard_delete_or_ship
     guard_delete_or_ship(db,order)
@@ -310,8 +310,7 @@ def add_order_item(order_id: int, data: OrderItemCreate, current_user: dict = De
     order = db.query(Order).filter(Order.id == order_id).first()
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
-    if not check_org_access(current_user, order.org_id):
-        raise HTTPException(status_code=404, detail="Order not found")
+    require_org_write(current_user, order.org_id, "order")
     _fulfillment().assert_order_structure_edit_allowed(db,order_id)
 
     product = db.query(Product).filter(Product.id == data.product_id).first()
@@ -342,8 +341,7 @@ def update_order_item(order_id: int, item_id: int, data: OrderItemUpdate, curren
     order = db.query(Order).filter(Order.id == order_id).first()
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
-    if not check_org_access(current_user, order.org_id):
-        raise HTTPException(status_code=404, detail="Order not found")
+    require_org_write(current_user, order.org_id, "order")
     _fulfillment().lock_orders(db,[order_id])
     from modules.orders.show_fulfillment import guard_structure
     guard_structure(db,order_id)
@@ -379,8 +377,7 @@ def delete_order_item(order_id: int, item_id: int, current_user: dict = Depends(
     order = db.query(Order).filter(Order.id == order_id).first()
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
-    if not check_org_access(current_user, order.org_id):
-        raise HTTPException(status_code=404, detail="Order not found")
+    require_org_write(current_user, order.org_id, "order")
     _fulfillment().assert_order_structure_edit_allowed(db,order_id)
 
     item = db.query(OrderItem).filter(
@@ -402,8 +399,7 @@ def schedule_order(order_id: int, current_user: dict = Depends(require_action("o
     order = db.query(Order).options(selectinload(Order.items)).filter(Order.id == order_id).first()
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
-    if not check_org_access(current_user, order.org_id):
-        raise HTTPException(status_code=404, detail="Order not found")
+    require_org_write(current_user, order.org_id, "order")
 
     provider=_fulfillment()
     provider.lock_orders(db,[order_id])
@@ -412,8 +408,9 @@ def schedule_order(order_id: int, current_user: dict = Depends(require_action("o
         joinedload(Order.items).joinedload(OrderItem.product).joinedload(Product.components).joinedload(ProductComponent.model),
         joinedload(Order.items).joinedload(OrderItem.product).joinedload(Product.consumable_links).joinedload(ProductConsumable.consumable),
     ).filter(Order.id==order_id).populate_existing().first()
-    if not order or not check_org_access(current_user, order.org_id):
+    if not order:
         raise HTTPException(status_code=404, detail="Order not found")
+    require_org_write(current_user, order.org_id, "order")
     if order.status != OrderStatus.PENDING:
         raise HTTPException(status_code=409, detail="Only a pending order can generate production")
     historical_jobs = db.query(Job.id).join(OrderItem).filter(OrderItem.order_id == order.id).first()
@@ -583,8 +580,7 @@ def ship_order(order_id: int, data: OrderShipRequest, current_user: dict = Depen
     order = db.query(Order).options(selectinload(Order.items)).filter(Order.id == order_id).first()
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
-    if not check_org_access(current_user, order.org_id):
-        raise HTTPException(status_code=404, detail="Order not found")
+    require_org_write(current_user, order.org_id, "order")
 
     order = _locked_order(db, order_id, current_user)
     from modules.orders.show_fulfillment import guard_delete_or_ship
@@ -612,8 +608,9 @@ def confirm_order_item_production(order_id: int, item_id: int, data: OrderProduc
                                   db: Session = Depends(get_db)):
     """Explicitly record production without reconstructing historical requirements."""
     order = db.query(Order).filter(Order.id == order_id).first()
-    if not order or not check_org_access(current_user, order.org_id):
+    if not order:
         raise HTTPException(404, "Order not found")
+    require_org_write(current_user, order.org_id, "order")
     order = _locked_order(db, order_id, current_user)
     changed = _fulfillment().confirm_item(db, order_id, item_id, data.quantity)
     if changed:

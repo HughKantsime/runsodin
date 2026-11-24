@@ -27,7 +27,7 @@ from core.audit import audit_download
 from core.db import get_db
 from core.db_compat import execute_insert_returning_id
 from core.dependencies import get_current_user
-from core.rbac import check_org_access, get_org_scope, require_role
+from core.rbac import check_org_access, check_org_write, require_org_write, unscoped_write_detail, get_org_scope, require_role
 from core.interfaces.education_policy import generic_archive_audience_sql
 from modules.archives.project_zip_admission import MAX_COMPRESSED_BYTES, validate_project_zip
 from modules.archives.project_zip_io import (
@@ -76,10 +76,12 @@ def _project_row_to_dict(r, archive_count=None):
     return d
 
 
-def _check_project_org_access(db, project_row, current_user):
+def _check_project_org_access(db, project_row, current_user, *, write=False):
     """Check if user can access a project via its org_id."""
     org_id = project_row.org_id if hasattr(project_row, "org_id") else dict(project_row._mapping).get("org_id")
-    if not check_org_access(current_user, org_id):
+    if write:
+        require_org_write(current_user, org_id, "project")
+    elif not check_org_access(current_user, org_id):
         raise HTTPException(status_code=404, detail="Project not found")
 
 
@@ -103,10 +105,6 @@ def _lock_assignment_owners(db, archive_ids):
 
 
 from modules.archives.access import archive_visibility as _archive_visibility, assert_archive_access
-
-
-def _check_assignment_archive(db, row, user):
-    assert_archive_access(db, row.id, user)
 
 
 # ──────────────────────────────────────────────
@@ -218,7 +216,7 @@ def update_project(
     existing = _locked_project(db, project_id)
     if not existing:
         raise HTTPException(status_code=404, detail="Project not found")
-    _check_project_org_access(db, existing, user)
+    _check_project_org_access(db, existing, user, write=True)
 
     updates = []
     params = {"id": project_id}
@@ -245,7 +243,7 @@ def delete_project(
     existing = _locked_project(db, project_id)
     if not existing:
         raise HTTPException(status_code=404, detail="Project not found")
-    _check_project_org_access(db, existing, user)
+    _check_project_org_access(db, existing, user, write=True)
     db.execute(
         text("UPDATE projects SET status = 'archived', updated_at = CURRENT_TIMESTAMP WHERE id = :id"),
         {"id": project_id},
@@ -269,30 +267,29 @@ def assign_archives(
     existing = _locked_project(db, project_id)
     if not existing:
         raise HTTPException(status_code=404, detail="Project not found")
-    _check_project_org_access(db, existing, user)
+    _check_project_org_access(db, existing, user, write=True)
 
     if not body.archive_ids:
         raise HTTPException(status_code=400, detail="archive_ids cannot be empty")
 
     archive_ids = sorted(set(body.archive_ids))
     _lock_assignment_owners(db, archive_ids)
-    found = db.execute(
-        text("SELECT a.id, a.printer_id, ap.id AS owner_printer_id, ap.org_id AS owner_org "
-             "FROM print_archives a LEFT JOIN printers ap ON ap.id = a.printer_id "
-             "WHERE a.id IN :archive_ids").bindparams(bindparam("archive_ids", expanding=True)),
-        {"archive_ids": archive_ids},
-    ).fetchall()
-    if len(found) != len(archive_ids):
-        raise HTTPException(status_code=404, detail="Archive not found")
-    for row in found:
-        _check_assignment_archive(db, row, user)
-    db.execute(
-        text("UPDATE print_archives SET project_id = :pid WHERE id IN :archive_ids")
-        .bindparams(bindparam("archive_ids", expanding=True)),
-        {"pid": project_id, "archive_ids": archive_ids},
-    )
+    writable = []
+    skipped = []
+    for archive_id in archive_ids:
+        org_id = assert_archive_access(db, archive_id, user)
+        if check_org_write(user, org_id):
+            writable.append(archive_id)
+        else:
+            skipped.append({"archive_id": archive_id, "detail": unscoped_write_detail("archive")})
+    if writable:
+        db.execute(
+            text("UPDATE print_archives SET project_id = :pid WHERE id IN :archive_ids")
+            .bindparams(bindparam("archive_ids", expanding=True)),
+            {"pid": project_id, "archive_ids": writable},
+        )
     db.commit()
-    return {"assigned": len(archive_ids)}
+    return {"assigned": len(writable), **({"skipped": skipped} if skipped else {})}
 
 
 # ──────────────────────────────────────────────

@@ -6,8 +6,7 @@ All notable changes to O.D.I.N. are documented here.
 
 ### Fixed
 
-- On installs with organizations, members of an organization can no longer change, cancel or delete jobs, models or print files that belong to no organization, except jobs they created. They can still see them and print from them.
-- On installs with organizations, members of an organization can no longer edit or delete a printer or printer profile that belongs to no organization. They can still see and use them, including loading filament. Platform administrators and users without an organization are unchanged.
+- On installs with organizations, members of an organization can no longer edit or delete printers, printer profiles, jobs they did not submit, models, print files, spools, orders, products, archives or projects that belong to no organization. They can still see and use them. Platform administrators and users without an organization are unchanged.
 
 ## [2.7.0] - 2026-11-24
 

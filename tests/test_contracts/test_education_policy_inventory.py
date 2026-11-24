@@ -34,6 +34,9 @@ def test_policy_inventory_is_complete_and_matches_registered_surfaces() -> None:
     for surface in ("printers.routes_controls", "printers.routes_smart_plug"):
         assert by_surface[surface]["focused_test"] == "test_printer_controls_org_scope.py"
     assert by_surface["printers.routes_crud"]["focused_test"] == "test_unscoped_printer_configuration.py"
+    for surface in ("archives.routes.archives_crud", "archives.routes.tags", "orders.routes.orders_crud",
+                    "orders.routes.products", "system.routes_maintenance"):
+        assert by_surface[surface]["focused_test"] == "test_unscoped_stock_orders_archives.py"
 
 
 def test_policy_inventory_gate_fails_for_new_unclassified_surface(

@@ -20,7 +20,7 @@ from core.spoolman_settings import get_spoolman_url
 from core.db import get_db
 from core.dependencies import log_audit
 from core.models import AuditLog
-from core.rbac import require_role, check_org_access, require_action
+from core.rbac import require_role, check_org_write, require_action
 from core.config import settings
 import core.crypto as crypto
 from modules.printers.models import Printer, FilamentSlot
@@ -138,7 +138,7 @@ def _lock_ams_mutation(db, printer_id, current_user, tags, acquired_connection, 
             raise HTTPException(409, "AMS associations changed; retry synchronization")
         printers = {row.id: row for row in printers}
         printer = printers.get(printer_id)
-        if not printer or not check_org_access(current_user, printer.org_id):
+        if not printer or not check_org_write(current_user, printer.org_id, operate=True):
             raise HTTPException(404, "Printer not found")
         if (printer.api_type, printer.api_host, printer.api_key) != acquired_connection:
             raise HTTPException(409, "Printer configuration changed; retry synchronization")
@@ -147,9 +147,9 @@ def _lock_ams_mutation(db, printer_id, current_user, tags, acquired_connection, 
         if (tags or uuids) and any(p.org_id is not None and p.org_id != printer.org_id for p in printers.values()):
             raise HTTPException(409, "Spool association unavailable for this organization")
         for spool in spools:
-            if (spool.org_id is not None and spool.org_id != printer.org_id) or not check_org_access(current_user, spool.org_id):
+            if (spool.org_id is not None and spool.org_id != printer.org_id) or not check_org_write(current_user, spool.org_id, operate=True):
                 raise HTTPException(409, "Spool association unavailable for this organization")
-            if spool.location_printer_id is not None and not check_org_access(current_user, printers[spool.location_printer_id].org_id):
+            if spool.location_printer_id is not None and not check_org_write(current_user, printers[spool.location_printer_id].org_id, operate=True):
                 raise HTTPException(409, "Spool association unavailable for this organization")
         from modules.inventory.services import repair_stale_locations
         repair_stale_locations(db, spools, current_user['id'])
@@ -183,7 +183,7 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
     """Sync AMS filament state from printer."""
     rfid = rfid_identity()
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
-    if not printer or not check_org_access(current_user, printer.org_id):
+    if not printer or not check_org_write(current_user, printer.org_id, operate=True):
         raise HTTPException(status_code=404, detail="Printer not found")
     from modules.printers.printer_models import is_h3c_printer, rack_model_identity
     rack = is_h3c_printer(printer)
@@ -193,11 +193,11 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
     def authorize_spool(spool):
         if not spool:
             return
-        if not check_org_access(current_user, spool.org_id):
+        if not check_org_write(current_user, spool.org_id, operate=True):
             raise HTTPException(status_code=409, detail="Spool association unavailable for this organization")
         if spool.location_printer_id is not None:
             previous = db.query(Printer).filter(Printer.id == spool.location_printer_id).first()
-            if previous is None or not check_org_access(current_user, previous.org_id):
+            if previous is None or not check_org_write(current_user, previous.org_id, operate=True):
                 raise HTTPException(status_code=409, detail="Spool association unavailable for this organization")
 
     # Validate legacy/poisoned associations before any acquisition or write.

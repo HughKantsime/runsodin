@@ -7,7 +7,7 @@ from sqlalchemy.orm.attributes import set_committed_value
 
 from core.display_json import display_object, display_tray_state
 from core.material_identity import canonical_reported_material
-from core.rbac import check_org_access
+from core.rbac import check_org_access, check_org_write, require_org_write
 from modules.inventory.models import FilamentLibrary, Spool
 from modules.inventory.catalogue import catalogue_key
 from modules.inventory.slot_assignments import lock_slot_graph
@@ -41,9 +41,10 @@ def _labels(slot, actor, candidates):
         selected = next((f for f in candidates if f.id == spool.filament_id), None)
     if selected is None and len(candidates) == 1:
         selected = candidates[0]
+    can_choose = spool is None or check_org_write(actor, spool.org_id)
     return dict(catalogue_name=selected.name if selected else None,
                 catalogue_choices=[dict(id=f.id, name=f.name) for f in candidates]
-                if not selected and len(candidates) > 1 else [])
+                if not selected and len(candidates) > 1 and can_choose else [])
 
 
 def slot_catalogue(db, slot, actor):
@@ -102,6 +103,8 @@ def select_spool_filament(db, spool, filament_id, actor):
     db.refresh(spool, ['filament_id', 'filament', 'org_id'])
     if not check_org_access(actor, spool.org_id):
         raise HTTPException(404, 'Spool not found')
+    if filament_id != spool.filament_id:
+        require_org_write(actor, spool.org_id, "spool")
     filament = db.query(FilamentLibrary).filter_by(id=filament_id).first()
     if filament is None:
         raise HTTPException(404, 'Filament not found')

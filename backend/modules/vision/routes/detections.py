@@ -19,7 +19,7 @@ import re
 
 from core.audit import audit_download
 from core.db import get_db
-from core.rbac import require_role, require_superadmin, get_org_scope, check_org_access, require_org_write
+from core.rbac import require_role, require_superadmin, get_org_scope, check_org_access, check_org_write, require_org_write
 from core.config import settings
 from core.models import SystemConfig
 from modules.printers.models import Printer
@@ -217,7 +217,7 @@ def dismiss_and_resume(
         if det is None:
             raise HTTPException(404, "Detection not found")
         printer = db.query(Printer).filter(Printer.id == det.printer_id).first()
-        if printer is None or not check_org_access(current_user, printer.org_id):
+        if printer is None or not check_org_write(current_user, printer.org_id, operate=True):
             raise HTTPException(404, "Printer not found")
         jobs = db.execute(text("SELECT id FROM print_jobs WHERE printer_id=:pid AND status='running' AND ended_at IS NULL"),
                           {"pid": printer.id}).scalars().all()

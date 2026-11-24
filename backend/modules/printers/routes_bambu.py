@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from core.spoolman_settings import get_spoolman_url
 from core.db import get_db
-from core.rbac import check_org_access, require_role, require_action
+from core.rbac import check_org_access, require_org_write, require_role, require_action
 from core.config import settings
 import core.crypto as crypto
 from modules.printers.models import Printer, FilamentSlot
@@ -82,10 +82,14 @@ class ManualSlotAssignment(PydanticBaseModel):
 # Bambu Integration
 # ====================================================================
 
-def _owned_printer(db, printer_id, current_user):
+def _owned_printer(db, printer_id, current_user, *, operate=False):
     """Load a printer in the caller's org scope; 404 for missing or foreign printers."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
-    if not printer or not check_org_access(current_user, printer.org_id):
+    if not printer:
+        raise HTTPException(status_code=404, detail="Printer not found")
+    if operate:
+        require_org_write(current_user, printer.org_id, "printer", operate=True)
+    elif not check_org_access(current_user, printer.org_id):
         raise HTTPException(status_code=404, detail="Printer not found")
     return printer
 
@@ -149,7 +153,7 @@ async def manual_slot_assignment(
     current_user: dict = Depends(require_action("printers.slots", scope="write:printers")), db: Session = Depends(get_db)
 ):
     """Manually assign filament to a slot when auto-matching fails."""
-    _owned_printer(db, printer_id, current_user)
+    _owned_printer(db, printer_id, current_user, operate=True)
     ensure_local_filaments(printer_id)
     slot = db.query(FilamentSlot).filter(
         FilamentSlot.printer_id == printer_id,
