@@ -349,7 +349,7 @@ R["branding_logo"] = client().get("/api/branding").json().get("logo_url")
 import modules.orders.invoice_generator as IG
 SEEN = []
 _orig_init = IG.InvoiceGenerator.__init__
-def _spy(self, branding, order): SEEN.append(dict(branding)); _orig_init(self, branding, order)
+def _spy(self, branding, order, *args, **kwargs): SEEN.append(dict(branding)); _orig_init(self, branding, order, *args, **kwargs)
 IG.InvoiceGenerator.__init__ = _spy
 R["invoice_status"] = a.get(f"/api/orders/{o}/invoice.pdf").status_code
 R["invoice_app_name"] = SEEN[-1]["app_name"] if SEEN else None

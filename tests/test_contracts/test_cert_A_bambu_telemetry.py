@@ -125,12 +125,15 @@ def test_h2d_hms_codes_logged_once_per_change_with_translations_and_alerts(wire_
         if hms and (not changes or changes[-1] != hms):
             changes.append(hms)
     # Four notices stay active throughout. The fifth clears while running and
-    # returns when paused, as the four continuing notices become actionable.
+    # returns when paused. At the pause only the codes above information level
+    # (level 2 here) become errors; the level-3 codes stay notices.
     assert len(changes) == 3 and len(frames) > 100
     assert changes[1] == changes[0][:-1] and changes[2] == changes[0]
     codes = [f"{entry['attr']:08X}_{entry['code']:08X}" for entry in changes[0]]
+    actionable = [code for code in codes if code.split("_")[1][:4] != "0003"]
+    assert len(actionable) == 2 and len(codes) == 5
     expected = [(code, "info", "bambu_notice") for code in codes]
-    expected += [(code, "error", "bambu_hms") for code in codes]
+    expected += [(code, "error", "bambu_hms") for code in actionable]
     assert [(code, severity, source) for code, _, severity, source in history] == expected
     assert all(message and not message.startswith("Unknown") for _, message, _, _ in history)
     alerts = review_db.execute(text("SELECT alert_type,severity,title FROM alerts WHERE printer_id=301")).all()
