@@ -201,6 +201,28 @@ def check_org_access(current_user: dict, resource_org_id: Optional[int]) -> bool
     return group_id is not None and group_id == resource_org_id
 
 
+def check_org_write(current_user: dict, resource_org_id: Optional[int], *, operate=False, db=None) -> bool:
+    """Scoped writes follow the existing organization access rule.
+    Unassigned users keep their existing access to unscoped resources.
+    Organization members may operate unscoped resources but cannot configure or delete them.
+    """
+    if not check_org_access(current_user, resource_org_id):
+        return False
+    return (resource_org_id is not None or operate or current_user.get("group_id") is None
+            or _is_platform_superadmin(current_user) or bool(current_user.get("_ordinary_group")))
+
+
+def unscoped_write_detail(resource: str) -> str:
+    return f"This {resource} belongs to no organization. Ask a platform administrator to change it."
+
+
+def require_org_write(current_user: dict, resource_org_id: Optional[int], resource: str, *, operate=False) -> None:
+    if not check_org_write(current_user, resource_org_id, operate=operate):
+        if resource_org_id is None and current_user:
+            raise HTTPException(403, unscoped_write_detail(resource))
+        raise HTTPException(404, f"{resource.capitalize()} not found")
+
+
 # ---------------------------------------------------------------------------
 # Credential routes: interactive sessions only
 # ---------------------------------------------------------------------------

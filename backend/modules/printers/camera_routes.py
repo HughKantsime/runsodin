@@ -32,7 +32,7 @@ from core.db import get_db
 from core.controlled_parts import allowed
 from core.display_names import display_names
 from core.dependencies import get_current_user, log_audit, validate_access_token
-from core.rbac import require_role, check_org_access, has_permission, token_scope_granted, handler_enforces_token_scope
+from core.rbac import require_role, check_org_access, require_org_write, has_permission, token_scope_granted, handler_enforces_token_scope
 from modules.printers.models import Printer
 from modules.archives.models import Timelapse
 from core.timelapse_access import assert_timelapse_access,timelapse_visibility,visible_printer_name,inherit_timelapse_owner
@@ -44,13 +44,6 @@ from modules.printers.controlled_camera import frame_guard as _controlled_frame_
 log = logging.getLogger("odin.api")
 router = APIRouter()
 TIMELAPSE_ROOT="/data/timelapses"
-
-
-def _check_printer_org(current_user: dict, printer_id: int, db) -> None:
-    """Verify the caller has org access to the printer behind a timelapse/camera."""
-    printer = db.query(Printer).filter(Printer.id == printer_id).first()
-    if not printer or (not check_org_access(current_user, printer.org_id) and not printer.shared):
-        raise HTTPException(status_code=404, detail="Not found")
 
 
 def _authorize_media(current_user: dict) -> None:
@@ -379,8 +372,7 @@ def toggle_camera(printer_id: int, current_user: dict = Depends(require_action("
     if not printer:
         raise HTTPException(status_code=404, detail="Printer not found")
     # Changing the camera is a change to the printer: org ownership only. Sharing grants viewing.
-    if not check_org_access(current_user, printer.org_id):
-        raise HTTPException(status_code=404, detail="Printer not found")
+    require_org_write(current_user, printer.org_id, "printer")
 
     # Toggle the camera_enabled flag
     # NULL streams nowhere (go2rtc and /cameras select TRUE only), so it is "off".

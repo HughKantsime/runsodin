@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 from sqlalchemy.orm import Session
 from core.db import get_db
-from core.rbac import require_role, require_action, check_org_access
+from core.rbac import require_role, require_action, check_org_access, check_org_write
 from modules.printers.models import Printer
 from core.interfaces.completion import next_suggestion
 from modules.printers.start_next import start, load, replay, request_key
@@ -49,9 +49,12 @@ class StartResult(BaseModel):
     status_url: str | None = None
 
 
-def visible_printer(db, printer_id, user):
+def visible_printer(db, printer_id, user, *, operate=False):
     printer = db.get(Printer, printer_id)
-    if not printer or (not check_org_access(user, printer.org_id) and not printer.shared):
+    if not printer:
+        raise HTTPException(404, 'Printer not found')
+    allowed = check_org_write(user, printer.org_id, operate=True) if operate else check_org_access(user, printer.org_id)
+    if not (allowed or printer.shared):
         raise HTTPException(404, 'Printer not found')
     return printer
 
@@ -72,7 +75,7 @@ def start_next(data: StartNext, printer_id: int = Path(gt=0), db: Session = Depe
     if prior is not None:
         result = replay(prior, current_user, printer_id)
     else:
-        result = start(db, visible_printer(db, printer_id, current_user), current_user, data, background=not wait)
+        result = start(db, visible_printer(db, printer_id, current_user, operate=True), current_user, data, background=not wait)
     if wait:
         from fastapi.responses import JSONResponse
         return JSONResponse(status_code=200, content=result)

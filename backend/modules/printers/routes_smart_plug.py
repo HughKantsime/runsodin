@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from core.db import get_db
 from core.db_compat import sql
-from core.rbac import require_role, check_org_access, require_action
+from core.rbac import require_role, check_org_access, require_org_write, require_action
 import core.crypto as crypto
 import modules.printers.smart_plug as smart_plug
 from modules.printers.models import Printer
@@ -18,23 +18,14 @@ log = logging.getLogger("odin.api")
 router = APIRouter()
 
 
-def _require_printer_org_access(printer_id: int, current_user: dict, db: Session) -> Printer:
-    """Load a printer by id and enforce the caller's org scope.
-
-    Raises HTTPException(404) if the printer doesn't exist OR if the caller
-    is in a different org. 404 (not 403) by convention — don't leak whether
-    a printer exists in another tenant.
-
-    Added for R1 from the 2026-04-12 adversarial review: the smart-plug
-    routes used to load printers by id with no tenancy check, letting any
-    operator in any org reconfigure smart-plug integration or power-cycle
-    another tenant's printer.
-    """
+def _require_printer_org_access(printer_id: int, current_user: dict, db: Session, *, operate: bool | None = None) -> Printer:
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
         raise HTTPException(status_code=404, detail="Printer not found")
-    if not check_org_access(current_user, printer.org_id):
-        raise HTTPException(status_code=404, detail="Printer not found")
+    if operate is not None:
+        require_org_write(current_user, printer.org_id, "printer", operate=operate)
+    elif not check_org_access(current_user, printer.org_id):
+        raise HTTPException(404, "Printer not found")
     return printer
 
 
@@ -123,7 +114,7 @@ async def update_plug_config(printer_id: int, request: Request, current_user: di
     values. Clearing the configuration is DELETE, not a null type. The stored
     Home Assistant token is kept only while type and host are unchanged.
     """
-    _require_printer_org_access(printer_id, current_user, db)
+    _require_printer_org_access(printer_id, current_user, db, operate=False)
     data = await request.json()
     if not isinstance(data, dict):
         raise HTTPException(422, "Body must be a JSON object")
@@ -193,7 +184,7 @@ async def update_plug_config(printer_id: int, request: Request, current_user: di
 @router.delete("/printers/{printer_id}/plug", tags=["Smart Plug"])
 async def remove_plug_config(printer_id: int, current_user: dict = Depends(require_action("printers.edit", scope="write:printers")), db: Session = Depends(get_db)):
     """Remove smart plug configuration from a printer."""
-    _require_printer_org_access(printer_id, current_user, db)
+    _require_printer_org_access(printer_id, current_user, db, operate=False)
     db.execute(text("""
         UPDATE printers SET
             plug_type = NULL, plug_host = NULL, plug_entity_id = NULL,
@@ -231,7 +222,7 @@ def _manual_power(command, printer_id, authority):
 @router.post("/printers/{printer_id}/plug/on", tags=["Smart Plug"])
 def plug_power_on(printer_id: int, request: Request, current_user: dict = Depends(require_action("printers.plug", scope="write:printers")), db: Session = Depends(get_db)):
     """Turn on a printer's smart plug."""
-    printer = _require_printer_org_access(printer_id, current_user, db)
+    printer = _require_printer_org_access(printer_id, current_user, db, operate=True)
     if printer.plug_type in ('homeassistant', 'mqtt'):
         # A frontend nonce is accepted, but these protocols cannot prove
         # command completion and retain legacy process-local behavior.
@@ -249,7 +240,7 @@ def plug_power_on(printer_id: int, request: Request, current_user: dict = Depend
 @router.post("/printers/{printer_id}/plug/off", tags=["Smart Plug"])
 def plug_power_off(printer_id: int, request: Request, current_user: dict = Depends(require_action("printers.plug", scope="write:printers")), db: Session = Depends(get_db)):
     """Turn off a printer's smart plug."""
-    printer = _require_printer_org_access(printer_id, current_user, db)
+    printer = _require_printer_org_access(printer_id, current_user, db, operate=True)
     if printer.plug_type in ('homeassistant', 'mqtt'):
         # A frontend nonce is accepted, but these protocols cannot prove
         # command completion and retain legacy process-local behavior.
@@ -267,7 +258,7 @@ def plug_power_off(printer_id: int, request: Request, current_user: dict = Depen
 @router.post("/printers/{printer_id}/plug/toggle", tags=["Smart Plug"])
 def plug_power_toggle(printer_id: int, request: Request, current_user: dict = Depends(require_action("printers.plug", scope="write:printers")), db: Session = Depends(get_db)):
     """Toggle a printer's smart plug."""
-    printer = _require_printer_org_access(printer_id, current_user, db)
+    printer = _require_printer_org_access(printer_id, current_user, db, operate=True)
     if printer.plug_type in ('homeassistant', 'mqtt'):
         # A frontend nonce is accepted, but these protocols cannot prove
         # command completion and retain legacy process-local behavior.

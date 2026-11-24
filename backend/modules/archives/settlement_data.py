@@ -3,7 +3,7 @@ import json
 import math
 from sqlalchemy import text
 from core import filament_ledger as ledger
-from core.rbac import check_org_access
+from core.rbac import check_org_access, require_org_write
 from core.tenancy_mode import install_has_organizations
 from core.print_attempts import sqlalchemy_runner, moment
 from core.system_config_values import config_text
@@ -91,6 +91,8 @@ def readable_spool(db, spool_id, user, org_id=None, *, for_write=False):
     row = db.execute(text('SELECT * FROM spools WHERE id=:id'), {'id': spool_id}).mappings().first()
     if not row or not check_org_access(user, row['org_id']):
         return None
+    if for_write:
+        require_org_write(user, row['org_id'], "spool")
     if for_write and row['org_id'] is not None and row['org_id'] != org_id:
         return None
     return row

@@ -23,7 +23,7 @@ from core.display_names import name_printers, human_name
 from core.db import get_db
 from core.dependencies import get_current_user, log_audit
 from core.rbac import (
-    AGENT_READ_SCOPE, AGENT_WRITE_SCOPE, _get_org_filter, check_org_access, get_org_scope,
+    AGENT_READ_SCOPE, AGENT_WRITE_SCOPE, _get_org_filter, check_org_access, get_org_scope, require_org_write,
     require_action, require_any_scope, require_role, should_filter_org,
 )
 import core.crypto as crypto
@@ -33,7 +33,7 @@ from modules.printers.connection_reasons import (
     AUTH, NOT_THIS_TYPE, UNKNOWN, failed, reason_for_exception, reason_for_http_status,
 )
 from modules.printers.moonraker_controls import enrich_controls
-from modules.printers.services import bambu_tray_counts, apply_printer_updates, prepare_rack_slot_count
+from modules.printers.services import bambu_tray_counts, apply_printer_updates, prepare_rack_slot_count, printer_write_targets
 from modules.printers.models import Printer, FilamentSlot
 from modules.printers.slot_feed_policy import POLICY_FIELDS, policy_change, refuse_delete_while_flagged, slots_removable_by_count
 from modules.printers.schemas import (
@@ -186,10 +186,9 @@ def reorder_printers(
     if len(set(printer_ids)) != len(printer_ids):
         raise HTTPException(status_code=400, detail="Printer IDs must be unique")
     printers = db.query(Printer).filter(Printer.id.in_(printer_ids)).all()
-    if len(printers) != len(printer_ids) or any(
-        not check_org_access(current_user, printer.org_id) for printer in printers
-    ):
-        raise HTTPException(status_code=404, detail="Printer not found")
+    _, skipped = printer_write_targets(printers, len(printer_ids), current_user)
+    if skipped:
+        raise HTTPException(403, skipped[0]["detail"])
     for idx, printer_id in enumerate(printer_ids):
         db.execute(
             text("UPDATE printers SET display_order = :order WHERE id = :id"),
@@ -255,8 +254,7 @@ def update_printer(
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
         raise HTTPException(status_code=404, detail="Printer not found")
-    if not check_org_access(current_user, printer.org_id):
-        raise HTTPException(status_code=404, detail="Printer not found")
+    require_org_write(current_user, printer.org_id, "printer")
 
     update_data = updates.model_dump(exclude_unset=True)
     rack = prepare_rack_slot_count(printer, update_data)
@@ -370,8 +368,10 @@ def update_filament_slot(
 ):
     """Update a filament slot (e.g., load new filament)."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
-    if not printer or not check_org_access(current_user, printer.org_id):
+    if not printer:
         raise HTTPException(status_code=404, detail="Printer not found")
+    # Loading filament is operating the printer, not configuring it.
+    require_org_write(current_user, printer.org_id, "printer", operate=True)
     slot = db.query(FilamentSlot).filter(
         FilamentSlot.printer_id == printer_id,
         FilamentSlot.slot_number == slot_number,
@@ -437,19 +437,18 @@ async def bulk_update_printers(body: dict, current_user: dict = Depends(require_
             db.execute(text("UPDATE printers SET name=name WHERE id=:id"), {"id": ids[0]})
         printers = (db.query(Printer).filter(Printer.id.in_(ids)).order_by(Printer.id)
                     .with_for_update(nowait=True).populate_existing().all())
-        if len(printers) != len(ids) or any(not check_org_access(current_user, p.org_id) for p in printers):
-            raise HTTPException(404, "Printer not found")
+        writable, skipped = printer_write_targets(printers, len(ids), current_user)
         # Validate every stored value before modifying any target.
         copied_tags = {}
         if action == "add_tag":
-            for printer in printers:
+            for printer in writable:
                 tags = printer.tags
                 if tags is None:
                     tags = []
                 if not isinstance(tags, list) or any(not isinstance(value, str) for value in tags):
                     raise HTTPException(409, "Printer tags require repair before bulk updates")
                 copied_tags[printer.id] = list(tags)
-        for printer in printers:
+        for printer in writable:
             if action == "add_tag":
                 tags = copied_tags[printer.id]
                 if tag not in tags:
@@ -457,7 +456,10 @@ async def bulk_update_printers(body: dict, current_user: dict = Depends(require_
             else:
                 printer.is_active = action == "enable"
         db.commit()
-        return {"status": "ok", "affected": len(printers)}
+        result = {"status": "ok", "affected": len(writable)}
+        if skipped:
+            result["skipped"] = skipped
+        return result
     except OperationalError as exc:
         db.rollback()
         if getattr(exc.orig, "sqlstate", None) == "55P03" or getattr(exc.orig, "sqlite_errorcode", None) in (5, 6, 517):

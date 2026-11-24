@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from core.db import get_db
 from core.models import SystemConfig
 from core.dependencies import log_audit
-from core.rbac import require_role, check_org_access
+from core.rbac import require_role, check_org_access, require_org_write
 from core.printer_maintenance import maintenance_key, read_maintenance
 from modules.printers.models import Printer
 
@@ -31,6 +31,8 @@ def visible(db, printer_id, user, *, write=False):
     printer = db.get(Printer, printer_id)
     if printer is None or not (check_org_access(user, printer.org_id) or (not write and printer.shared)):
         raise HTTPException(404, 'Printer not found')
+    if write:
+        require_org_write(user, printer.org_id, "printer")
     return printer
 
 

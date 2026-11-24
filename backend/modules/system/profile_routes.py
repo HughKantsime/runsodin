@@ -31,7 +31,7 @@ from core.audit import audit_download
 from core.db import get_db
 from core.db_compat import execute_insert_returning_id, sql
 from core.dependencies import get_current_user, log_audit
-from core.rbac import require_action, require_role, get_org_scope, check_org_access
+from core.rbac import require_action, require_role, get_org_scope, check_org_access, require_org_write
 
 log = logging.getLogger("odin.api")
 router = APIRouter()
@@ -406,14 +406,7 @@ async def update_profile(
     current_user: dict = Depends(require_role("operator", scope="write:models")),
 ):
     """Update profile metadata."""
-    row = db.execute(text("SELECT * FROM printer_profiles WHERE id = :id"), {"id": profile_id}).fetchone()
-    if not row:
-        raise HTTPException(status_code=404, detail="Profile not found")
-    if not check_org_access(current_user, row.org_id):
-        raise HTTPException(status_code=404, detail="Profile not found")
-    # Operator can edit own; admin can edit any
-    if current_user.get("role") != "admin" and row.created_by != current_user.get("id"):
-        raise HTTPException(status_code=403, detail="Can only edit your own profiles")
+    profile_history.accessible_profile(db, profile_id, current_user, mutate=True)
     body = await _profile_request_body(request)
     allowed = {"name", "description", "tags", "is_shared", "printer_id", "filament_type"}
     updates = {k: v for k, v in body.items() if k in allowed}
@@ -445,8 +438,7 @@ def delete_profile(
     row = db.execute(text("SELECT * FROM printer_profiles WHERE id = :id"), {"id": profile_id}).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Profile not found")
-    if not check_org_access(current_user, row.org_id):
-        raise HTTPException(status_code=404, detail="Profile not found")
+    require_org_write(current_user, row.org_id, "profile")
     if current_user.get("role") != "admin" and row.created_by != current_user.get("id"):
         raise HTTPException(status_code=403, detail="Can only delete your own profiles")
     db.execute(text("DELETE FROM printer_profiles WHERE id = :id"), {"id": profile_id})

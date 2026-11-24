@@ -169,3 +169,37 @@ def test_unpaired_unicode_content_rejected_without_history(profile_client,review
  client,issue,_,_=profile_client
  response=client.post('/profiles/101/revisions',headers={**issue(['write:models']),'Content-Type':'application/json'},content=b'{"raw_content":"\\ud800"}')
  assert response.status_code==400 and _history(review_db)==[]
+
+
+@pytest.mark.parametrize('role,group,has_orgs', [
+    ('admin', 1, True), ('admin', None, True), ('operator', None, True),
+    ('admin', 1, False), ('operator', 1, False),
+])
+def test_unscoped_profile_and_history_writes(profile_client, review_db, role, group, has_orgs):
+    client, issue, _, _ = profile_client
+    if not has_orgs:
+        review_db.execute(text('UPDATE groups SET is_org=FALSE'))
+    review_db.execute(text('UPDATE users SET group_id=:group,role=:role WHERE id=3'), {'group': group, 'role': role})
+    review_db.commit()
+    headers = issue(['read:models', 'write:models'])
+    for profile_id in ([102, 103] if has_orgs else [103]):
+        foreign = profile_id == 102 and (role != 'admin' or group is not None)
+        refused = has_orgs and group == 1 and profile_id == 103
+        path = f'/profiles/{profile_id}'
+        for suffix in ('', '/revisions'):
+            assert client.get(path + suffix, headers=headers).status_code == (404 if foreign else 200)
+        for method, suffix, body in (
+            ('put', '', {'name': 'Updated'}), ('post', '/revisions', {'raw_content': '{}'}),
+            ('post', '/revert/1', None), ('delete', '', None),
+        ):
+            response = client.request(method, path + suffix, headers=headers, json=body)
+            if refused:
+                assert response.status_code == 403
+                assert response.json()['detail'] == 'This profile belongs to no organization. Ask a platform administrator to change it.'
+            elif foreign:
+                assert response.status_code == 404
+            else:
+                assert response.status_code == (204 if method == 'delete' else 200), response.text
+        if refused or foreign:
+            assert not review_db.execute(text('SELECT 1 FROM printer_profile_revisions WHERE profile_id=:id'),
+                                         {'id': profile_id}).first()

@@ -15,6 +15,7 @@ from core.rbac import (
     require_action,
     AGENT_WRITE_SCOPE,
     check_org_access,
+    check_org_write,
     require_any_scope,
     require_role,
 )
@@ -55,7 +56,7 @@ async def stop_printer(printer_id: int, current_user: dict = Depends(require_act
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
         raise HTTPException(status_code=404, detail="Printer not found")
-    if not check_org_access(current_user, printer.org_id):
+    if not check_org_write(current_user, printer.org_id, operate=True):
         raise HTTPException(status_code=404, detail="Printer not found")
 
     from core.audit import log_audit
@@ -99,7 +100,7 @@ async def pause_printer(
       - Emits `next_actions` on success so agents can chain verification.
     """
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
-    if not printer or not check_org_access(current_user, printer.org_id):
+    if not printer or not check_org_write(current_user, printer.org_id, operate=True):
         raise OdinError(
             ErrorCode.printer_not_found,
             f"Printer {printer_id} not found",
@@ -190,7 +191,7 @@ async def resume_printer(
       - Emits `next_actions` on success. Pause accepts the same scopes as resume.
     """
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
-    if not printer or not check_org_access(current_user, printer.org_id):
+    if not printer or not check_org_write(current_user, printer.org_id, operate=True):
         raise OdinError(
             ErrorCode.printer_not_found,
             f"Printer {printer_id} not found",
@@ -287,7 +288,7 @@ async def clear_printer_errors(printer_id: int, current_user: dict = Depends(req
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
         raise HTTPException(status_code=404, detail="Printer not found")
-    if not check_org_access(current_user, printer.org_id):
+    if not check_org_write(current_user, printer.org_id, operate=True):
         raise HTTPException(status_code=404, detail="Printer not found")
     if printer.api_type != "bambu":
         raise HTTPException(status_code=400, detail="Clear errors is only supported on Bambu printers")
@@ -309,7 +310,7 @@ def skip_printer_objects(
     from modules.printers.monitor_commands import request_command
     from starlette.responses import JSONResponse
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
-    if not printer or not check_org_access(current_user, printer.org_id):
+    if not printer or not check_org_write(current_user, printer.org_id, operate=True):
         raise HTTPException(status_code=404, detail="Printer not found")
     invalid = "Send print_job_id and object_ids exactly as the object list gave them (1 to 64 objects)."
     if type(body) is not dict:
@@ -377,7 +378,7 @@ async def set_printer_speed(
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
         raise HTTPException(status_code=404, detail="Printer not found")
-    if not check_org_access(current_user, printer.org_id):
+    if not check_org_write(current_user, printer.org_id, operate=True):
         raise HTTPException(status_code=404, detail="Printer not found")
     if printer.api_type != "bambu":
         raise HTTPException(status_code=400, detail="Speed control is only supported on Bambu printers")
@@ -408,7 +409,7 @@ async def set_fan_speed(
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
         raise HTTPException(status_code=404, detail="Printer not found")
-    if not check_org_access(current_user, printer.org_id):
+    if not check_org_write(current_user, printer.org_id, operate=True):
         raise HTTPException(status_code=404, detail="Printer not found")
     if printer.api_type != "bambu":
         raise HTTPException(status_code=400, detail="Fan control is only supported on Bambu printers")
@@ -434,7 +435,7 @@ def toggle_printer_lights(printer_id: int, current_user: dict = Depends(require_
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
         raise HTTPException(status_code=404, detail="Printer not found")
-    if not check_org_access(current_user, printer.org_id):
+    if not check_org_write(current_user, printer.org_id, operate=True):
         raise HTTPException(status_code=404, detail="Printer not found")
 
     if not printer.api_type or printer.api_type.lower() != "bambu":
@@ -479,7 +480,7 @@ async def plate_cleared(
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
         raise HTTPException(status_code=404, detail="Printer not found")
-    if not check_org_access(current_user, printer.org_id):
+    if not check_org_write(current_user, printer.org_id, operate=True):
         raise HTTPException(status_code=404, detail="Printer not found")
 
     from modules.printers.plate_clear import plate_clear_states, record_plate_clear, select_plate_clear

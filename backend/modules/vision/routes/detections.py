@@ -19,7 +19,7 @@ import re
 
 from core.audit import audit_download
 from core.db import get_db
-from core.rbac import require_role, require_superadmin, get_org_scope, check_org_access
+from core.rbac import require_role, require_superadmin, get_org_scope, check_org_access, require_org_write
 from core.config import settings
 from core.models import SystemConfig
 from modules.printers.models import Printer
@@ -329,8 +329,7 @@ async def update_printer_vision_settings(
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
         raise HTTPException(status_code=404, detail="Printer not found")
-    if not check_org_access(current_user, printer.org_id):
-        raise HTTPException(status_code=404, detail="Printer not found")
+    require_org_write(current_user, printer.org_id, "printer")
 
     body = await request.json()
     allowed = {

@@ -3,7 +3,7 @@ import json
 from fastapi import HTTPException
 from fastapi.responses import Response
 from sqlalchemy import text, bindparam
-from core.rbac import check_org_access
+from core.rbac import require_org_write
 from core.dependencies import log_audit
 from modules.printers.models import Printer
 
@@ -12,8 +12,7 @@ def delete_printer(db, printer_id, current_user):
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
         raise HTTPException(status_code=404, detail="Printer not found")
-    if not check_org_access(current_user, printer.org_id):
-        raise HTTPException(status_code=404, detail="Printer not found")
+    require_org_write(current_user, printer.org_id, "printer")
 
     from core.registry import registry
     education_policy = registry.get_provider("EducationPolicyProvider")
