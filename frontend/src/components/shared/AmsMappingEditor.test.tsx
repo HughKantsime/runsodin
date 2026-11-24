@@ -6,11 +6,25 @@ import type { ArchiveAmsPreview } from '../../types/archive'
 const preview = wire.preview as ArchiveAmsPreview
 afterEach(cleanup)
 
-function Harness({ context = 'file8:printer1', stored = wire.stored, submit = vi.fn() }) {
-  const selection = useAmsMapping(preview, context, stored)
-  return <><AmsMappingEditor preview={preview} {...selection} />
+function Harness({ context = 'file8:printer1', stored = wire.stored, submit = vi.fn(), preview: filePreview = preview }) {
+  const selection = useAmsMapping(filePreview, context, stored)
+  return <><AmsMappingEditor preview={filePreview} {...selection} />
     <button disabled={!selection.value} onClick={() => submit(selection.value)}>Save</button></>
 }
+
+test('explains when a saved choice differs from the file rack positions', () => {
+  const file = { ...preview, rack_mapping: [{ source_slot: 4, target_slot: 4 }] }
+  const view = render(<Harness preview={file} />)
+  const message = 'This file sets the slots on this printer, so update or clear your conflicting saved choice before sending.'
+  expect(screen.queryByText(message)).toBeNull()
+  view.rerender(<Harness preview={file} stored={[-1, -1, -1, 0]} />)
+  expect(screen.getByText(message)).toBeInTheDocument()
+  view.rerender(<Harness preview={file} stored={[]} />)
+  expect(screen.queryByText(message)).toBeNull()
+  view.rerender(<Harness preview={{ ...file, rack_mapping: [] }} stored={[-1, -1, -1, 0]} />)
+  expect(screen.queryByText(message)).toBeNull()
+  expect(screen.getByText('The rack slots could not be read from this file.')).toBeInTheDocument()
+})
 
 test('restores sparse source four and sends the file ID, skipping unused entries', () => {
   const submit = vi.fn()

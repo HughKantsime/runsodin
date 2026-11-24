@@ -1,9 +1,15 @@
 """Shared explicit AMS validation and read-only filament suggestions."""
 import json
+import logging
+import os
+from functools import lru_cache
 from fastapi import HTTPException
 from sqlalchemy import text
 from core.print_payload import validate_mapping, source_filaments
+from core.print_payload_snapshot import PayloadUnavailable
 from core.rbac import check_org_access
+
+log = logging.getLogger(__name__)
 
 
 def accessible_printer(db, printer_id, actor):
@@ -81,7 +87,21 @@ def selectable_slots(db, printer_id, api_type, available):
             for s in available if s['slot'] < 17 or s['slot'] in ht]
 
 
-def preview(db, filaments_json, printer_id, actor, *, stored_path=None):
+@lru_cache(maxsize=64)
+def _rack_mapping(path, identity, plate_index):
+    """Cache only file assignments. Current tray contents are read on every preview."""
+    from core.ams_source_inspection import inspect_ams_sources, VerifiedRackSource
+    from core.print_payload_snapshot import _regular_source
+    with _regular_source(path) as (stream, info):
+        if (info.st_dev, info.st_ino, info.st_size, info.st_ctime_ns) != identity:
+            raise PayloadUnavailable('File changed before rack inspection')
+        facts = inspect_ams_sources(stream, plate_index)
+    if not facts.sources or not all(isinstance(source, VerifiedRackSource) for source in facts.sources):
+        return ()
+    return tuple((source.source_index + 1, source.group_id + 1) for source in facts.sources)
+
+
+def preview(db, filaments_json, printer_id, actor, *, stored_path=None, plate_index=0):
     printer = accessible_printer(db, printer_id, actor)
     from modules.printers.dispatch_support import is_kobra_s1
     if printer.api_type != 'bambu' and not is_kobra_s1(printer._mapping):
@@ -107,7 +127,19 @@ def preview(db, filaments_json, printer_id, actor, *, stored_path=None):
             return {'required': [], 'available': available, 'suggested_mapping': [], 'file_note': refusal.detail}
         # Real S1 headers carry the slicer's default green, so a material match says nothing about the slot.
         return {**preview_for_slots(filaments_json, available), 'confirm_suggestions': True}
-    return preview_for_slots(filaments_json, selectable_slots(db, printer_id, printer.api_type, available))
+    result = preview_for_slots(filaments_json, selectable_slots(db, printer_id, printer.api_type, available))
+    from modules.printers.printer_models import identified_h3c
+    if identified_h3c(printer._mapping) and len(result['required']) > 1:
+        mapping = ()
+        if stored_path:
+            try:
+                info = os.stat(stored_path, follow_symlinks=False)
+                mapping = _rack_mapping(stored_path, (info.st_dev, info.st_ino, info.st_size, info.st_ctime_ns), plate_index)
+            except Exception as exc:
+                log.warning('Could not read rack slots for preview (%s)', type(exc).__name__)
+        result['rack_mapping'] = [{'source_slot': source, 'target_slot': target} for source, target in mapping]
+        result['suggested_mapping'] = []
+    return result
 
 
 def preview_for_slots(filaments_json, available):

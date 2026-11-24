@@ -68,18 +68,8 @@ CONTROL_PROOF = {
 }
 
 
-H3C_MESSAGE = ("Sending jobs and using controls on an H3C are Experimental. "
-               "A platform administrator can turn them on in this printer's Experimental features. "
-               "Monitoring, filament tracking, pause and stop still work.")
-H3C_REFUSAL = f'{EXPERIMENTAL_NOT_ENABLED}: {H3C_MESSAGE}'
-
-
-def capability_key(printer):
-    return 'h3c' if identified_h3c(printer) and printer.api_type == 'bambu' else printer.api_type
-
-
-def require_control_capable_model(printer, *, safety=False, db=None):
-    reason = rack_printer_refusal(printer, safety=safety, db=db)
+def require_control_capable_model(printer):
+    reason = rack_printer_refusal(printer)
     if reason:
         from fastapi import HTTPException
         code, _, message = reason.partition(': ')
@@ -88,9 +78,9 @@ def require_control_capable_model(printer, *, safety=False, db=None):
 
 def control_proof(printer, action):
     from modules.printers.dispatch_support import is_kobra_s1
-    if is_h3c_printer(printer):
-        if not identified_h3c(printer) or getattr(printer, 'unidentified_rack', False):
-            return "not_working"
+    if rack_printer_refusal(printer):
+        return "not_working"
+    if identified_h3c(printer) and action not in ("pause", "resume", "stop"):
         return "unproven"
     kind = "kobra_s1" if is_kobra_s1(printer) else None
     return CONTROL_PROOF.get((kind, action), "proven")
@@ -111,8 +101,8 @@ def support_level(api_type) -> Optional[str]:
 
 def support_source(api_type, *, h3c=False) -> Optional[str]:
     if h3c:
-        return ('H3C monitoring and filament tracking are Supported. Job sending and printer controls are '
-                'Experimental and have not yet been verified on a printer.')
+        return ('Job sending, resume and stop were verified on a real Bambu Lab H3C. '
+                'Multi-tool jobs were verified with up to five tools.')
     entry = SUPPORT_TABLE.get(normalize(api_type))
     return entry[1] if entry else None
 
@@ -131,7 +121,6 @@ DISPATCH = 'dispatch'
 GATED_CAPABILITIES: dict[str, frozenset] = {
     # Resume and speed shipped as Supported before job sending existed: they stay ungated.
     'elegoo': frozenset({DISPATCH}),
-    'h3c': frozenset({DISPATCH, 'controls'}),
 }
 # Control route suffix or command name -> the capability it needs.
 ACTION_CAPABILITY = {'skip-objects': 'skip_objects', 'skip_objects': 'skip_objects', 'resume': 'resume', 'resume_print': 'resume', 'speed': 'speed', 'set_print_speed': 'speed'}
@@ -168,11 +157,11 @@ def _entry_enabled(store, printer_id, api_type, name):
 def enrich_response_opt_ins(db, printers):
     """Read the opt-in flags from one snapshot for this response."""
     try:
-        store = _read_store(db) if any(opt_in_applies(capability_key(p)) for p in printers) else {}
+        store = _read_store(db) if any(opt_in_applies(p.api_type) for p in printers) else {}
     except Exception:
         store = {}  # Fail closed on an unreadable store.
     for p in printers:
-        p.experimental_actions_enabled = opt_in_applies(capability_key(p)) and _entry_enabled(store, p.id, capability_key(p), p.name)
+        p.experimental_actions_enabled = opt_in_applies(p.api_type) and _entry_enabled(store, p.id, p.api_type, p.name)
 
 
 def experimental_enabled(db, printer_id, api_type) -> bool:
@@ -210,7 +199,7 @@ def experimental_refusal_for_printer(db, printer_id, *, expected_h3c=None) -> Op
         row = db.execute(text('SELECT id,api_type,model,machine_type,installed_nozzles FROM printers WHERE id=:id'),
                          {'id': printer_id}).mappings().one()
         if is_h3c_printer(row):
-            reason = rack_printer_refusal(row, db=db)
+            reason = rack_printer_refusal(row)
             if reason:
                 return reason
         if expected_h3c is not None and identified_h3c(row) != expected_h3c:
@@ -253,8 +242,9 @@ def command_refusal(printer, action=None) -> Optional[str]:
 
     A Supported type with gated capabilities is refused only for a gated ``action``; with no
     action it is refused unless opted in (the "is it opted in" question)."""
-    if is_h3c_printer(printer):
-        return rack_printer_refusal(printer, safety=action in ('pause_print', 'stop_print', 'cancel_print'))
+    reason = rack_printer_refusal(printer)
+    if reason:
+        return reason
     api_type = getattr(printer, 'api_type', None)
     level = support_level(api_type)
     if level == UNSUPPORTED:
@@ -288,7 +278,7 @@ def printer_opt_in(printer):
 
 def enabled_for_printer(printer) -> bool:
     """Response field: Experimental types or capabilities can be enabled only through the store."""
-    return opt_in_applies(capability_key(printer)) and command_refusal(printer) is None
+    return opt_in_applies(printer.api_type) and command_refusal(printer) is None
 
 
 def set_experimental_enabled(db, printer, enabled: bool, user_id) -> dict:
@@ -304,7 +294,7 @@ def set_experimental_enabled(db, printer, enabled: bool, user_id) -> dict:
     except ValueError:
         store = {}
     key = str(printer.id)
-    api_type = normalize(capability_key(printer))
+    api_type = normalize(printer.api_type)
     was_enabled = _entry_enabled(store, printer.id, api_type, printer.name)
     if enabled:
         if was_enabled:

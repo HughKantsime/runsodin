@@ -143,7 +143,7 @@ def _check_attempt(engine,*,token,job,creds,key,payload_sha256,transport_filenam
             # An admitted H3C can reconcile after revocation. A rack discovered
             # during upload must still stop the attempt before another device read.
             admitted_h3c = already_admitted and identified_h3c(creds) and identified_h3c(current_creds)
-            unsupported = dispatch_unsupported_reason(current_creds, check_rack=not admitted_h3c, db=conn)
+            unsupported = dispatch_unsupported_reason(current_creds, check_rack=not admitted_h3c)
             if unsupported:
                 raise _Refused(unsupported)
             from modules.printers.support_levels import dispatch_refusal

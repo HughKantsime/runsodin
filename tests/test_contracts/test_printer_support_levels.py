@@ -42,6 +42,19 @@ def test_table_levels_sources_and_current_types():
         'elegoo': 'supported', 'anycubic_lan': 'supported', 'octoprint': 'experimental', 'ultimaker': 'experimental'}
 
 
+def test_h3c_public_claim_matches_support_and_controls():
+    from types import SimpleNamespace
+    printer = SimpleNamespace(model='H3C', api_type='bambu')
+    assert support_levels.support_level(printer.api_type) == 'supported'
+    assert not support_levels.opt_in_applies(printer.api_type)
+    assert support_levels.support_source('bambu', h3c=True) in (ROOT / 'FEATURES.md').read_text()
+    for action in ('pause', 'resume', 'stop'):
+        assert support_levels.control_proof(printer, action) == 'proven'
+    printer.unidentified_rack = True
+    for action in ('pause', 'resume', 'stop'):
+        assert support_levels.control_proof(printer, action) == 'not_working'
+
+
 def test_unknown_manual_and_case_handling():
     assert support_levels.support_level(None) is None and support_levels.support_level('  ') is None
     assert support_levels.support_level('Bambu') == 'supported'

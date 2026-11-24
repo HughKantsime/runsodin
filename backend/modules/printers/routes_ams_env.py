@@ -28,7 +28,7 @@ def _ams_printer(printer_id: int, db: Session, current_user: dict, *, write: boo
         raise HTTPException(status_code=404, detail="Printer not found")
     if write:
         from modules.printers.support_levels import require_control_capable_model
-        require_control_capable_model(printer, db=db)
+        require_control_capable_model(printer)
     return printer
 
 

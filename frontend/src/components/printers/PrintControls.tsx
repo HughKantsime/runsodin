@@ -124,7 +124,7 @@ export function PrintControls({ printerId, inline = false }: { printerId: number
   const repeatedStop = lastStop !== undefined
     ? `Stop was already sent ${Math.max(0, Math.floor((Date.now() - lastStop) / 1000))} seconds ago. Send it again?`
     : null
-  const disabled = (action: PrintControlAction) => (action === 'resume' && isH3C(printer) && !printer.experimental_actions_enabled) || (action !== 'stop' && pending?.action === action) ||
+  const disabled = (action: PrintControlAction) => (action !== 'stop' && pending?.action === action) ||
     (printer.api_type === 'moonraker' ? isLoading(action) : busy.current.has(String(printer.id)))
   const unavailable = (action: PrintControlAction) => printer.unavailable_controls?.includes(action)
   const toggle = isPaused ? 'resume' : 'pause'

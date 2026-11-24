@@ -44,10 +44,7 @@ def test_each_bambu_model_id_schedules_only_on_its_own_model(fleet, code):
     job = _job_for_file(fleet, code)
     run(fleet)
     status, printer, *_ = rows(fleet, [job])[job]
-    if BAMBU_MODEL_IDS[code] == 'H3C':
-        assert (status, printer) == ('pending', None)  # Read-only rack targets cannot receive a job.
-    else:
-        assert status == 'scheduled' and FLEET[printer] == BAMBU_MODEL_IDS[code], (code, printer)
+    assert status == 'scheduled' and FLEET[printer] == BAMBU_MODEL_IDS[code], (code, printer)
 
 
 def test_c11_file_is_not_placed_on_x1c_when_only_x1c_and_p1s_are_available(fleet):

@@ -1,3 +1,4 @@
+import { RackSlotPreview } from '../shared/AmsMappingEditor'
 import { materialLabel } from '../../utils/shared'
 import { useRef, useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
@@ -25,8 +26,10 @@ export default function StartNextPanel({ printerId, active = true, children }: {
     }catch(e){setError(e instanceof Error?e.message:'Could not start the next job.');setConfirmed(null);await refetch()}
     finally{setBusy(false)}
   }
+  const rackPreview = next?.inputs?.rack_preview
   return <>
       {next&&<p>Next: {next.job_id?`job ${next.job_id} · `:''}{next.reason} · {next.filament.replace(/_/g,' ')}</p>}
+      {rackPreview && <RackSlotPreview preview={rackPreview} />}
       {next?.load?.map((v,i)=><p key={i}>Load {materialLabel(v.material)} {v.color} in slot {v.slot}</p>)}
     {children}
       {canDo('jobs.start')&&next?.job_id&&<div className="space-y-2">

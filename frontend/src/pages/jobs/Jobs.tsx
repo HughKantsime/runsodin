@@ -3,6 +3,7 @@ import PageState from '../../components/ui/PageState'
 import Table from '../../components/ui/Table'
 import { displayName } from '../../utils/displayName'
 import MaintenanceBanner from '../../components/printers/MaintenanceBanner'
+import { RackSlotPreview } from '../../components/shared/AmsMappingEditor'
 import FilamentCheckPanel from '../../components/jobs/FilamentCheckPanel'
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
@@ -27,7 +28,7 @@ import { useJobMutations } from '../../hooks/useJobMutations'
 import JobTableHeader from '../../components/jobs/JobTableHeader'
 import JobCorrectionModal from '../../components/jobs/JobCorrectionModal'
 import { PageHeader, Button, SearchInput, TabBar } from '../../components/ui'
-import { parseServerDate, isOnline } from '../../utils/shared'
+import { parseServerDate, isOnline, isH3C } from '../../utils/shared'
 
 
 const jobTypeTabs = [
@@ -396,7 +397,16 @@ export default function Jobs() {
   const approvalJobCount = (jobsData || []).filter(j => j.status === 'submitted').length
   const orderJobCount = (jobsData || []).filter(j => j.order_item_id != null).length
   const adhocJobCount = (jobsData || []).filter(j => j.order_item_id == null).length
-  const dispatchTarget = confirmAction?.action === 'dispatch' ? jobsData?.find(j => j.id === confirmAction.jobId) : undefined
+  const dispatchId = confirmAction?.action === 'dispatch' ? confirmAction.jobId : undefined
+  const linkedDetail = deepExtra && deepExtra.id === dispatchId ? deepExtra : undefined
+  const dispatchTarget = linkedDetail ?? jobsData?.find(j => j.id === dispatchId)
+  const dispatchPrinter = dispatchTarget && printersData?.find(p => p.id === dispatchTarget.printer_id)
+  const showRackPreview = dispatchPrinter ? isH3C(dispatchPrinter)
+    : !!dispatchTarget && (!linkedDetail || !!linkedDetail.ams_preview?.rack_mapping)
+  const detail = useQuery({
+    queryKey: ['job', dispatchTarget?.id], queryFn: () => jobs.get(dispatchTarget!.id),
+    enabled: showRackPreview, staleTime: 0,
+  })
 
   const selectableIds = [...(deepExtra ? [deepExtra.id] : []), ...filteredJobs.map(j => j.id)]
   return (
@@ -625,11 +635,15 @@ export default function Jobs() {
         onConfirm={handleConfirmAction}
         onCancel={() => setConfirmAction(null)}
         title={confirmAction?.title || ''}
+        confirmDisabled={showRackPreview && detail.isFetching}
         message={confirmAction?.message || ''}
         confirmText={confirmAction?.confirmText || 'Confirm'}
         confirmVariant={confirmAction?.confirmVariant || 'danger'}
       >
         {dispatchTarget?.printer_id && <>
+          {showRackPreview && (detail.isLoading ? <p role="status">Checking rack slots…</p>
+            : detail.isError ? <p role="status">Slot preview unavailable.</p>
+            : <RackSlotPreview preview={detail.data?.ams_preview} />)}
           <MaintenanceBanner printerId={dispatchTarget.printer_id} />
           <FilamentCheckPanel jobId={dispatchTarget.id} printerId={dispatchTarget.printer_id} />
         </>}

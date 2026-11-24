@@ -134,7 +134,7 @@ it.each(['classic', 'foundry'])('shows the read-only H3C rack once on the %s pri
   expect(rack).not.toHaveTextContent(/provisional|Confirm spool/i)
   expect(rack).not.toHaveTextContent(/No AMS connected|AMS status unknown/)
   expect(rack).not.toHaveTextContent(/mounted|active nozzle|161|129/i)
-  expect(screen.queryByRole('button', { name: 'Skip objects' })).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Skip objects' })).toBeVisible()
 })
 
 it.each([
@@ -151,7 +151,7 @@ it.each([
   document.documentElement.dataset.themeFamily = family
   mount()
   await screen.findByText('No rack report received.')
-  expect(screen.queryByRole('button', { name: 'Configure AMS tray' })).not.toBeInTheDocument()
+  expect(!!screen.queryByRole('button', { name: 'Configure AMS tray' })).toBe(apiType === 'bambu')
   const editors = screen.getAllByTestId('filament-slot')
   expect(editors).toHaveLength(9)
   expect(editors[7].parentElement).toHaveTextContent('Hand-fed at the tool: PLA, GFA01, #AE96D4')
@@ -163,29 +163,17 @@ it.each([
 })
 
 
-it.each(['classic', 'foundry'])('offers the H3C Experimental switch for this printer in %s', async family => {
+it.each(['classic', 'foundry'])('offers H3C controls without an Experimental switch in %s', async family => {
   const { printers } = await import('../../api')
-  const { printerSupport } = await import('../../api/printerSupport')
-  const save = vi.spyOn(printerSupport, 'setExperimentalActions').mockResolvedValue({
-    printer_id: 9, support_level: 'supported', experimental_actions_enabled: true,
-  })
-  const rack = { id: 9, name: 'Rack', model: 'H3C', api_type: 'bambu', gcode_state: 'RUNNING',
-    last_seen: new Date().toISOString(), filament_slots: [] } as Awaited<ReturnType<typeof printers.get>>
-  vi.mocked(printers.get).mockResolvedValueOnce(rack).mockResolvedValueOnce({ ...rack, experimental_actions_enabled: true })
+  vi.mocked(printers.get).mockResolvedValueOnce({ id: 9, name: 'Rack', model: 'H3C', api_type: 'bambu', gcode_state: 'RUNNING',
+    last_seen: new Date().toISOString(), filament_slots: [] } as Awaited<ReturnType<typeof printers.get>>)
   Object.assign(state, { role: 'admin', group_id: null })
   document.documentElement.dataset.themeFamily = family
   mount('#experimental-opt-in-9')
-  const toggle = await screen.findByRole('checkbox', { name: 'Allow job sending and controls (Experimental)' })
-  expect(screen.getByText('H3C monitoring and filament tracking are Supported. Job sending and printer controls are Experimental and have not yet been verified on a printer.')).toBeVisible()
-  expect(screen.queryByText(/Other supported controls were verified/)).not.toBeInTheDocument()
-  expect(toggle).not.toBeChecked()
-  expect(screen.getByText(/Job sending and controls are off/)).toHaveTextContent(/Experimental features.*Pause and stop/)
-  expect(screen.queryByRole('button', { name: 'Skip objects' })).not.toBeInTheDocument()
-  fireEvent.click(toggle)
-  await waitFor(() => expect(save).toHaveBeenCalledWith(9, true))
-  await waitFor(() => expect(toggle).toBeChecked())
-  expect(await screen.findByRole('button', { name: 'Skip objects' })).toBeInTheDocument()
-  save.mockRestore()
+  expect(await screen.findByRole('button', { name: 'Skip objects' })).toBeVisible()
+  expect(screen.queryByText('Experimental features')).not.toBeInTheDocument()
+  expect(screen.queryByTestId('experimental-opt-in')).not.toBeInTheDocument()
+  expect(screen.queryByTestId('support-badge')).not.toBeInTheDocument()
 })
 
 it.each(['classic', 'foundry'])('adds no support text to a P1S page in %s', async family => {

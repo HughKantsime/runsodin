@@ -33,6 +33,8 @@ All notable changes to O.D.I.N. are documented here.
 - Printers that report only notices, such as maintenance reminders, now keep their normal status. The notices and their troubleshooting links stay visible on the printer card and printer page.
 - Older printer notices now appear on both Foundry card sizes. A paused print keeps its reported cause, and a notice with the same code as a fault no longer hides the fault.
 - Operators using a jobs token can now cancel a held job after checking the printer and recording that its requested start never began. Previously, only an administrator could cancel such a job.
+- Sending jobs to a Bambu Lab H3C and controlling its prints no longer need the Experimental switch: they were verified on a real H3C.
+- Multi-filament H3C jobs now show the material and colour loaded in each required slot, with this note: “This file prints from the slots below; the colours in the file are labels.”
 
 ## [2.6.0] - 2026-11-22
 

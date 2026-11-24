@@ -10,11 +10,12 @@ interface ConfirmModalProps {
   message: string
   confirmText?: string
   confirmVariant?: 'danger' | 'success'
+  confirmDisabled?: boolean
   pending?: boolean
   children?: ReactNode
 }
 
-export default function ConfirmModal({ open, onConfirm, onCancel, title, message, confirmText = 'Confirm', confirmVariant = 'danger', pending = false, children }: ConfirmModalProps) {
+export default function ConfirmModal({ open, onConfirm, onCancel, title, message, confirmText = 'Confirm', confirmVariant = 'danger', pending = false, confirmDisabled = false, children }: ConfirmModalProps) {
   const confirmRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
@@ -43,7 +44,7 @@ export default function ConfirmModal({ open, onConfirm, onCancel, title, message
         </button>
         <button
           ref={confirmRef}
-          disabled={pending}
+          disabled={pending || confirmDisabled}
           onClick={onConfirm}
           className={`px-4 py-2 text-sm rounded-md transition-colors ${btnClass}`}
         >

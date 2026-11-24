@@ -2,7 +2,7 @@ import LivePrintValues, { useTelemetryAge } from '../../components/printers/Live
 import { PrintControls } from '../../components/printers/PrintControls'
 import PlateCleared from '../../components/printers/PlateCleared'
 import { FilamentSlotsPanel } from '../../components/printers/PrinterPanels'
-import { capabilityKey, optInApplies, supportLevelOfPrinter } from '../../utils/supportLevels'
+import { optInApplies, supportLevelOfPrinter } from '../../utils/supportLevels'
 import { useState } from 'react'
 import { canDo, getCurrentUser } from '../../permissions'
 import SkipObjectsDialog from '../../components/printers/SkipObjectsDialog'
@@ -134,13 +134,14 @@ export default function PrinterDetail() {
 
       {!foundry && <PlateCleared printer={printer} />}
       <ExperimentalOptIn printer={printer} />
+      {rack && !printer.unidentified_rack && printer.support_source && <p className="text-sm">{printer.support_source}</p>}
       <PauseCause printer={printer} />
       {!foundry && <ActiveHms printer={printer} />}
       <PrinterDetectionLink printer={printer} />
-      {(!rack || printer.experimental_actions_enabled) && printer.api_type === 'bambu' && <TraySettings key={`${printer.id}-${rack}`} printerId={printer.id} rack={rack} />}
+      {!printer.unidentified_rack && printer.api_type === 'bambu' && <TraySettings key={`${printer.id}-${rack}`} printerId={printer.id} rack={rack} />}
       {foundry && <PrinterDetailOverview printer={printer} />}
       {(!foundry || rack) && <div className="mb-6"><FilamentSlotsPanel printer={printer} rackDetail={rack} /></div>}
-      {(!rack || printer.experimental_actions_enabled) && online && isActivePrintState(printer.gcode_state) && printer.api_type === 'bambu'
+      {!printer.unidentified_rack && online && isActivePrintState(printer.gcode_state) && printer.api_type === 'bambu'
         && canDo('printers.edit') && ['operator', 'admin'].includes(getCurrentUser()?.role || '') && (
         <div className="mb-4"><Button variant="secondary" className="min-h-11" onClick={() => setSkipOpen(true)}>Skip objects</Button></div>
       )}
@@ -332,7 +333,7 @@ function DetailPresentation({ foundry, children }) {
 
 function ExperimentalFeatures({ printer, foundry }) {
   const { hash } = useLocation()
-  if (supportLevelOfPrinter(printer) !== 'supported' || !optInApplies(capabilityKey(printer))) return null
+  if (supportLevelOfPrinter(printer) !== 'supported' || !optInApplies(printer.api_type)) return null
   const id = `experimental-opt-in-${printer.id}`
   return <details id={id} className={foundry ? 'f-management' : 'mb-6 border border-[var(--brand-card-border)] rounded-md text-[var(--brand-text-primary)]'} open={hash === `#${id}` || undefined}>
     <summary className={foundry ? undefined : 'p-4 cursor-pointer text-sm'}>Experimental features</summary>

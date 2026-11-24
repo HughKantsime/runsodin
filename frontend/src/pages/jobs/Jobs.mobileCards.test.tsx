@@ -92,6 +92,28 @@ describe('Jobs phone cards vs desktop table', () => {
     expect(await within(card).findByRole('button', { name: 'Dispatching...' })).toBeDisabled()
   })
 
+  it.each(['Edit job', 'Dispatch to printer'])('shows five physical rack slots in %s', async action => {
+    const { printers } = await import('../../api')
+    vi.mocked(printers.list).mockResolvedValueOnce([{ id: 7, api_type: 'bambu', model: 'H3C', name: 'Rack' } as Awaited<ReturnType<typeof printers.list>>[number]])
+    const slots = [5, 4, 3, 2, 1]
+    const detail = { ...wire.jobs[0], printer_id: 7, status: 'scheduled', ams_mapping: null, ams_preview: {
+      required: slots.map((_, i) => ({ slot: i + 1, material: 'PLA', color: '#FFFFFF' })),
+      available: slots.map(slot => ({ slot, material: 'PLA', color_hex: '12345' + slot })),
+      suggested_mapping: [], rack_mapping: slots.map((slot, i) => ({ source_slot: i + 1, target_slot: slot })),
+    } }
+    h.list.mockResolvedValue([detail])
+    h.get.mockResolvedValue(detail)
+    viewport(true)
+    show()
+    fireEvent.click(await screen.findByRole('button', { name: action }))
+    const preview = await screen.findByRole('region', { name: 'Rack slot preview' })
+    expect(preview).toHaveTextContent('This file prints from the slots below; the colours in the file are labels.')
+    const rows = within(preview).getAllByRole('listitem')
+    expect(rows).toHaveLength(5)
+    slots.forEach((slot, i) => expect(rows[i]).toHaveTextContent(`Filament ${i + 1} #FFFFFF → Slot ${slot} · PLA · #12345${slot}`))
+    expect(h.dispatch).not.toHaveBeenCalled()
+  })
+
   it('a queued job can be moved one place on a phone, where the table\'s drag does not exist', async () => {
     // Codex sign-off 11-12: cards had no way to reorder the queue.
     viewport(true)

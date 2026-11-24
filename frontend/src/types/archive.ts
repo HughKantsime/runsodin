@@ -85,6 +85,7 @@ export interface ArchiveAmsSlot { catalogue_name?: string | null; do_not_feed?: 
 export interface ArchiveAmsSuggestion { source_slot: number; target_slot: number; confidence: 'exact' | 'material_only' }
 
 export interface ArchiveAmsPreview {
+  rack_mapping?: AmsMapping;
   planned_loads?: string[];
   required: ArchiveAmsRequirement[];
   available: ArchiveAmsSlot[];

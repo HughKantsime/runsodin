@@ -7,7 +7,7 @@ S1_BED_CLEAR_REQUIRED = 's1_bed_clear_required: Start Kobra S1 prints with Start
 KOBRA_DISPATCH_DETAIL = "This Kobra printer cannot dispatch through ODIN yet; start it attended and link the print to this job."
 
 
-def dispatch_unsupported_reason(printer, *, check_rack=True, db=None):
+def dispatch_unsupported_reason(printer, *, check_rack=True):
     """Match either stored identity, never a host address or display name."""
     def field(name):
         return printer.get(name) if isinstance(printer, Mapping) else getattr(printer, name, None)
@@ -18,7 +18,7 @@ def dispatch_unsupported_reason(printer, *, check_rack=True, db=None):
         return 'printer_dispatch_unsupported: ' + MONITOR_ONLY_DETAIL
     from modules.printers.printer_models import rack_printer_refusal
     if check_rack:
-        rack_reason = rack_printer_refusal(printer, db=db)
+        rack_reason = rack_printer_refusal(printer)
         if rack_reason:
             return rack_reason
     if is_kobra_s1(printer):

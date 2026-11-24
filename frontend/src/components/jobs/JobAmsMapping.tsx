@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { jobs } from '../../api'
 import { canDo } from '../../permissions'
-import AmsMappingEditor, { useAmsMapping, type AmsMapping } from '../shared/AmsMappingEditor'
+import AmsMappingEditor, { RackSlotPreview, useAmsMapping, type AmsMapping } from '../shared/AmsMappingEditor'
 import type { ArchiveAmsPreview } from '../../types/archive'
 
 export default function JobAmsMapping({ job }: { job: {
@@ -35,12 +35,13 @@ export default function JobAmsMapping({ job }: { job: {
       {loads.length ? `Release hold — ${loads.join('; ')}` : 'Release hold'}
     </button>}
     {release.isError && <p role="alert">{release.error.message || 'Could not release hold'}</p>}
+    {!editable && job.ams_preview?.rack_mapping && <RackSlotPreview preview={job.ams_preview} />}
     {editable && <>
       <AmsMappingEditor preview={job.ams_preview} planned={job.hold === true} {...selection} />
       <button type="button" disabled={save.isPending || !selection.value} onClick={() => save.mutate(selection.value!)} className="px-3 py-2 bg-[var(--brand-primary)] rounded text-sm">Save AMS mapping</button>
       {job.ams_mapping != null && <button type="button" disabled={save.isPending} onClick={() => save.mutate(null)} className="px-3 py-2 text-sm">Clear AMS mapping</button>}
     </>}
-    {job.ams_mapping == null && <p className="text-xs text-[var(--brand-text-muted)]">Without a saved mapping, an AMS printer can start only when the file verifies a single filament source and its matching tray. Otherwise, choose the tray for each filament and save the mapping. Preview suggestions, including exact matches, need your confirmation.</p>}
+    {!job.ams_preview?.rack_mapping && job.ams_mapping == null && <p className="text-xs text-[var(--brand-text-muted)]">Without a saved mapping, an AMS printer can start only when the file verifies a single filament source and its matching tray. Otherwise, choose the tray for each filament and save the mapping. Preview suggestions, including exact matches, need your confirmation.</p>}
     {save.isError && <p role="alert">{save.error.message || 'Could not update AMS mapping'}</p>}
     {save.isSuccess && <p role="status">AMS mapping saved</p>}
   </section>

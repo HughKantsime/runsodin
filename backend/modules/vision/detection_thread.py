@@ -690,7 +690,7 @@ class PrinterVisionThread(threading.Thread):
                     {"pid": self.printer_id}
                 ).mappings().fetchone()
             from modules.printers.services import rack_printer_refusal
-            if not row or rack_printer_refusal(row, safety=True) or not self._live_printing():
+            if not row or rack_printer_refusal(row) or not self._live_printing():
                 return
 
             api_type = row['api_type']
