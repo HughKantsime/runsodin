@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { canAccessPage } from '../permissions'
 import { useNavigate, useLocation } from 'react-router-dom'
 
 /**
@@ -100,7 +101,7 @@ export default function useKeyboardShortcuts() {
         o: '/orders',
         t: '/timeline',
         l: '/alerts',
-        x: '/settings',
+        x: canAccessPage('settings') ? '/settings' : undefined,
         k: '/calculator',
         w: '/maintenance',
       }

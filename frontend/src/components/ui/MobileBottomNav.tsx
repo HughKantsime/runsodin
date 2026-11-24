@@ -20,6 +20,7 @@ import {
   Eye,
 } from 'lucide-react'
 import clsx from 'clsx'
+import { canAccessPage } from '../../permissions'
 import DialogSurface from './DialogSurface'
 
 const PRIMARY_TABS = [
@@ -40,15 +41,17 @@ const MORE_ITEMS = [
   { to: '/archives', icon: Archive, label: 'Archives' },
   { to: '/analytics', icon: BarChart3, label: 'Analytics' },
   { to: '/maintenance', icon: Wrench, label: 'Maintenance' },
-  { to: '/settings', icon: Settings, label: 'Settings' },
+  { to: '/settings', icon: Settings, label: 'Settings', page: 'settings' },
 ]
 
 export default function MobileBottomNav() {
   const [moreOpen, setMoreOpen] = useState(false)
   const { pathname } = useLocation()
 
+  const moreItems = MORE_ITEMS.filter(item => !item.page || canAccessPage(item.page))
+
   // Check if current path is in the "more" menu
-  const isMoreActive = MORE_ITEMS.some(item => pathname === item.to || pathname.startsWith(item.to + '/'))
+  const isMoreActive = moreItems.some(item => pathname === item.to || pathname.startsWith(item.to + '/'))
 
   return (
     <>
@@ -71,7 +74,7 @@ export default function MobileBottomNav() {
               </button>
             </div>
             <div className="grid grid-cols-3 gap-1">
-              {MORE_ITEMS.map(({ to, icon: Icon, label }) => (
+              {moreItems.map(({ to, icon: Icon, label }) => (
                 <NavLink
                   key={to}
                   to={to}

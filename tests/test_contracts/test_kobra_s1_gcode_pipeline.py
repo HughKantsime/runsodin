@@ -218,6 +218,17 @@ def test_preview_wire_fixture_is_what_the_route_returns(s1):
     publish('frontend/src/test-fixtures/s1-gcode-preview-wire.json', preview.json()['ams_preview'])
 
 
+@pytest.mark.parametrize('raw', [ONE_COLOUR, ANYCUBIC])
+def test_s1_preview_only_offers_physical_ace_slots(s1, raw):
+    uploaded = s1.upload(raw)
+    with s1.engine.begin() as c:
+        c.execute(text("INSERT INTO filament_slots (printer_id,slot_number,filament_type) VALUES (59,5,'PLA')"))
+    response = s1.client.get(f"/api/print-files/{uploaded['id']}?printer_id=59", headers=s1.auth())
+    assert response.status_code == 200
+    preview = response.json()['ams_preview']
+    assert [slot['slot'] for slot in preview['available']] == [1, 2, 3, 4]
+
+
 def test_flagged_slot_still_refuses_a_gcode_mapping(s1):
     uploaded = s1.upload(ONE_COLOUR)
     with s1.engine.begin() as c:

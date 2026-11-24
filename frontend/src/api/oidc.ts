@@ -18,7 +18,8 @@ export interface OIDCConfig {
   has_client_secret: boolean
 }
 
-export type OIDCConfigUpdate = Omit<OIDCConfig, 'configured' | 'has_client_secret'> & {
+export type OIDCConfigUpdate = Omit<OIDCConfig, 'configured' | 'has_client_secret' | 'default_group_id'> & {
+  default_group_id?: number | null
   client_secret?: string
 }
 

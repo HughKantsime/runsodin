@@ -8,6 +8,7 @@ live in core so route modules can enforce an action permission on the server
 from sqlalchemy.orm import Session
 
 from core.models import SystemConfig
+from core.rbac_routes import LOCKED_PAGES
 
 
 RBAC_DEFAULT_PAGE_ACCESS = {
@@ -22,10 +23,7 @@ RBAC_DEFAULT_PAGE_ACCESS = {
     "calculator": ["admin", "operator", "viewer"],
     "upload": ["admin", "operator"],
     "maintenance": ["admin", "operator"],
-    "settings": ["admin"],
-    "admin": ["admin"],
-    # /audit (frontend RoleGate page="audit"); the audit-log API is superadmin-only.
-    "audit": ["admin"],
+    **{key: ["admin"] for key in LOCKED_PAGES},
     "branding": ["admin"],
     "education_reports": ["admin", "operator"],
     "education": ["admin", "operator", "viewer"],
@@ -116,7 +114,8 @@ def get_rbac(db: Session):
         # Stored overrides apply only to keys that exist (a retired key such as
         # dashboard.actions is dropped instead of lingering in the matrix).
         stored_pages, stored_actions = data.get("page_access", {}), data.get("action_access", {})
-        page = {key: stored_pages.get(key, roles) for key, roles in RBAC_DEFAULT_PAGE_ACCESS.items()}
+        page = {key: roles if key in LOCKED_PAGES else stored_pages.get(key, roles)
+                for key, roles in RBAC_DEFAULT_PAGE_ACCESS.items()}
         action = {key: stored_actions.get(key, roles) for key, roles in RBAC_DEFAULT_ACTION_ACCESS.items()}
         return {"page_access": page, "action_access": action}
     return {"page_access": RBAC_DEFAULT_PAGE_ACCESS, "action_access": RBAC_DEFAULT_ACTION_ACCESS}

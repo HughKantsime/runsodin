@@ -1,8 +1,10 @@
+import { canAccessPage } from '../../permissions'
 import { Modal } from '../ui'
 
 interface ShortcutItem {
   keys: string[]
   action: string
+  page?: string
 }
 
 interface ShortcutGroup {
@@ -23,7 +25,7 @@ const shortcuts: ShortcutGroup[] = [
     { keys: ['g', 'a'], action: 'Analytics' },
     { keys: ['g', 't'], action: 'Timeline' },
     { keys: ['g', 'l'], action: 'Alerts' },
-    { keys: ['g', 'x'], action: 'Settings' },
+    { keys: ['g', 'x'], action: 'Settings', page: 'settings' },
   ]},
   { category: 'Actions', items: [
     { keys: ['⌘', 'K'], action: 'Global search' },
@@ -48,7 +50,7 @@ export default function KeyboardShortcutsModal({ onClose }: KeyboardShortcutsMod
               {group.category}
             </h3>
             <div className="space-y-1.5">
-              {group.items.map(item => (
+              {group.items.filter(item => !item.page || canAccessPage(item.page)).map(item => (
                 <div key={item.action} className="flex items-center justify-between py-1">
                   <span className="text-sm text-[var(--brand-text-muted)]">{item.action}</span>
                   <div className="flex items-center gap-1">

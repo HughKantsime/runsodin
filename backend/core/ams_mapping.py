@@ -45,7 +45,8 @@ def validate_for_printer(db, mapping, filaments_json, printer_id, actor, *, stor
     if reason:
         raise HTTPException(400, reason)
     if is_kobra_s1(printer._mapping):
-        if any(n >= 4 for n in result):
+        from modules.printers.services import is_ace_slot
+        if any(not is_ace_slot(n + 1) for n in result if n != -1):
             raise HTTPException(400, 'S1 mapping requires ACE slots 1–4')
         used = [n for n in result if n != -1]
         if len(set(used)) != len(used):
@@ -97,6 +98,8 @@ def preview(db, filaments_json, printer_id, actor, *, stored_path=None):
         slot['do_not_feed'] = bool(slot['do_not_feed'])
     if is_kobra_s1(printer._mapping):
         from modules.printers.kobra_s1 import S1Refusal
+        from modules.printers.services import is_ace_slot
+        available = [slot for slot in available if is_ace_slot(slot['slot'])]
         try:
             filaments_json = s1_filaments_json(filaments_json, stored_path)
         except S1Refusal as refusal:

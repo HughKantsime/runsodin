@@ -2,6 +2,7 @@ import PageState from '../ui/PageState'
 import { useCallback, useEffect, useState } from 'react'
 import { ExternalLink, Eye, EyeOff, Save, ShieldCheck } from 'lucide-react'
 import { oidc, orgs, type OIDCConfig, type OIDCProviderType } from '../../api'
+import { useLicense } from '../../LicenseContext'
 import type { Organization } from '../../types'
 import { Button, Card, Input, Select, Switch } from '../ui'
 
@@ -39,6 +40,7 @@ const PROVIDERS: Record<OIDCProviderType, { name: string; discovery: string; hel
 }
 
 export default function OIDCSettings() {
+  const hasOrganizations = useLicense().hasFeature('user_groups')
   const [config, setConfig] = useState<OIDCConfig>(DEFAULT_CONFIG)
   const [organizations, setOrganizations] = useState<Organization[]>([])
   const [clientSecret, setClientSecret] = useState('')
@@ -75,8 +77,11 @@ export default function OIDCSettings() {
 
   useEffect(() => {
     void loadConfig()
-    void refreshOrganizations()
-  }, [loadConfig, refreshOrganizations])
+  }, [loadConfig])
+
+  useEffect(() => {
+    if (hasOrganizations) void refreshOrganizations()
+  }, [hasOrganizations, refreshOrganizations])
 
   const change = <K extends keyof OIDCConfig>(field: K, value: OIDCConfig[K]) => {
     setConfig((current) => ({ ...current, [field]: value }))
@@ -101,7 +106,12 @@ export default function OIDCSettings() {
     setSaving(true)
     setMessage(null)
     try {
-      await oidc.updateConfig({ ...config, ...(clientSecret ? { client_secret: clientSecret } : {}) })
+      const { default_group_id, ...settings } = config
+      await oidc.updateConfig({
+        ...settings,
+        ...(hasOrganizations ? { default_group_id } : {}),
+        ...(clientSecret ? { client_secret: clientSecret } : {}),
+      })
       setClientSecret('')
       const loaded = await oidc.getConfig()
       if ('configured' in loaded && loaded.configured === false) throw new Error('SSO configuration was not persisted. Please retry or contact support.')
@@ -192,25 +202,25 @@ export default function OIDCSettings() {
 
       <div className="grid gap-4 md:grid-cols-2">
         <Input label="Login scopes" value={config.scopes} onChange={(event) => change('scopes', event.target.value)} className="font-mono" />
-        <Select label="ODIN tenant for SSO users" value={config.default_group_id ?? ''} onChange={(event) => change('default_group_id', event.target.value ? Number(event.target.value) : null)}>
+        {hasOrganizations && <Select label="ODIN tenant for SSO users" value={config.default_group_id ?? ''} onChange={(event) => change('default_group_id', event.target.value ? Number(event.target.value) : null)}>
           <option value="">Select a tenant</option>
           {organizations.map((organization) => <option key={organization.id} value={organization.id}>{organization.name}</option>)}
-        </Select>
+        </Select>}
       </div>
 
-      <div className="space-y-2 text-sm text-[var(--brand-text-secondary)]">
+      {hasOrganizations && <div className="space-y-2 text-sm text-[var(--brand-text-secondary)]">
         <p>An ODIN tenant is an organization in this installation, not your Microsoft directory tenant.</p>
         {!refreshingOrganizations && !organizationError && organizations.length === 0 && (
           <p>No organizations yet. Open Organizations on this Access tab, choose New Org, then refresh the tenant list here.</p>
         )}
         {organizationError && <p role="alert" className="text-[var(--status-failed)]">Unable to load tenants: {organizationError}</p>}
         <Button variant="secondary" loading={refreshingOrganizations} onClick={() => void refreshOrganizations()}>Refresh tenant list</Button>
-      </div>
+      </div>}
 
       <Card className="border border-[var(--brand-card-border)]">
         <Switch
           label="Create new SSO users"
-          description="New identities are viewers in the selected ODIN tenant. Pre-rostered Google users are claimed only by verified Workspace email."
+          description={hasOrganizations ? "New identities are viewers in the selected ODIN tenant. Pre-rostered Google users are claimed only by verified Workspace email." : "New users are created as viewers"}
           checked={config.auto_create_users}
           onChange={(event) => change('auto_create_users', event.target.checked)}
         />

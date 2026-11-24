@@ -481,7 +481,7 @@ def test_F02_2_8_02_overlay_camera_requires_a_camera_token(live):
     assert live.request("GET", "/api/auth/me", headers={"X-API-Key": live.overlay_token})[0] == 401
     no_token = live.browser("overlay", id=pid)
     assert no_token["img"] is None and no_token["cameraPanel"] is None and RTSP in no_token["texts"]
-    # Revoking the token in Settings > API Tokens stops the stream.
+    # Revoking the token in Account > API Tokens stops the stream.
     tokens = live.json("GET", "/api/tokens", token=live.tokens["certb-operator"])[1]
     victim = next(t for t in tokens if t["name"] == "CertB jobs")
     assert live.json("DELETE", f"/api/tokens/{victim['id']}", token=live.tokens["certb-operator"])[0] == 200

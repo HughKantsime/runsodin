@@ -496,7 +496,7 @@ def overlay_camera_principal(db: Session, token: Optional[str], printer: Optiona
 
     OBS browser sources cannot log in or send headers, so the copied overlay
     URL carries a per-user scoped API token (``?token=odin_...``, revocable
-    and expirable in Settings > API Tokens). The token's user must be able to
+    and expirable in Account > API Tokens). The token's user must be able to
     see the printer, exactly as for /cameras/{id}/webrtc.
     """
     from core.dependencies import resolve_user_api_token

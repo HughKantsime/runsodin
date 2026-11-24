@@ -11,7 +11,7 @@ from urllib.parse import quote
 
 from core.remote_access import session_cookie_secure
 from fastapi import APIRouter, Depends, HTTPException, Request
-from license_manager import feature_gate, require_feature
+from license_manager import feature_gate, get_license, require_feature
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -219,6 +219,7 @@ def _resolve_oidc_user(
         bound["email"] = email
         return bound
 
+    needs_group = get_license().has_feature("user_groups")
     group_id = config.get("default_group_id")
     valid_group = group_id is not None and db.execute(
         text("SELECT 1 FROM groups WHERE id=:id AND is_org IS TRUE"),
@@ -226,7 +227,7 @@ def _resolve_oidc_user(
     ).fetchone()
 
     if verified_email:
-        if not valid_group:
+        if needs_group and not valid_group:
             raise OIDCIdentityError("oidc_default_tenant_required")
         matches = db.execute(
             text("SELECT * FROM users WHERE LOWER(email)=:email ORDER BY id"),
@@ -245,7 +246,8 @@ def _resolve_oidc_user(
             has_local_password = bool((mapping.get("password_hash") or "").strip())
             has_mfa = bool(mapping.get("mfa_enabled"))
             if (
-                mapping.get("group_id") != group_id
+                not valid_group
+                or mapping.get("group_id") != group_id
                 or not bool(mapping.get("is_active"))
                 or mapping.get("oidc_issuer") is not None
                 or mapping.get("oidc_subject") is not None
@@ -285,8 +287,10 @@ def _resolve_oidc_user(
         raise OIDCIdentityError("user_not_found")
     if config.get("default_role", "viewer") != "viewer":
         raise OIDCIdentityError("oidc_role_configuration_invalid")
-    if not valid_group:
+    if needs_group and not valid_group:
         raise OIDCIdentityError("oidc_default_tenant_required")
+    if not needs_group:
+        group_id = None
 
     username = email.split("@", 1)[0]
     base_username = username
@@ -331,7 +335,6 @@ async def get_oidc_public_config(db: Session = Depends(get_db)):
     row = db.execute(text("SELECT is_enabled, display_name FROM oidc_config LIMIT 1")).fetchone()
     if not row:
         return {"enabled": False}
-    from license_manager import get_license
     return {"enabled": bool(row[0]) and get_license().has_feature("sso"), "display_name": row[1] or "Single Sign-On"}
 
 
@@ -399,13 +402,7 @@ async def _oidc_callback(request: Request, code: str = None, state: str = None,
         user_info = await handler.get_user_info(tokens["access_token"])
         email, verified_email = _provider_identity(config, id_token_claims, user_info)
         id_token_claims = {**id_token_claims, "email": email}
-        resolved_user = _resolve_oidc_user(
-            db,
-            config,
-            id_token_claims,
-            user_info,
-            verified_email=verified_email,
-        )
+        resolved_user = _resolve_oidc_user(db, config, id_token_claims, user_info, verified_email=verified_email)
         request.state.oidc_audit_username = resolved_user["username"]
         user_id = resolved_user["id"]
         from core.license_lock import authorize_user
@@ -656,7 +653,7 @@ async def update_oidc_config(request: Request, current_user: dict = Depends(requ
         data["allowed_domains"] = ",".join(dict.fromkeys(domains))
     proposed_role = data.get("default_role")
     if proposed_role is not None and proposed_role != "viewer":
-        raise HTTPException(status_code=422, detail="OIDC auto-provisioning role must be viewer")
+        raise HTTPException(status_code=422, detail="New single sign-on users must be viewers.")
     if "default_group_id" in data and data["default_group_id"] is not None:
         if not db.execute(
             text("SELECT 1 FROM groups WHERE id=:id AND is_org IS TRUE"),
@@ -690,9 +687,12 @@ async def update_oidc_config(request: Request, current_user: dict = Depends(requ
         except MissingDiscoveryAddress as exc:
             db.rollback()
             raise HTTPException(status_code=422, detail=str(exc)) from None
-    if current and current.auto_create_users and (current.default_role != "viewer" or current.default_group_id is None):
+    if current and current.auto_create_users and (
+        current.default_role != "viewer" or
+        (current.default_group_id is None and get_license().has_feature("user_groups"))
+    ):
         db.rollback()
-        raise HTTPException(status_code=422, detail="OIDC auto-provisioning requires viewer role and a default tenant")
+        raise HTTPException(status_code=422, detail="New users must be viewers. Select a default organization when organizations are enabled.")
     if updates:
         log_audit(db, "oidc_config_updated", "system", details={"fields": list(params.keys())})
         db.commit()

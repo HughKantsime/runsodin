@@ -171,7 +171,6 @@ beforeEach(async () => {
 afterEach(() => { cleanup(); vi.clearAllMocks(); vi.unstubAllGlobals() })
 
 const ROLES: Role[] = ['admin', 'operator', 'viewer']
-const REDIRECTS_TO_SETTINGS = ['admin', 'branding']
 
 it('covers every page key the server matrix defines', () => {
   expect(Object.keys(PAGES).sort()).toEqual(Object.keys((WIRE.roles as any).admin.permissions.page_access).sort())
@@ -195,14 +194,14 @@ for (const page of Object.keys(PAGES)) {
     visit(PAGES[page][0])
     await expectRefused(page)
   })
-  it(`${page}: a role added to the key is admitted`, async () => {
+  if (['admin', 'settings', 'audit'].includes(page)) continue // The server fixes these page grants.
+  it(`${page}: follows the effective matrix after a grant`, async () => {
     const roles: string[] = (WIRE.roles as any).admin.permissions.page_access[page]
     const guest = (['viewer', 'operator'] as Role[]).find(r => !roles.includes(r))
     if (!guest) return
-    // /admin and /branding redirect to /settings, which its own key also guards
-    const settings: string[] = (WIRE.roles as any).admin.permissions.page_access.settings
-    serve(guest, { [page]: [...roles, guest], ...(REDIRECTS_TO_SETTINGS.includes(page) ? { settings: [...settings, guest] } : {}) })
+    serve(guest, { [page]: [...roles, guest] })
     visit(PAGES[page][0])
-    expect(await screen.findByRole('heading', { name: PAGES[page][1] })).toBeInTheDocument()
+    if (page === 'branding') await expectRefused(page) // This route redirects to Settings.
+    else expect(await screen.findByRole('heading', { name: PAGES[page][1] })).toBeInTheDocument()
   })
 }

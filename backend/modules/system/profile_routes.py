@@ -535,7 +535,9 @@ async def apply_profile(
     engine=db.get_bind();db.rollback()
     acquired=acquire_target_lock(engine,initial.target_key)
     if acquired.status!='acquired':
-        raise HTTPException(409,acquired.message or 'Profile target is busy or uncertain; reconcile before retrying')
+        if acquired.message:
+            raise HTTPException(409, {'storage_reason': acquired.reason, 'message': acquired.message})
+        raise HTTPException(409, 'Profile target is busy or uncertain; reconcile before retrying')
     target_handle=acquired.handle
     try:
         current_row=db.execute(text('SELECT * FROM printer_profiles WHERE id=:id'),{'id':profile_id}).fetchone()

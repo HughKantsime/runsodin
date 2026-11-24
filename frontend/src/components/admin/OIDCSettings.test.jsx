@@ -3,6 +3,9 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { oidc, orgs } from '../../api'
 import OIDCSettings from './OIDCSettings'
 
+const license = vi.hoisted(() => ({hasFeature: vi.fn()}))
+vi.mock('../../LicenseContext', () => ({useLicense: () => license}))
+
 vi.mock('../../api', () => ({
   oidc: { getConfig: vi.fn(), updateConfig: vi.fn() },
   orgs: { list: vi.fn() },
@@ -11,9 +14,24 @@ vi.mock('../../api', () => ({
 describe('first-time SSO setup', () => {
   beforeEach(() => {
     vi.resetAllMocks()
+    license.hasFeature.mockImplementation(feature => feature === 'user_groups')
     oidc.getConfig.mockResolvedValue({ configured: false })
     oidc.updateConfig.mockResolvedValue({ success: true })
     orgs.list.mockResolvedValue([])
+  })
+
+  it('shows viewer creation on Pro without offering or requesting organizations', async () => {
+    license.hasFeature.mockImplementation(feature => feature === 'sso')
+    oidc.getConfig.mockResolvedValue({default_group_id: 3})
+    render(<OIDCSettings />)
+    expect(await screen.findByText('New users are created as viewers')).toBeVisible()
+    expect(screen.queryByLabelText('ODIN tenant for SSO users')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', {name: 'Refresh tenant list'})).not.toBeInTheDocument()
+    expect(orgs.list).not.toHaveBeenCalled()
+    expect(screen.getByLabelText('Microsoft directory tenant ID')).toBeVisible()
+    fireEvent.click(screen.getByRole('button', {name: 'Save configuration'}))
+    await screen.findByText('Single sign-on configuration saved.')
+    expect(oidc.updateConfig.mock.calls[0][0]).not.toHaveProperty('default_group_id')
   })
 
   it('explains empty tenants and refreshes without discarding unsaved settings', async () => {

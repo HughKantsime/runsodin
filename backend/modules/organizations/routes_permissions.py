@@ -13,6 +13,7 @@ from core.rbac import require_role, require_superadmin
 from core.models import SystemConfig
 # The defaults and the effective map live in core (shared with core.rbac.require_action).
 from core.rbac_policy import RBAC_DEFAULT_PAGE_ACCESS, RBAC_DEFAULT_ACTION_ACCESS, get_rbac as _get_rbac
+from core.rbac_routes import LOCKED_PAGES
 from license_manager import feature_gate
 
 log = logging.getLogger("odin.api")
@@ -22,9 +23,10 @@ router = APIRouter()
 # ============== Endpoints ==============
 
 @router.get("/permissions", tags=["RBAC"])
-def get_permissions(db: Session = Depends(get_db)):
+def get_permissions(db: Session = Depends(get_db), include_locks: bool = False):
     """Get current RBAC permission map. Public (needed at login)."""
-    return _get_rbac(db)
+    matrix = _get_rbac(db)
+    return {**matrix, "locked_pages": LOCKED_PAGES} if include_locks else matrix
 
 
 class RBACUpdateRequest(PydanticBaseModel):
@@ -43,10 +45,12 @@ def update_permissions(data: RBACUpdateRequest, current_user: dict = Depends(req
     for key, roles in data.page_access.items():
         if not isinstance(roles, list):
             raise HTTPException(400, f"page_access.{key} must be a list")
+        if key in LOCKED_PAGES and any(role != "admin" for role in roles):
+            raise HTTPException(422, LOCKED_PAGES[key])
         for r in roles:
             if r not in valid_roles:
                 raise HTTPException(400, f"Invalid role '{r}' in page_access.{key}")
-        if key in ("admin", "settings", "audit") and "admin" not in roles:
+        if key in LOCKED_PAGES and "admin" not in roles:
             raise HTTPException(400, f"Cannot remove admin from '{key}' page")
 
     for key, roles in data.action_access.items():

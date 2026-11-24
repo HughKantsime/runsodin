@@ -314,6 +314,13 @@ PAGE_ROUTES: dict[str, list[tuple[str, str]]] = {
     "education_reports": [("GET", "/api/education/usage-report")],
 }
 
+# Pages whose own routes restrict every read, independently of the matrix.
+LOCKED_PAGES = {
+    "settings": "Only administrators can open Settings",
+    "admin": "Only administrators can open user administration",
+    "audit": "Only platform administrators can open the audit log",
+}
+
 # Page keys whose data comes only from shared endpoints (used by other pages,
 # the header, the sidebar or the native apps). Those endpoints stay governed by
 # their action/role checks; the page key is enforced by the frontend RoleGate.
@@ -329,9 +336,7 @@ PAGE_SHARED: dict[str, str] = {
     "calculator": "GET /api/pricing-config and model cost also feed models and orders",
     "upload": "the page only writes (upload.upload / upload.schedule / upload.delete)",
     "maintenance": "GET /api/maintenance/status also feeds the dashboard widget",
-    "settings": "Settings reads are admin/superadmin-only per section",
-    "admin": "user administration reads are admin-only",
-    "audit": "GET /api/audit-logs, /api/audit-logs/verify, /api/export/audit-logs/jsonl and /api/settings/siem are platform-superadmin-only",
+    **LOCKED_PAGES,
     "branding": "GET /api/branding is public (login page and invoices)",
     "education": "Education reads are governed by Education workflow principals",
     "orders": "GET /api/orders also feeds global search and products",

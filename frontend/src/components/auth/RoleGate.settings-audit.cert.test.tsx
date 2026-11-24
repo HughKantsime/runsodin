@@ -6,7 +6,7 @@
  * (tests/test_contracts/test_cert_F_C_ui_wire.py; the embedded JSON below is checked against that capture).
  * Heavy page bodies are replaced by headings so the test observes which route actually mounted.
  */
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -26,7 +26,6 @@ vi.mock('../printers/EmergencyStop', () => ({ default: () => null }))
 vi.mock('../shared/UpgradeBanner', () => ({ default: () => null }))
 vi.mock('../shared/GlobalSearch', () => ({ default: () => null }))
 vi.mock('../layout/MobileHeader', () => ({ default: () => null }))
-vi.mock('../ui/MobileBottomNav', () => ({ default: () => null }))
 vi.mock('../layout/ThemeToggle', () => ({ default: () => null }))
 vi.mock('../printers/CameraPipProvider', () => ({ default: ({ children }: any) => <>{children}</> }))
 vi.mock('../shared/KeyboardShortcutsModal', () => ({ default: () => null }))
@@ -72,6 +71,16 @@ for (const role of ['operator', 'viewer'] as const) {
     })
   }
 }
+
+it.each(['admin', 'operator', 'viewer'] as const)('shows Settings in desktop and mobile navigation only when %s has access', async role => {
+  serve(role)
+  visit('/')
+  await screen.findByRole('heading', {name: 'Dashboard page'})
+  expect(!!screen.queryByRole('link', {name: 'Settings'})).toBe(role === 'admin')
+  fireEvent.click(screen.getByRole('button', {name: 'More'}))
+  const menu = within(screen.getByRole('dialog', {name: 'More navigation'}))
+  expect(!!menu.queryByRole('link', {name: 'Settings'})).toBe(role === 'admin')
+})
 
 it('F12-12.1-06 admin direct URL /settings mounts the Settings page', async () => {
   serve('admin')

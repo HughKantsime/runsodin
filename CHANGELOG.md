@@ -4,6 +4,18 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- On Pro, single sign-on can create viewer accounts without an organization.
+
+### Fixed
+
+- The permissions table shows which pages require an administrator, and those pages stay hidden from other roles.
+- The Home Assistant integration shows where to create a token under Account > API Tokens.
+- When ODIN cannot create its printer lock folder, it tells you which folder needs write access. Applying a printer profile also shows the storage error.
+- You can paste a six-digit authenticator code with a space when setting up two-factor sign-in on the Account page.
+- The Kobra S1 filament mapping preview only offers ACE slots 1–4.
+
 ## [2.6.0] - 2026-11-22
 
 

@@ -37,6 +37,20 @@ def mountinfo(monkeypatch, rows):
     monkeypatch.setattr(Path, 'read_bytes', read)
 
 
+def test_lock_directory_creation_denied_names_the_folder_and_owner_fix(engine, monkeypatch):
+    database = Path(engine.url.database)
+
+    def denied(name, *, mode, dir_fd):
+        assert name == database.name + '.odin-sender-locks'
+        raise PermissionError
+
+    monkeypatch.setattr(locks.os, 'mkdir', denied)
+    result = locks.acquire_target_lock(engine, KEY)
+    assert (result.status, result.reason) == ('uncertain', 'lock_permissions')
+    assert database.parent.name in result.message and database.name + '.odin-sender-locks' in result.message
+    assert f'UID {os.geteuid()}' in result.message and 'ownership and write access' in result.message
+
+
 def device_of(folder):
     dev = folder.stat().st_dev
     return f'{os.major(dev)}:{os.minor(dev)}'
@@ -186,6 +200,9 @@ def test_reorder_refusal_identifies_storage_or_conflict(queued, mode):
         with pytest.raises(OdinError) as exc:
             order(queued, [42, 41, 13])
         assert exc.value.status == 409 and exc.value.detail == sentence
+        if mode:
+            assert exc.value.code == ErrorCode.resource_conflict
+            assert exc.value.extra == {'storage_reason': 'folder_permissions'}
 
 
 @pytest.mark.parametrize('mode', [0o775, None])
@@ -195,7 +212,8 @@ def test_profile_refusal_identifies_storage_or_conflict(profile_client, review_d
     with refuse_lock(review_db.get_bind(), target_key(review_db, 9), mode,
                      'Profile target is busy or uncertain; reconcile before retrying') as sentence:
         response = client.post('/profiles/101/apply', headers=headers, json={'printer_id': 9})
-        assert response.status_code == 409 and response.json()['detail'] == sentence
+        assert response.status_code == 409
+        assert response.json()['detail'] == ({'storage_reason': 'folder_permissions', 'message': sentence} if mode else sentence)
     assert calls == []
 
 

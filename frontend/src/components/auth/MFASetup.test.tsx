@@ -1,5 +1,6 @@
 import {act,cleanup,fireEvent,render,screen,waitFor} from '@testing-library/react'
 import {afterEach,expect,test,vi} from 'vitest'
+import userEvent from '@testing-library/user-event'
 import MFASetup from './MFASetup'
 const api=vi.hoisted(()=>({status:vi.fn(),remaining:vi.fn().mockResolvedValue({remaining:10}),setup:vi.fn(),confirm:vi.fn(),disable:vi.fn()}))
 vi.mock('../../api',()=>({auth:{mfaStatus:api.status,recoveryStatus:()=>api.remaining(),mfaSetup:api.setup,mfaConfirm:api.confirm,mfaDisable:api.disable}}))
@@ -28,7 +29,10 @@ test('confirmed unenrolled status allows explicit setup with QR then confirmatio
   fireEvent.click(await screen.findByRole('button',{name:'Set Up Two-Factor Authentication'}))
   expect(await screen.findByAltText('MFA QR Code')).toBeVisible()
   const input=screen.getByPlaceholderText('000000')
-  fireEvent.change(input,{target:{value:'123456'}})
+  const user = userEvent.setup()
+  await user.click(input)
+  await user.paste('123 456')
+  expect(input).toHaveValue('123456')
   fireEvent.click(screen.getByRole('button',{name:'Confirm'}))
   await screen.findByText('MFA enabled successfully')
   expect(api.confirm).toHaveBeenCalledExactlyOnceWith('123456')

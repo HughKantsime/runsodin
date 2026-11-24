@@ -277,8 +277,14 @@ def _sqlite(engine,key):
                 'Set it to 755 (chmod go-w on the folder), then try again. No command was sent.'))
         directory_name=database.name+'.odin-sender-locks';directory=parent/directory_name
         lock_folder_label = f'The lock folder {ascii(directory_name)} inside the ODIN data folder'
-        try:os.mkdir(directory_name,mode=0o700,dir_fd=parent_fd)
-        except FileExistsError:pass
+        try:
+            os.mkdir(directory_name, mode=0o700, dir_fd=parent_fd)
+        except FileExistsError:
+            pass
+        except PermissionError:
+            return TargetLockResult('uncertain', reason='lock_permissions', message=(
+                f'ODIN cannot create {ascii(directory_name)} inside the data folder {ascii(parent.name or "/")}. '
+                f'Give the ODIN user (UID {os.geteuid()}) ownership and write access to the data folder. No command was sent.'))
         try:
             directory_fd = os.open(directory_name, dir_flags, dir_fd=parent_fd)
         except PermissionError:
