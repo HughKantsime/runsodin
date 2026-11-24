@@ -43,7 +43,7 @@ def test_controls_record_bound_actor_and_outcome(audited, review_db, monkeypatch
     from modules.printers import routes_controls
     client, issue, calls = audited
     monkeypatch.setattr(routes_controls, '_send_printer_command', lambda printer, command: calls.append(command) or accepted)
-    headers = issue(['agent:write', 'write:printers']) if credential == 'token' else interactive_headers()
+    headers = issue(['write:printers']) if credential == 'token' else interactive_headers()
     response = client.post('/printers/299/' + endpoint, headers=headers)
     assert response.status_code == (200 if accepted else 503)
     assert len(calls) == 1
@@ -59,12 +59,15 @@ def test_controls_record_bound_actor_and_outcome(audited, review_db, monkeypatch
 @pytest.mark.parametrize('case', ['dry_run', 'foreign', 'scope'])
 def test_pause_refusals_and_preview_send_and_record_nothing(audited, review_db, case):
     client, issue, calls = audited
-    headers = issue(['read:printers'] if case == 'scope' else ['agent:write'])
+    headers = issue(['read:printers'] if case == 'scope' else ['write:printers'])
     if case == 'dry_run': headers['X-Dry-Run'] = 'true'
     if case == 'foreign':
         review_db.execute(text('UPDATE printers SET org_id=2 WHERE id=299')); review_db.commit()
     response = client.post('/api/v1/printers/299/pause', headers=headers)
     assert response.status_code == {'dry_run': 200, 'foreign': 404, 'scope': 403}[case]
+    if case == 'dry_run':
+        assert response.json()['would_execute']['action'] == 'pause_print'
+        assert review_db.execute(text('SELECT gcode_state FROM printers WHERE id=299')).scalar_one() == 'RUNNING'
     assert not calls and not rows(review_db)
 
 

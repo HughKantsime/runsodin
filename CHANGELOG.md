@@ -26,6 +26,7 @@ All notable changes to O.D.I.N. are documented here.
 - When ODIN cannot create its printer lock folder, it tells you which folder needs write access. Applying a printer profile also shows the storage error.
 - You can paste a six-digit authenticator code with a space when setting up two-factor sign-in on the Account page.
 - The Kobra S1 filament mapping preview only offers ACE slots 1–4.
+- API tokens with printer write access can now pause a print. Previously they could stop and resume a print but could not pause it.
 
 ## [2.6.0] - 2026-11-22
 

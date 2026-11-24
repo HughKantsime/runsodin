@@ -131,18 +131,19 @@ def test_fault_precedence_and_unreadable_hms_fail_closed(audited, review_db, hms
 
 @pytest.mark.parametrize('kind', ['write:printers', 'write', 'agent:write', 'admin', 'global', 'cookie'])
 @pytest.mark.parametrize('dry', [False, True])
-def test_pause_hint_matches_scope_gate(audited, review_db, monkeypatch, kind, dry):
+def test_resume_caller_can_follow_suggested_pause(audited, review_db, monkeypatch, kind, dry):
     client, issue, calls = audited
     seed(review_db)
     headers = credential(client, issue, monkeypatch, kind)
-    if dry:
-        headers['X-Dry-Run'] = 'true'
-    response = client.post(URL, headers=headers)
+    response = client.post(URL, headers={**headers, 'X-Dry-Run': 'true'} if dry else headers)
     assert response.status_code == 200
-    tools = [a['tool'] for a in response.json()['next_actions']]
-    assert tools == (['get_printer'] if kind in ('write:printers', 'write') else ['get_printer', 'pause_printer'])
+    actions = response.json()['next_actions']
+    assert [a['tool'] for a in actions] == ['get_printer', 'pause_printer']
     assert len(calls) == (0 if dry else 1)
     assert len(rows(review_db)) == (0 if dry else 1)
+    printer_id = actions[1]['args']['printer_id']
+    assert client.post(f'/api/v1/printers/{printer_id}/pause', headers=headers).status_code == 200
+    assert calls[-1] == (299, 'pause_print', ())
 
 
 @pytest.mark.parametrize('fault', ['hms', 'detection'])
@@ -179,7 +180,7 @@ def test_failed_refusal_audit_still_sends_no_command(audited, review_db, fail_au
 def test_fault_does_not_block_pause_or_stop(audited, review_db, endpoint):
     client, issue, calls = audited
     seed(review_db, hms=HMS, detection='auto_paused')
-    response = client.post(URL.replace('resume', endpoint), headers=issue(['agent:write', 'write:printers']))
+    response = client.post(URL.replace('resume', endpoint), headers=issue(['write:printers']))
     assert response.status_code == 200
     assert calls == [(299, endpoint + '_print', ())]
 

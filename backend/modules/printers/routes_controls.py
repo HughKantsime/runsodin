@@ -24,7 +24,7 @@ from modules.printers.models import Printer
 from modules.printers.moonraker_controls import send_control
 from modules.printers.schemas import PlateClearConfirmation, PlateClearState
 from modules.printers.route_utils import _send_printer_command, _bambu_command_direct
-from modules.printers.resume_guard import may_suggest_pause, resume_refusal
+from modules.printers.resume_guard import resume_refusal
 
 log = logging.getLogger("odin.api")
 router = APIRouter()
@@ -84,17 +84,17 @@ async def pause_printer(
     #     entirely (core/rbac.py:193-196), so dropping the role dep
     #     would let any authenticated JWT — including viewers — pause
     #     printers. That is the regression Phase 2 spec revision caught.
-    #   * require_any_scope("admin", AGENT_WRITE_SCOPE) is the
-    #     authoritative gate for per-user scoped tokens.
+    #   * require_any_scope enforces the allowed token scopes
+    #     after the role check for per-user tokens.
     # BOTH must be present. Do not "simplify" to one.
     current_user: dict = Depends(require_action("printers.edit")),
-    _agent_scope: dict = Depends(require_any_scope("admin", AGENT_WRITE_SCOPE)),
+    _agent_scope: dict = Depends(require_any_scope("admin", AGENT_WRITE_SCOPE, "write:printers")),
     db: Session = Depends(get_db),
 ):
     """Pause current print.
 
     Agent-surface (v1.8.9 Phase 2):
-      - Accepts JWT operator role OR an `agent:write` scoped token.
+      - Requires printers.edit and, for tokens, admin, agent:write or write:printers.
       - Honors `X-Dry-Run: true` — returns a preview without touching MQTT or DB.
       - Emits `next_actions` on success so agents can chain verification.
     """
@@ -187,7 +187,7 @@ async def resume_printer(
       - Accepts JWT operator role OR an `agent:write` or `write:printers` scoped token.
       - Honors `X-Dry-Run: true` — returns preview without MQTT or DB write.
       - Requires human review for non-interactive resumes over faults/detections.
-      - Emits `next_actions` on success (pause only when its scope permits).
+      - Emits `next_actions` on success. Pause accepts the same scopes as resume.
     """
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer or not check_org_access(current_user, printer.org_id):
@@ -229,7 +229,7 @@ async def resume_printer(
                     "pause_printer",
                     {"printer_id": printer_id},
                     "if mid-print intervention needed",
-                ) if may_suggest_pause(current_user) else None,
+                ),
             ),
             notes="Would send MQTT resume_print command; no DB or printer side effects.",
         )
@@ -272,7 +272,7 @@ async def resume_printer(
                 "pause_printer",
                 {"printer_id": printer_id},
                 "if intervention needed",
-            ) if may_suggest_pause(current_user) else None,
+            ),
         ),
     }
 

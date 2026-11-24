@@ -17,10 +17,9 @@ VALID_SCOPES = {
     "read:cameras",
     "read:education", "write:education",
     # Phase 2 (v1.9.0): agent-surface scopes for the MCP tool layer.
-    # agent:write grants routes that explicitly accept it; it is not a
-    # subset of `write` (pause, for example, requires agent:write or admin). See
-    # core/rbac.py::require_any_scope for enforcement. Minting these
-    # is role-gated below (viewers can mint agent:read; only
+    # agent:write grants routes that explicitly accept it. See
+    # core/rbac.py::require_any_scope for enforcement. Minting these scopes
+    # is role-gated (viewers can mint agent:read; only
     # operator+ can mint agent:write).
     "agent:read", "agent:write",
     "admin",
