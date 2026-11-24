@@ -19,7 +19,7 @@ def assert_cancel_allowed(db, job, user):
                         'Scoped cancel requires a pending or held job that has never been dispatched', status=403)
     if db.execute(text('SELECT 1 FROM printer_dispatch_claims WHERE job_id=:id'), {'id':job.id}).first():
         raise OdinError(ErrorCode.permission_denied,
-                        "Dispatch or observed print evidence exceeds write:jobs cancellation authority. "
+                        "This printer has an unresolved start request. "
                         "An administrator can release it from the printer's Dispatch recovery panel.", status=403)
     for statement in (
         'SELECT 1 FROM print_jobs WHERE scheduled_job_id=:id',
@@ -53,4 +53,5 @@ def assert_cancel_allowed(db, job, user):
                         continue
             if not reconciled:
                 raise OdinError(ErrorCode.permission_denied,
-                                'Dispatch or observed print evidence exceeds write:jobs cancellation authority', status=403)
+                                ('ODIN observed a print for this start request.' if receipt['observed_print_job_id'] is not None
+                                 else 'Hold the job and check the printer. If the job never started, record that the attempt did not start, then cancel the job.'), status=403)

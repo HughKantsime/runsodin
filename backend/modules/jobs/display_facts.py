@@ -67,11 +67,14 @@ def enrich_job_facts(db, jobs, actor):
                 and (check_org_access(actor, p.org_id) or p.shared)]
     facts = read_facts(db, printers)
     visible = {p.id: p for p in printers}
+    from modules.jobs.no_start import no_start_states
+    no_starts = no_start_states(db, jobs)
     recovery = _recovery_printers(db, list(visible), actor)
     # The recovery savepoints invalidate the session pin cache. Seed it from the
     # unfiltered batch after those reads, before waiting reasons and serialization.
     preload_pin_printer_states(db, ids, by_id.values())
     for job in jobs:
+        job.no_start_state = no_starts.get(job.id)
         job.printer_has_dispatch_claim = job.printer_id in recovery
         job.ams_slot_nozzles = []
         printer_id = job.printer_id or job_pin(job)

@@ -23,7 +23,7 @@
     "frontend/src/components/inventory/SpoolmanLinkConflicts.tsx": "97125ef3561630e63a03bca338d6e1e7478085c65f763e3fb3b3996bb0379c91",
     "frontend/src/components/inventory/StockReliability.tsx": "b069962c15115942f5d6913aa9998fdd45291d7abe5084039714e801a234de7f",
     "frontend/src/components/jobs/RecentlyCompleted.tsx": "16c5657e9e033637ae5ab6a31ba0ebe577d4b51a233cb136c95e88c20fa97b56",
-    "frontend/src/components/jobs/TimelineJobDetail.tsx": "ec45782633fd1a1ee81c6bea7ff2a0da7199ecb687715617986033764268e767",
+    "frontend/src/components/jobs/TimelineJobDetail.tsx": "7a8038e29185f63b05e809a98ace6f833ef982ab8a00ce21597023318b63fd69",
     "frontend/src/components/notifications/AlertBell.tsx": "d09620904bf0164acfdcb44dfabe6a774e9b89a40ca3a709c4083adc02f3218e",
     "frontend/src/components/orders/OrderTable.tsx": "8382832e1f24ef962ffe0978df4946ec3c78b5a9c3c20a0be0377a9682627564",
     "frontend/src/components/printers/AmsEnvironmentChart.tsx": "05a079aaf01fc4b6f65c2f0f0f2b54eb0b57436bfd81dce22a89514669c7c8e6",

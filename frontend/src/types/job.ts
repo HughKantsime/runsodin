@@ -59,6 +59,7 @@ export interface Job {
   pinned_printer_id: number | null;
   pinned_printer_issue: 'pinned_printer_missing' | 'pinned_printer_inactive' | 'pinned_printer_deleted'
     | 'pinned_printer_inaccessible' | 'pinned_target_invalid' | null;
+  no_start_state?: 'needs_check' | 'recorded';
   printer_has_dispatch_claim?: boolean;
   /** Why a queued job is not printing; computed by the server on GET /jobs and GET /jobs/{id}. */
   waiting_reason?: {

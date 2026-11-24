@@ -18,6 +18,7 @@ All notable changes to O.D.I.N. are documented here.
 - Starting or updating ODIN no longer takes minutes on installs with a long timelapse history; the startup check of timelapse records does the same checks in seconds.
 - Printers that report only notices, such as maintenance reminders, now keep their normal status. The notices and their troubleshooting links stay visible on the printer card and printer page.
 - Older printer notices now appear on both Foundry card sizes. A paused print keeps its reported cause, and a notice with the same code as a fault no longer hides the fault.
+- Operators using a jobs token can now cancel a held job after checking the printer and recording that its requested start never began. Previously, only an administrator could cancel such a job.
 
 ## [2.6.0] - 2026-11-22
 

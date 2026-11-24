@@ -37,3 +37,10 @@ describe('GET /jobs request', () => {
     expect(seen).toEqual([212, null, null])
   })
 })
+
+it('posts the operator check to the no-start route', async () => {
+  fetchAPI.mockResolvedValue({ recorded: 2 })
+  expect(await jobs.recordNoStart(17)).toEqual({ recorded: 2 })
+  expect(fetchAPI).toHaveBeenCalledWith('/jobs/17/dispatch-attempts/no-start', { method: 'POST',
+    body: JSON.stringify({ attestation: { version: 1, printer_checked: true, job_did_not_start: true } }) })
+})
