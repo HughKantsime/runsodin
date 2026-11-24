@@ -807,6 +807,7 @@ and browser reachability check. Cellular and native-device validation is owner-r
 
 ### 21.1 Bambu MQTT
 - Printers: X1C, A1, P1S, H2D
+- Bambu Lab H3C job sending and print controls are Supported. Job sending, resume and stop were verified on a real Bambu Lab H3C. Multi-tool jobs were verified with up to five tools.
 - Main monitoring and dispatch clients use MQTT 3.1.1 over TLS on port 8883; the legacy Bambu integration/test client uses MQTT 5
 - Receives: temps, progress, state, AMS RFID, HMS errors, camera URL, fan speed
 - Credentials: serial + access code, Fernet-encrypted at rest

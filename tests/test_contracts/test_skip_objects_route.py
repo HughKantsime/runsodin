@@ -114,12 +114,14 @@ def test_skip_every_remaining_object_after_previous_skip(objects_env):
     assert env.calls==[]
 
 
-@pytest.mark.parametrize('legacy_opt_in', [False, True])
-def test_bambu_can_list_and_skip_regardless_of_legacy_opt_in(objects_env, legacy_opt_in):
+@pytest.mark.parametrize('model,legacy_opt_in', [('P2S', False), ('P2S', True), ('H3C', False)])
+def test_bambu_can_list_and_skip_regardless_of_legacy_opt_in(objects_env, model, legacy_opt_in):
     from modules.printers import support_levels
     from modules.printers.models import Printer
 
     env = objects_env
+    env.db.execute(text('UPDATE printers SET model=:model WHERE id=9'), {'model': model})
+    env.db.commit()
     if legacy_opt_in:
         support_levels.set_experimental_enabled(env.db, env.db.get(Printer, 9), True, 3)
         env.db.commit()

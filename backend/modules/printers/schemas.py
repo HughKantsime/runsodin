@@ -342,8 +342,9 @@ class PrinterResponse(PrinterBase):
     @computed_field
     @property
     def support_source(self) -> Optional[str]:
-        from modules.printers.support_levels import capability_key, support_source
-        return support_source(self.api_type, h3c=not self.unidentified_rack and capability_key(self) == 'h3c')
+        from modules.printers.printer_models import identified_h3c
+        from modules.printers.support_levels import support_source
+        return support_source(self.api_type, h3c=self.api_type == 'bambu' and not self.unidentified_rack and identified_h3c(self))
 
     @model_validator(mode='before')
     @classmethod

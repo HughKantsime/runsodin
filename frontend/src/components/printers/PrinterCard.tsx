@@ -155,7 +155,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
     if (!principal || !['operator', 'admin'].includes(principal.role) || !canDo('printers.edit')) return false
     if (target.org_id === undefined) return false
     const tenantAccess = (principal.role === 'admin' && !principal.group_id) || target.org_id === null || target.org_id === principal.group_id
-    return tenantAccess && (!isH3C(target) || target.experimental_actions_enabled) && target.api_type === 'bambu' && !!target.api_host && target.has_api_key && isOnline(target)
+    return tenantAccess && !target.unidentified_rack && target.api_type === 'bambu' && !!target.api_host && target.has_api_key && isOnline(target)
       && (!speed || isActivePrintState(target.gcode_state))
   }
 
@@ -486,7 +486,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
       {activePanel === 'ams' && <AmsEnvironmentChart printerId={printer.id} onClose={() => setActivePanel(null)} />}
       {activePanel === 'telemetry' && <PrinterTelemetryChart printerId={printer.id} apiType={printer.api_type} onClose={() => setActivePanel(null)} />}
       {activePanel === 'nozzle' && <NozzleStatusCard printerId={printer.id} onClose={() => setActivePanel(null)} />}
-      {activePanel === 'hms' && <HmsHistoryPanel printerId={printer.id} readOnly={rack && !printer.experimental_actions_enabled} apiType={printer.api_type} onClose={() => setActivePanel(null)} />}
+      {activePanel === 'hms' && <HmsHistoryPanel printerId={printer.id} readOnly={!!printer.unidentified_rack} apiType={printer.api_type} onClose={() => setActivePanel(null)} />}
     </div>
   )
 }

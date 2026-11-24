@@ -23,7 +23,7 @@ from tests.test_contracts.test_education_review_workflow import review_db
 from tests.test_contracts.test_api_token_delegation_behavior import token_client
 from tests.test_contracts.test_cert_E_notif_postgres import pg_engine
 from tests.test_contracts.test_education_dispatch_policy import actual_education_dispatch
-from tests.test_contracts.test_printer_support_levels import make_superadmin, opt_in
+from tests.test_contracts.test_printer_support_levels import make_superadmin
 
 
 FIXTURES = Path(__file__).parents[1] / 'fixtures/telemetry'
@@ -210,7 +210,7 @@ def test_offline_plate_checks_without_opt_in(target, review_db, problem, reason)
 
 
 @pytest.mark.parametrize('protocol', ['legacy', 'v2'])
-@pytest.mark.parametrize('outcome', ['manual', 'auto', 'timeout', 'busy', 'lock_unavailable', 'transfer', 'refused_connection', 'tls', 'no_suback', 'mqtt_down', 'mqtt_lost', 'sub_refused', 'write_failed', 'upload_rejected', 'start_rejected', 'no_reply', 'revoked', 'empty_tray', 'changed_tool'])
+@pytest.mark.parametrize('outcome', ['manual', 'auto', 'timeout', 'busy', 'lock_unavailable', 'transfer', 'refused_connection', 'tls', 'no_suback', 'mqtt_down', 'mqtt_lost', 'sub_refused', 'write_failed', 'upload_rejected', 'start_rejected', 'no_reply', 'empty_tray', 'changed_tool'])
 def test_one_checked_dispatch(target, review_db, monkeypatch, caplog, protocol, outcome):
     from modules.printers.telemetry.bambu import ftp_upload, project_reply
     from tests.test_contracts.test_multi_source_ams_dispatch import transport
@@ -220,16 +220,7 @@ def test_one_checked_dispatch(target, review_db, monkeypatch, caplog, protocol, 
         review_db.execute(text('UPDATE jobs SET ams_mapping=NULL WHERE id=53'))
         review_db.commit()
     # Reuse the offline upload and MQTT boundary. Exercise the real reply parser.
-    rechecks_after_revocation = []
     def after_upload():
-        if outcome == 'revoked':
-            original_recheck = dispatch_ams_gate.recheck_admitted
-            def recheck(*args, **kwargs):
-                admission = original_recheck(*args, **kwargs)
-                rechecks_after_revocation.append(admission.admitted)
-                return admission
-            monkeypatch.setattr(dispatch_ams_gate, 'recheck_admitted', recheck)
-            opt_in(review_db, 59, False)
         if outcome == 'empty_tray':
             report['ams']['tray_exist_bits'] = hex(255 << 28)
         if outcome == 'changed_tool':
@@ -288,9 +279,6 @@ def test_one_checked_dispatch(target, review_db, monkeypatch, caplog, protocol, 
         failure = lambda *a, **kw: events.append('upload') or ftp_upload.UploadResult(False, phase)
         monkeypatch.setattr(ftp_upload, 'upload_file', failure)
         sender.upload_file = failure
-    refused = dispatch.dispatch_job(59, 53)
-    assert not refused[0] and 'Experimental features' in refused[1] and not events
-    opt_in(review_db, 59)
     if outcome == 'write_failed':
         from modules.jobs import services
         original_transition = services.transition_job
@@ -333,9 +321,6 @@ def test_one_checked_dispatch(target, review_db, monkeypatch, caplog, protocol, 
         assert not ok and 'Position 9' in message and events == ['upload']
     elif outcome == 'empty_tray':
         assert not ok and 'empty' in message and events == ['upload']
-    elif outcome == 'revoked':
-        assert rechecks_after_revocation and all(rechecks_after_revocation)
-        assert not ok and 'Experimental' in message and events == ['upload']
     elif outcome == 'no_reply':
         assert not ok and 'reconciliation' in message and len(sent) == 1
         assert not dispatch.dispatch_job(59, 53)[0]
@@ -355,8 +340,48 @@ def test_one_checked_dispatch(target, review_db, monkeypatch, caplog, protocol, 
             assert json.dumps(sent[0][key]) == json.dumps(ECHO[key][:5])
 
 
+def test_h3c_refuses_non_rack_slice(target):
+    path, _ = target
+    path.write_bytes((FIXTURES / 'x1c-pla-source-sanitized.3mf').read_bytes())
+    job = dispatch._load_job(53)
+    job['payload_sha256'] = hashlib.sha256(path.read_bytes()).hexdigest()
+    options, reason = dispatch._validated_print_options(job, dispatch._get_printer_info(59), path, job['payload_sha256'])
+    assert options is None and 'needs a supported H3C rack slice' in reason
+
+
+@pytest.mark.parametrize('explicit_file', [True, False])
+def test_job_detail_previews_file_rack_positions_and_current_colours(target, review_db, explicit_file):
+    from modules.jobs.ams_mapping import detail_view
+    from modules.jobs.models import Job
+    path, _ = target
+    from modules.models_library.threemf_parser import parse_3mf
+    path.write_bytes((FIXTURES / 'h3c-cli-five.3mf').read_bytes())
+    sources = [dict(slot=f.slot, type=f.type, color=f.color) for f in parse_3mf(str(path)).filaments]
+    review_db.execute(text('UPDATE print_files SET filaments_json=:sources WHERE id=52'),
+                      {'sources': json.dumps(sources)})
+    review_db.execute(text('UPDATE jobs SET ams_mapping=NULL,payload_sha256=:sha WHERE id=53'),
+                      {'sha': hashlib.sha256(path.read_bytes()).hexdigest()})
+    if not explicit_file:
+        review_db.execute(text('UPDATE jobs SET print_file_id=NULL WHERE id=53'))
+    review_db.execute(text("UPDATE filament_slots SET color_hex='123456' WHERE printer_id=59 AND slot_number=5"))
+    review_db.commit()
+    job = review_db.get(Job, 53)
+    actor = {'id': 1, 'role': 'admin', 'group_id': None}
+    def preview():
+        return detail_view(review_db, job, actor)['ams_preview']
+    facts = preview()
+    assert facts['rack_mapping'] == [dict(source_slot=n + 1, target_slot=5 - n) for n in range(5)]
+    assert facts['suggested_mapping'] == []
+    tray = next(row for row in facts['available'] if row['slot'] == 5)
+    assert (tray['material'], tray['color_hex']) == ('PLA', '123456')
+    assert facts['required'][0]['color'].lstrip('#') != tray['color_hex']
+    review_db.execute(text("UPDATE filament_slots SET color_hex='AABBCC' WHERE printer_id=59 AND slot_number=5"))
+    review_db.commit()
+    assert next(row['color_hex'] for row in preview()['available'] if row['slot'] == 5) == 'AABBCC'
+
+
 def test_unidentified_rack_stays_refused_with_saved_opt_in(target, review_db):
-    opt_in(review_db, 59)
+    seed_retired_opt_in(review_db)
     review_db.execute(text('UPDATE printers SET model=NULL,machine_type=NULL WHERE id=59'))
     review_db.commit()
     ok, reason = dispatch.dispatch_job(59, 53)
@@ -377,20 +402,13 @@ def test_control_commands_at_publish_boundary(target, review_db, protocol):
     sender._client.publish.return_value.is_published.return_value = True
     actions = (sender.resume_print, sender.turn_light_on, lambda: sender.set_print_speed(2),
                lambda: sender.skip_objects([1]), sender.clear_print_errors)
-    for enabled in (False, True, False):
-        opt_in(review_db, 59, enabled)
-        sender._client.reset_mock()
-        for command in (sender.pause_print, sender.stop_print):
-            assert command()
-        for command in actions:
-            assert command() is enabled
-        if enabled:
-            light = json.loads(sender._client.publish.call_args_list[3].args[1])['print']
-            assert light['param'].strip() == 'M355 S1'
-        published = [next(iter(json.loads(call.args[1]).values()))['command']
-                     for call in sender._client.publish.call_args_list]
-        assert published == ['pause', 'stop'] + (['resume', 'gcode_line', 'print_speed', 'skip_objects', 'clean_print_error'] if enabled else [])
-    opt_in(review_db, 59)
+    for command in (sender.pause_print, sender.stop_print, *actions):
+        assert command()
+    light = json.loads(sender._client.publish.call_args_list[3].args[1])['print']
+    assert light['param'].strip() == 'M355 S1'
+    published = [next(iter(json.loads(call.args[1]).values()))['command']
+                 for call in sender._client.publish.call_args_list]
+    assert published == ['pause', 'stop', 'resume', 'gcode_line', 'print_speed', 'skip_objects', 'clean_print_error']
     review_db.execute(text('UPDATE printers SET model=NULL,machine_type=NULL WHERE id=59'))
     review_db.commit()
     sender._client.reset_mock()
@@ -431,6 +449,14 @@ def test_unrelated_reply_does_not_resolve_start(change):
     assert wire.on_message is callback
 
 
+def seed_retired_opt_in(db):
+    from core.models import SystemConfig
+    from modules.printers.models import Printer
+    from modules.printers.support_levels import CONFIG_KEY
+    db.add(SystemConfig(key=CONFIG_KEY, value={'59': {'enabled': True, 'api_type': 'h3c', 'name': db.get(Printer, 59).name}}))
+    db.commit()
+
+
 def test_switch_from_printer_api(target, review_db, token_client):
     from modules.printers import routes_crud, routes_experimental
     client, issue = token_client
@@ -438,14 +464,18 @@ def test_switch_from_printer_api(target, review_db, token_client):
     client.app.include_router(routes_crud.router)
     make_superadmin(review_db)
     headers = issue(['admin', 'write:printers', 'read:printers'])
+    seed_retired_opt_in(review_db)
+    store = text("SELECT value FROM system_config WHERE key='experimental_printer_actions'")
+    before = review_db.execute(store).scalar_one()
     path = '/printers/59'
     for enabled in (True, False):
         response = client.put(path + '/experimental-actions', headers=headers, json={'enabled': enabled})
-        assert response.status_code == 200, response.text
-        assert response.json()['experimental_actions_enabled'] is enabled
+        assert response.status_code == 409
+        assert response.json()['detail']['code'] == 'not_experimental'
         detail = client.get(path, headers=headers)
         assert detail.status_code == 200, detail.text
-        assert detail.json()['experimental_actions_enabled'] is enabled
+        assert detail.json()['experimental_actions_enabled'] is False
+    assert review_db.execute(store).scalar_one() == before
 
 
 @pytest.mark.postgresql
@@ -457,8 +487,8 @@ def test_postgresql_h3c_opt_in_and_failed_state(pg_engine):
     with Session(pg_engine) as db:
         db.add(Printer(id=59, name='Rack test', model='H3C', api_type='bambu'))
         db.commit()
-        assert 'Experimental' in experimental_refusal_for_printer(db, 59)
-        opt_in(db, 59)
+        assert experimental_refusal_for_printer(db, 59) is None
+        seed_retired_opt_in(db)
         assert experimental_refusal_for_printer(db, 59) is None
         db.add(Job(id=53, item_name='Test plate', printer_id=59))
         db.commit()
@@ -567,9 +597,8 @@ def test_lookup_failure_at_sender(model, protocol, monkeypatch, caplog):
     assert sender.pause_print() and sender.stop_print()
     for command in (sender.resume_print, sender.turn_light_on, lambda: sender.set_print_speed(2),
                     lambda: sender.skip_objects([1])):
-        assert command() is (model == 'P1S')
-    assert sender._client.publish.call_count == (6 if model == 'P1S' else 2)
-    assert ('Could not confirm the Experimental setting' in caplog.text) is (model == 'H3C')
+        assert command()
+    assert sender._client.publish.call_count == 6
 
 
 def test_education_multicolour_refusal(target):
@@ -633,8 +662,8 @@ def test_monitor_lookup_failure(identity, monkeypatch):
     monkeypatch.setattr(printer_models, '_lookup_rack_refusal', Mock(side_effect=RuntimeError()))
     result = monitor_commands.execute({59: monitor}, dict(printer_id=59, action='light', on=True,
                                       deadline=time.monotonic()+2))
-    assert result == ('refused' if identity else 'accepted')
-    assert client.publish.called is (identity is None)
+    assert result == 'accepted'
+    client.publish.assert_called_once()
 
 
 @pytest.mark.parametrize('ack_mid,codes,rejected', [(1, [128], True), (2, [0], False), (1, [], False)])
@@ -706,15 +735,9 @@ def test_live_h3c_stored_p1s(target, review_db, protocol, by_endpoint):
     sender._client.publish.return_value.is_published.return_value = True
     review_db.execute(text("UPDATE printers SET model='P1S',machine_type=NULL WHERE id=59"))
     review_db.commit()
-    assert not sender.resume_print()
-    assert sender.pause_print()
-    assert [json.loads(c.args[1])['print']['command'] for c in sender._client.publish.call_args_list] == ['pause']
-    review_db.execute(text("UPDATE printers SET model='H3C' WHERE id=59"))
-    review_db.commit()
-    opt_in(review_db, 59)
-    review_db.execute(text("UPDATE printers SET model='P1S' WHERE id=59"))
-    review_db.commit()
     assert sender.resume_print()
+    assert sender.pause_print()
+    assert [json.loads(c.args[1])['print']['command'] for c in sender._client.publish.call_args_list] == ['resume', 'pause']
 
 
 @pytest.mark.parametrize('model', ['H3C', 'P1S'])
@@ -726,8 +749,8 @@ def test_support_text_from_printer_route(target, review_db, token_client, model)
     client.app.include_router(routes_crud.router)
     response = client.get('/printers/59', headers=issue(['read:printers']))
     assert response.status_code == 200
-    expected = ('H3C monitoring and filament tracking are Supported. Job sending and printer controls are Experimental '
-                'and have not yet been verified on a printer.' if model == 'H3C' else
+    expected = ('Job sending, resume and stop were verified on a real Bambu Lab H3C. '
+                'Multi-tool jobs were verified with up to five tools.' if model == 'H3C' else
                 'Bambu Lab LAN-mode MQTT and FTPS. Skipping objects was verified on a P2S. '
                 'Other supported controls were verified on real hardware.')
     assert response.json()['support_source'] == expected

@@ -201,7 +201,7 @@ def eligible(db, job, printer):
     return True
 
 
-def next_suggestion(db, printer, *, visible=None, at=None, actor=None):
+def next_suggestion(db, printer, *, visible=None, at=None, actor=None, include_preview=False):
     from modules.printers.services import dispatch_unsupported_reason
     unsupported = dispatch_unsupported_reason(printer)
     if unsupported:
@@ -274,9 +274,23 @@ def next_suggestion(db, printer, *, visible=None, at=None, actor=None):
         if problem:
             # It stays the suggestion, so say why nothing after it can start either.
             reason = f"Job {job.id} can't start: {problem}. Fix it, or hold it to start later jobs."
-    return {'job_id': job.id, 'reason': reason, 'filament': filament, 'load': changes,
+    suggestion = {'job_id': job.id, 'reason': reason, 'filament': filament, 'load': changes,
             'fingerprint': fingerprint, 'finished_attempt_uid': finished['economic_uid'] if finished else None,
             'inputs': {'computed_at': at.isoformat(), 'job_updated_at': str(job.updated_at), 'material': facts, 'stock': stock_inputs, 'order_created_at': order_created_at}}
+
+    if include_preview and len(facts['required']['filaments']) > 1:
+        from modules.printers.services import is_h3c_printer
+        if is_h3c_printer(printer):
+            from core.rbac import _check_token_scope
+            from modules.jobs.ams_mapping import job_preview
+            try:
+                _check_token_scope(actor, 'read:jobs')
+            except HTTPException:
+                return suggestion
+            rack = job_preview(db, job, actor, printer.id)
+            if rack and 'rack_mapping' in rack:
+                suggestion['inputs']['rack_preview'] = rack
+    return suggestion
 
 
 def build_summary(db, attempt_uid):

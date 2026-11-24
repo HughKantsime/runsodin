@@ -212,26 +212,17 @@ def test_presence_uses_nozzle_id_and_position_uses_address(capture):
     assert entry['virtual_slot_id'] == 254
 
 
-@pytest.mark.parametrize('model,machine,file_model', [
-    ('N10', None, 'Bambu Lab P1S'), (None, None, 'Bambu Lab P1S'),
-    ('H3C', 'P1S', 'Bambu Lab P1S'), ('P1S', 'Bambu Lab H3C', 'Bambu Lab H3C'), ('H3C', None, None)])
-def test_dispatch_refuses_target_before_device_or_file_inspection(review_db, tmp_path, monkeypatch, model, machine, file_model):
+def test_unidentified_dispatch_refuses_before_device_or_file_inspection(review_db, tmp_path, monkeypatch):
     from modules.printers import dispatch, smart_plug
-    engine, path = configure_dispatch(review_db, tmp_path, monkeypatch, 'bambu')
-    if file_model:
-        with ZipFile(path, 'a') as package:
-            package.writestr('Metadata/project_settings.config', json.dumps({'printer_model': file_model}))
+    engine, _ = configure_dispatch(review_db, tmp_path, monkeypatch, 'bambu')
     with engine.begin() as conn:
-        conn.execute(text("UPDATE printers SET model=:model,machine_type=:machine,installed_nozzles=:rows WHERE id=59"),
-                     {'model': model, 'machine': machine, 'rows': STORED_RACK_ROWS if model is None else '[]'})
+        conn.execute(text("UPDATE printers SET model=NULL,machine_type=NULL,installed_nozzles=:rows WHERE id=59"),
+                     {'rows': STORED_RACK_ROWS})
     monkeypatch.setattr(dispatch, '_validated_print_options', lambda *a: pytest.fail('Reached file inspection'))
     monkeypatch.setattr(smart_plug, 'prepare_bounded_dispatch_power', lambda *a: pytest.fail('Reached device preparation'))
     ok, reason = dispatch.dispatch_job(59, 53)
     assert not ok
-    if model is None:
-        assert reason.startswith('unsupported_rack_printer:')
-    else:
-        assert reason.startswith('experimental_not_enabled:') and 'Experimental features' in reason
+    assert reason.startswith('unsupported_rack_printer:')
     with engine.connect() as conn:
         assert conn.execute(text('SELECT count(*) FROM printer_dispatch_claims')).scalar_one() == 0
 
@@ -251,26 +242,22 @@ def test_dispatch_to_p1s_ignores_stored_rack_rows(review_db, tmp_path, monkeypat
 
 
 def test_printer_controls_without_opt_in(offline_store, token_client, monkeypatch):
-    from modules.printers import routes_controls, routes_experimental, routes_ams_env, services
+    from modules.printers import routes_controls, routes_experimental
     offline_store.execute(text("UPDATE printers SET machine_type='Bambu Lab H3C' WHERE id=199"))
     offline_store.commit()
     client, issue = token_client
     client.app.include_router(routes_controls.router, dependencies=[Depends(routes_experimental.experimental_controls_guard)])
-    client.app.include_router(routes_ams_env.router)
     headers = issue(['admin', 'write:printers'])
     calls = []
     monkeypatch.setattr(routes_controls, '_send_printer_command', lambda printer, action: calls.append(action) or True)
     for action in ('pause', 'stop'):
         assert client.post(f'/printers/199/{action}', headers=headers).status_code == 200
     assert calls == ['pause_print', 'stop_print']
-    for action in ('lights', 'resume', 'ams/refresh'):
-        response = client.post(f'/printers/199/{action}', headers=headers)
-        assert response.status_code == 409 and response.json()['detail']['code'] == 'experimental_not_enabled' and 'Experimental features' in response.text
-    response = client.put('/printers/199/ams/0/slots/0', headers=headers, json={
-        'preset_id': 'PLA', 'material': 'PLA', 'color': 'FFFFFF', 'nozzle_temp_min': 190, 'nozzle_temp_max': 220})
-    assert response.status_code == 409 and response.json()['detail']['code'] == 'experimental_not_enabled' and 'Experimental features' in response.text
-    printer = SimpleNamespace(api_type='bambu', model='H3C')
-    assert services.request_observed_task_resume(printer, 199) == 'refused'
+    assert client.post('/printers/199/resume', headers=headers).status_code == 200
+    assert calls[-1] == 'resume_print'
+    monkeypatch.setattr(routes_controls, '_bambu_command_direct', lambda printer, action, speed: calls.append((action, speed)) or True)
+    assert client.post('/printers/199/speed', headers=headers, json={'speed': 2}).status_code == 200
+    assert calls[-1] == ('set_print_speed', 2)
 
 
 def test_h3c_create_and_setup_have_nine_slots(review_db):
@@ -413,7 +400,7 @@ def test_rack_refusal_at_sender(sender, identity, api_type, capture, offline_sto
         emit[0](BambuInfoEvent('monitor-199', 2000, BambuInfoSection.model_validate(info)))
     if identity in ('rack_report', 'mounted_report', 'rack_report_on_p1s'):
         assert [row['position'] for row in stored_nozzles()] == list(range(1, 10))
-    allowed = sender != 'monitor' and identity not in ('mounted_report', 'rack_report')
+    allowed = identity not in ('mounted_report', 'rack_report')
     if sender == 'fallback' and not allowed:
         monkeypatch.setattr(route_utils, '_bambu_command', lambda *args: pytest.fail('Reached Bambu fallback'))
     check_send(allowed=allowed)
@@ -516,7 +503,7 @@ def test_legacy_nowait_cannot_send_a_control_with_a_status_request(offline_store
     from modules.printers.adapters.bambu import BambuPrinter
 
     monkeypatch.setattr(db, 'engine', offline_store.get_bind())
-    offline_store.execute(text("UPDATE printers SET model='N10' WHERE id=199"))
+    offline_store.execute(text("UPDATE printers SET model=NULL,machine_type=NULL,installed_nozzles=:rows WHERE id=199"), {'rows': STORED_RACK_ROWS})
     offline_store.commit()
     sender = BambuPrinter('127.0.0.1', 'synthetic', '', printer_id=199)
     sender._client = Mock()

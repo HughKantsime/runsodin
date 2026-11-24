@@ -101,6 +101,7 @@ it.each(['classic', 'foundry'])('shows the H3C rack and its ODIN slot on the %s 
  const rows = [{ nozzle_id: 23, position: 8, side: 'rack', type: 'HT01', diameter: 0.4, present: true, mounted: true, virtual_slot_id: 248 }]
  const rackPrinter = { ...printer, api_type: 'bambu', model: 'H3C', gcode_state: 'RUNNING', feeding_slot: 8, installed_nozzles: rows, filament_slots: [{ id: 8, slot_number: 8, filament_type: 'PETG', color_hex: '112233', remaining: 80, rack_filament: { id: 248, type: 'TPU' } }] }
  render(family === 'classic' ? <PrinterCard printer={rackPrinter} {...props} /> : <MemoryRouter><FoundryPrinterCard printer={rackPrinter as Printer} /></MemoryRouter>)
+ expect(screen.queryByText(/Experimental/i)).not.toBeInTheDocument()
  expect(screen.getByRole('region', { name: 'Nozzle rack' })).toHaveTextContent('Position 8 · TPU 2.85 mm (HT01) · 0.4 mm')
  expect(screen.queryByText(/No AMS connected|AMS status unknown/)).not.toBeInTheDocument()
  expect(screen.getAllByText(/\bPETG\b/)).toHaveLength(1)

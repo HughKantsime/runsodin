@@ -1,6 +1,7 @@
 import { pollDispatch } from './jobDispatch'
 import { fetchAPI } from './client'
 export interface Suggestion {
+  inputs?: { rack_preview?: import('../types/archive').ArchiveAmsPreview }
   job_id: number | null; reason: string; filament: 'no_change' | 'change_needed' | 'verify_needed';
   fingerprint: string | null; load?: { slot: number; material: string; color: string }[]
 }

@@ -40,6 +40,21 @@ def queue(review_db, monkeypatch):
 
 def advice(db,printer,**kw):return service.next_suggestion(db,printer,**kw)
 
+def test_start_next_previews_rack_slots_for_an_unassigned_job(queue, review_db):
+    from pathlib import Path
+    from modules.models_library.threemf_parser import parse_3mf
+    plate = Path(__file__).parents[1] / 'fixtures/telemetry/h3c-cli-five.3mf'
+    required = [dict(slot=f.slot, type=f.type, color=f.color) for f in parse_3mf(str(plate)).filaments]
+    queue.api_type, queue.model = 'bambu', 'H3C'
+    review_db.execute(text('UPDATE jobs SET printer_id=NULL WHERE id=202'))
+    review_db.execute(text('UPDATE print_files SET stored_path=:path,filaments_json=:required WHERE id=201'),
+                      {'path': str(plate), 'required': json.dumps(required)})
+    review_db.commit()
+    result = advice(review_db, queue, actor={'id': 3, 'role': 'admin'}, include_preview=True)
+    assert result['job_id'] == 202
+    assert [r['target_slot'] for r in result['inputs']['rack_preview']['rack_mapping']] == [5, 4, 3, 2, 1]
+
+
 def test_scheduler_nulls_and_final_id(queue,review_db):
     assert advice(review_db,queue)['job_id']==202
     review_db.execute(text('UPDATE jobs SET queue_position=1 WHERE id IN (202,203)'));review_db.commit()

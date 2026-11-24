@@ -140,7 +140,9 @@ def test_standalone_adapter_distinguishes_reused_host(offline_store, monkeypatch
     from core import db
     from modules.printers.adapters.bambu import BambuPrinter
     monkeypatch.setattr(db, 'engine', offline_store.get_bind())
-    offline_store.execute(text("UPDATE printers SET model='H3C',api_host='127.0.0.1',api_key='original|fixture' WHERE id=199"))
+    offline_store.execute(text("UPDATE printers SET model=NULL,machine_type=NULL,installed_nozzles=:rows,"
+                               "api_host='127.0.0.1',api_key='original|fixture' WHERE id=199"),
+                          {'rows': json.dumps([{'id': n} for n in (16, 17, 18)])})
     offline_store.commit()
     for serial, allowed in [('original', False), ('replacement', True)]:
         sender = BambuPrinter('127.0.0.1', serial, '')
@@ -178,7 +180,7 @@ def test_dispatch_without_start_gate_uses_loaded_identity(model, monkeypatch):
     ok, reason = dispatch._dispatch_bambu_v2(4, 'file', 'remote.3mf',
         dict(printer_id=199, ip='127.0.0.1', serial='synthetic', access_code='', model=model))
     if model == 'H3C':
-        assert not ok and reason.startswith('experimental_not_enabled:')
+        assert not ok and reason.startswith('ams_mapping_required:')
         run.assert_not_called()
     else:
         assert ok and 'before_command' not in run.call_args.kwargs
@@ -244,16 +246,19 @@ def test_final_start_uses_existing_checks_and_reports_confirmed_refusal(protocol
         assert ok and len(selects) == 4
         wire.publish.assert_called_once()
     else:
-        assert not ok and reason.startswith('experimental_not_enabled:')
+        assert not ok and reason.startswith('printer_model_changed:')
         wire.publish.assert_not_called()
-        # The next admission also sees the new identity.
+        if gate is not None:
+            assert gate.refusal.code == 'printer_model_changed'
+        # A fresh admission for the changed model now needs a rack mapping.
         target.update(offline_store.execute(text(
             'SELECT model,machine_type FROM printers WHERE id=199')).mappings().one())
+        gate = maintenance_gate.start_gate(engine, 199) if gate is not None else None
         ok, reason = method(2, 'file', 'next.3mf', target, before_start=gate)
-        assert not ok and reason.startswith('experimental_not_enabled:')
+        assert not ok and reason.startswith('ams_mapping_required:')
         assert isinstance(reason, dispatch.NoStartMessage)
         if gate is not None:
-            assert gate.refusal.code == 'experimental_not_enabled'
+            assert gate.refusal.code == 'ams_mapping_required'
         wire.publish.assert_not_called()
 
 

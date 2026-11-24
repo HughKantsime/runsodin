@@ -37,6 +37,18 @@ test('an idle S1 starts its next job only after the bed-clear confirmation', asy
   expect(await screen.findByText('Next job dispatched.')).toBeInTheDocument()
 })
 
+test('shows the physical slots when confirming the next rack job', async () => {
+  const rack_preview = { required: [{slot: 1, color: '#FFFFFF'}, {slot: 2, color: '#111111'}],
+    available: [{slot: 2, material: 'PLA', color_hex: '123456'}, {slot: 1, material: 'PLA', color_hex: 'FEDCBA'}],
+    suggested_mapping: [], rack_mapping: [{source_slot: 1, target_slot: 2}, {source_slot: 2, target_slot: 1}] }
+  api.suggestion.mockResolvedValue({ ...SUGGESTION, inputs: {rack_preview} })
+  render(<QueryClientProvider client={client()}><StartNextPanel printerId={7} /></QueryClientProvider>)
+  const preview = await screen.findByRole('region', {name: 'Rack slot preview'})
+  expect(preview).toHaveTextContent('Filament 1 #FFFFFF → Slot 2 · PLA · #123456')
+  expect(preview).toHaveTextContent('Filament 2 #111111 → Slot 1 · PLA · #FEDCBA')
+  expect(screen.getByRole('button', BUTTON)).toBeDisabled()
+})
+
 test('someone other than the owner relays the owner\'s word, and says so', async () => {
   api.role.current = 'operator'
   mount(S1)

@@ -60,7 +60,7 @@ def visible_printer(db, printer_id, user):
 def get_next_suggestion(printer_id: int = Path(gt=0), db: Session = Depends(get_db),
                         current_user: dict = Depends(require_role('viewer', scope='read:printers'))):
     return next_suggestion(db, visible_printer(db, printer_id, current_user),
-                           visible=lambda job: check_org_access(current_user, job.charged_to_org_id), actor=current_user)
+                           visible=lambda job: check_org_access(current_user, job.charged_to_org_id), actor=current_user, include_preview=True)
 
 
 @router.post('/printers/{printer_id}/start-next', tags=['Printers'], response_model=StartResult, status_code=202)

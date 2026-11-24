@@ -87,10 +87,10 @@ def vector_entries(mapping, filaments_json):
             for index, slot in enumerate(mapping) if index + 1 in ids]
 
 
-def source_file(db, job, actor):
+def source_file(db, job, actor, *, file_id=None):
     from core.model_preview_access import accessible_preview_file
     try:
-        file = accessible_preview_file(db, job.print_file_id, actor)
+        file = accessible_preview_file(db, file_id if file_id is not None else job.print_file_id, actor)
     except HTTPException:
         raise HTTPException(400, 'AMS mapping requires an accessible job print file') from None
     if file.model_id != job.model_id:
@@ -102,6 +102,21 @@ def source_file(db, job, actor):
     return file
 
 
+def job_preview(db, job, actor, target):
+    from core.ams_mapping import accessible_printer
+    from core.print_file_binding import job_file_id
+    from modules.printers.services import is_h3c_printer
+    try:
+        if job.print_file_id is None and not is_h3c_printer(accessible_printer(db, target, actor)._mapping):
+            return None
+        file_id = job_file_id(db, job.model_id, job.print_file_id)
+        file = source_file(db, job, actor, file_id=file_id)
+        return preview(db, file.filaments_json, target, actor, stored_path=file.stored_path,
+                       plate_index=job.plate_index or 0)
+    except HTTPException:
+        return None  # An unavailable or inaccessible file must not hide the job itself.
+
+
 def detail_view(db, job, actor):
     from modules.jobs.schemas import JobResponse
     from core.display_names import name_jobs
@@ -109,7 +124,7 @@ def detail_view(db, job, actor):
     enrich_job_facts(db, name_jobs(db, [job], actor), actor)
     result = JobResponse.model_validate(job).model_dump()
     result.update(ams_preview=None, ams_mapping_editable=False)
-    if job.print_file_id is None:
+    if job.print_file_id is None and job.model_id is None:
         return result
     try:
         assert_editable(db, job)
@@ -118,15 +133,10 @@ def detail_view(db, job, actor):
     target = job_pin(job) or job.printer_id
     if target is None:
         return result
-    try:
-        file = source_file(db, job, actor)
-        result['ams_preview'] = preview(db, file.filaments_json, target, actor, stored_path=file.stored_path)
-    except HTTPException:
-        # An optional suggestion must never hide an otherwise accessible job.
-        return result
+    result['ams_preview'] = job_preview(db, job, actor, target)
     if job.hold and result['ams_preview'] is not None:
         result['ams_preview']['planned_loads'] = planned_loads(job, result['ams_preview'])
-    result['ams_mapping_editable'] = result['ams_preview'] is not None
+    result['ams_mapping_editable'] = job.print_file_id is not None and result['ams_preview'] is not None
     return result
 
 

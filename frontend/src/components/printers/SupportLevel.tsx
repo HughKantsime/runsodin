@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import CheckTarget from '../ui/CheckTarget'
 import { getCurrentUser } from '../../permissions'
 import { printerSupport } from '../../api/printerSupport'
-import { capabilityKey, experimentalWarning, isMonitorOnlyType, optInApplies, CAPABILITY_COPY, GATED_CAPABILITIES, supportLevelOfPrinter } from '../../utils/supportLevels'
+import { experimentalWarning, isMonitorOnlyType, optInApplies, CAPABILITY_COPY, GATED_CAPABILITIES, supportLevelOfPrinter } from '../../utils/supportLevels'
 
 type PrinterSupportFields = { id: number; api_type?: string | null; support_level?: unknown; support_source?: string | null; experimental_actions_enabled?: boolean }
 
@@ -21,7 +21,7 @@ function OptInPanel({ printer, capability }: { printer: PrinterSupportFields; ca
   const isSuperadmin = principal?.role === 'admin' && !principal?.group_id
   const enabled = printer.experimental_actions_enabled === true
   const copy = capability ? CAPABILITY_COPY[capability] : null
-  const note = (capability === 'h3c' ? printer.support_source : null) ?? copy?.note ?? experimentalWarning(printer.api_type)
+  const note = copy?.note ?? experimentalWarning(printer.api_type)
   const checkboxId = `experimental-${printer.id}-${capability || 'type'}`
   const save = useMutation({
     mutationFn: (next: boolean) => printerSupport.setExperimentalActions(printer.id, next),
@@ -55,8 +55,6 @@ function OptInPanel({ printer, capability }: { printer: PrinterSupportFields; ca
 /** Cards and page headers show whole-type warnings; the page disclosure opts into capability rows. */
 export function ExperimentalOptIn({ printer, capabilities = false }: { printer: PrinterSupportFields; capabilities?: boolean }) {
   if (capabilities) {
-    const key = capabilityKey(printer)
-    if (key === 'h3c') return <OptInPanel printer={printer} capability="h3c" />
     if (supportLevelOfPrinter(printer) !== 'supported' || !optInApplies(printer.api_type)) return null
     return <>{GATED_CAPABILITIES[(printer.api_type ?? '').trim().toLowerCase()]?.map(capability =>
       <OptInPanel key={capability} printer={printer} capability={capability} />)}</>
