@@ -1,13 +1,15 @@
 """Shared explicit AMS validation and read-only filament suggestions."""
 import json
+import logging
 import os
 from functools import lru_cache
-from zipfile import BadZipFile
 from fastapi import HTTPException
 from sqlalchemy import text
 from core.print_payload import validate_mapping, source_filaments
 from core.print_payload_snapshot import PayloadUnavailable
 from core.rbac import check_org_access
+
+log = logging.getLogger(__name__)
 
 
 def accessible_printer(db, printer_id, actor):
@@ -94,7 +96,7 @@ def _rack_mapping(path, identity, plate_index):
             raise PayloadUnavailable('File changed before rack inspection')
         facts = inspect_ams_sources(stream, plate_index)
     if not facts.sources or not all(isinstance(source, VerifiedRackSource) for source in facts.sources):
-        raise ValueError('File has no verified rack assignments')
+        return ()
     return tuple((source.source_index + 1, source.group_id + 1) for source in facts.sources)
 
 
@@ -130,8 +132,8 @@ def preview(db, filaments_json, printer_id, actor, *, stored_path=None, plate_in
             try:
                 info = os.stat(stored_path, follow_symlinks=False)
                 mapping = _rack_mapping(stored_path, (info.st_dev, info.st_ino, info.st_size, info.st_ctime_ns), plate_index)
-            except (BadZipFile, KeyError, OSError, ValueError, PayloadUnavailable):
-                pass
+            except Exception as exc:
+                log.warning('Could not read rack slots for preview (%s)', type(exc).__name__)
         result['rack_mapping'] = [{'source_slot': source, 'target_slot': target} for source, target in mapping]
         result['suggested_mapping'] = []
     return result

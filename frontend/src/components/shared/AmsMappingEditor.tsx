@@ -11,8 +11,8 @@ export function useAmsMapping(preview: ArchiveAmsPreview | null | undefined, con
   const [choice, setChoice] = useState<{ context: string; mapping: AmsMapping; enabled: boolean } | null>(null)
   const saved = stored?.flatMap((target, source) => target < 0 ? [] : [{ source_slot: source + 1, target_slot: target + 1 }])
   const rack = preview?.rack_mapping
-  const savedRackMismatch = !!rack?.length && !!saved && (saved.length !== rack.length
-    || rack.some(({ source_slot, target_slot }) => stored?.[source_slot - 1] !== target_slot - 1))
+  const savedRackMismatch = !!rack?.length && !!stored?.length && (saved?.length !== rack.length
+    || rack.some(({ source_slot, target_slot }) => stored[source_slot - 1] !== target_slot - 1))
   const initial = rack ?? saved
     ?? preview?.suggested_mapping.map(({ source_slot, target_slot }) => ({ source_slot, target_slot })) ?? []
   const complete = (mapping: AmsMapping) => !!preview?.required.length

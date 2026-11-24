@@ -3,8 +3,10 @@ import hashlib
 import io
 import json
 import time
+import zlib
 from pathlib import Path
 from types import SimpleNamespace
+from xml.etree.ElementTree import ParseError
 from zipfile import BadZipFile, ZipFile
 
 import pytest
@@ -388,11 +390,16 @@ def test_unidentified_rack_stays_refused_with_saved_opt_in(target, review_db):
     assert not ok and reason.startswith('unsupported_rack_printer')
 
 
-def test_corrupt_rack_file_keeps_job_and_next_suggestion_readable(target, review_db, token_client):
+@pytest.mark.parametrize('reader_failure', [False, True])
+def test_corrupt_rack_file_keeps_job_and_next_suggestion_readable(target, review_db, token_client, monkeypatch, reader_failure):
+    from unittest.mock import Mock
+    from core import ams_source_inspection
     from modules.jobs.routes import jobs_crud
     from modules.printers import routes_start_next
     path, _ = target
     path.write_bytes(b'truncated archive')
+    if reader_failure:
+        monkeypatch.setattr(ams_source_inspection, 'inspect_ams_sources', Mock(side_effect=zlib.error()))
     review_db.execute(text("UPDATE jobs SET status='pending',quantity=1,payload_sha256=:sha WHERE id=53"),
                       {'sha': hashlib.sha256(path.read_bytes()).hexdigest()})
     review_db.commit()
@@ -408,15 +415,15 @@ def test_corrupt_rack_file_keeps_job_and_next_suggestion_readable(target, review
     assert suggestion.json()['inputs']['rack_preview']['rack_mapping'] == []
 
 
-@pytest.mark.parametrize('error', [BadZipFile, KeyError, OSError, ValueError])
-def test_rack_preview_retries_failed_inspection_and_isolates_cached_slots(target, review_db, monkeypatch, error):
+@pytest.mark.parametrize('error', [BadZipFile, KeyError, OSError, ValueError, zlib.error, EOFError, ParseError, RuntimeError])
+def test_rack_preview_retries_failed_inspection_and_isolates_cached_slots(target, review_db, monkeypatch, error, caplog):
     from unittest.mock import Mock
     from core import ams_source_inspection
     from modules.jobs.ams_mapping import job_preview
     from modules.jobs.models import Job
     path, _ = target
     facts = inspect_ams_sources(path.read_bytes())
-    inspect = Mock(side_effect=[error(), facts])
+    inspect = Mock(side_effect=[error(str(path)), facts])
     monkeypatch.setattr(ams_source_inspection, 'inspect_ams_sources', inspect)
     job = review_db.get(Job, 53)
     def slots():
@@ -429,6 +436,24 @@ def test_rack_preview_retries_failed_inspection_and_isolates_cached_slots(target
     mapping.clear()
     assert slots()[0]['target_slot'] == MAPPING[0] + 1
     assert inspect.call_count == 2
+    warnings = [r for r in caplog.records if r.name == 'core.ams_mapping' and r.levelname == 'WARNING']
+    assert len(warnings) == 1
+    assert str(path) not in caplog.text
+
+
+def test_readable_non_rack_file_is_inspected_only_once(target, review_db, monkeypatch):
+    from unittest.mock import Mock
+    from core import ams_source_inspection
+    from modules.jobs.ams_mapping import job_preview
+    from modules.jobs.models import Job
+    path, _ = target
+    path.write_bytes((FIXTURES / 'x1c-pla-source-sanitized.3mf').read_bytes())
+    inspect = Mock(wraps=inspect_ams_sources)
+    monkeypatch.setattr(ams_source_inspection, 'inspect_ams_sources', inspect)
+    job = review_db.get(Job, 53)
+    for _ in range(2):
+        assert job_preview(review_db, job, {'id': 1, 'role': 'admin', 'group_id': None}, 59)['rack_mapping'] == []
+    inspect.assert_called_once()
 
 
 @pytest.mark.parametrize('protocol', ['legacy', 'v2'])
@@ -656,6 +681,14 @@ def test_failed_lookup_returns_checked_dispatch_reason_for_direct_start(monkeypa
     assert reason('project_file') == 'Send this job through the checked dispatch path.'
 
 
+@pytest.mark.parametrize('host,serial', [(None, None), ('local', None), (None, 'fixture')])
+def test_direct_start_without_lookup_identity(host, serial):
+    from modules.printers.printer_models import stored_rack_refusal
+    assert stored_rack_refusal(None, host=host, serial=serial, payload={'print': {'command': 'project_file'}}) == (
+        'Send this job through the checked dispatch path.')
+    assert stored_rack_refusal(None, host=host, serial=serial, payload={'print': {'command': 'pause'}}) is None
+
+
 def test_education_multicolour_refusal(target):
     path, _ = target
     creds, job = dispatch._get_printer_info(59), dispatch._load_job(53)
@@ -795,6 +828,26 @@ def test_live_h3c_controls_with_lagging_row(target, review_db, protocol, by_endp
     assert sender.pause_print()
     assert sender.stop_print()
     assert [json.loads(c.args[1])['print']['command'] for c in sender._client.publish.call_args_list] == ['resume', 'pause', 'stop']
+
+
+@pytest.mark.parametrize('api_type', [None, 'Bambu', ' bambu '])
+def test_lagging_rack_row_needs_live_identity_for_controls(target, review_db, api_type):
+    from modules.printers.printer_models import stored_rack_refusal
+    review_db.execute(text('UPDATE printers SET api_type=:api_type,model=NULL,machine_type=NULL WHERE id=59'),
+                      {'api_type': api_type})
+    review_db.commit()
+    for command in ('pause', 'stop'):
+        payload = {'print': {'command': command}}
+        assert stored_rack_refusal(59, payload=payload, known_h3c=False).startswith('unsupported_rack_printer:')
+        assert stored_rack_refusal(59, payload=payload, known_h3c=True) is None
+
+
+def test_live_h3c_controls_with_conflicting_stored_machine_type(target, review_db):
+    from modules.printers.printer_models import stored_rack_refusal
+    review_db.execute(text("UPDATE printers SET model=NULL,machine_type='Bambu Lab P1S' WHERE id=59"))
+    review_db.commit()
+    for command in ('pause', 'stop'):
+        assert stored_rack_refusal(59, payload={'print': {'command': command}}, known_h3c=True) is None
 
 
 @pytest.mark.parametrize('model', ['H3C', 'P1S'])

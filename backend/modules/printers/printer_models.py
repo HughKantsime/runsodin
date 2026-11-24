@@ -186,7 +186,7 @@ def stored_rack_refusal(printer_id, *, host=None, serial=None, payload=None, all
             return _lookup_rack_refusal(printer_id, host, serial, direct_start, known_h3c)
         except Exception:
             return _CHECKED_START_REQUIRED if direct_start else None
-    return None
+    return _CHECKED_START_REQUIRED if direct_start else None
 
 
 def _lookup_rack_refusal(printer_id, host, serial, direct_start, known_h3c):
@@ -194,7 +194,7 @@ def _lookup_rack_refusal(printer_id, host, serial, direct_start, known_h3c):
     from sqlalchemy import text
 
     def refusal(row):
-        if known_h3c and row['api_type'] == 'bambu':
+        if known_h3c and str(row['api_type'] or '').strip().lower() in ('', 'bambu'):
             row = {**row, 'model': 'H3C'}
         if direct_start and is_h3c_printer(row):
             return _CHECKED_START_REQUIRED

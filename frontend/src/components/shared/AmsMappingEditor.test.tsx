@@ -19,6 +19,8 @@ test('explains when a saved choice differs from the file rack positions', () => 
   expect(screen.queryByText(message)).toBeNull()
   view.rerender(<Harness preview={file} stored={[-1, -1, -1, 0]} />)
   expect(screen.getByText(message)).toBeInTheDocument()
+  view.rerender(<Harness preview={file} stored={[]} />)
+  expect(screen.queryByText(message)).toBeNull()
   view.rerender(<Harness preview={{ ...file, rack_mapping: [] }} stored={[-1, -1, -1, 0]} />)
   expect(screen.queryByText(message)).toBeNull()
   expect(screen.getByText('The rack slots could not be read from this file.')).toBeInTheDocument()
