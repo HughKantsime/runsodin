@@ -5,7 +5,7 @@ import json
 import time
 from pathlib import Path
 from types import SimpleNamespace
-from zipfile import ZipFile
+from zipfile import BadZipFile, ZipFile
 
 import pytest
 from sqlalchemy import text
@@ -388,6 +388,49 @@ def test_unidentified_rack_stays_refused_with_saved_opt_in(target, review_db):
     assert not ok and reason.startswith('unsupported_rack_printer')
 
 
+def test_corrupt_rack_file_keeps_job_and_next_suggestion_readable(target, review_db, token_client):
+    from modules.jobs.routes import jobs_crud
+    from modules.printers import routes_start_next
+    path, _ = target
+    path.write_bytes(b'truncated archive')
+    review_db.execute(text("UPDATE jobs SET status='pending',quantity=1,payload_sha256=:sha WHERE id=53"),
+                      {'sha': hashlib.sha256(path.read_bytes()).hexdigest()})
+    review_db.commit()
+    client, issue = token_client
+    client.app.include_router(jobs_crud.router)
+    client.app.include_router(routes_start_next.router)
+    headers = issue(['read'])
+    detail = client.get('/jobs/53', headers=headers)
+    suggestion = client.get('/printers/59/next-suggestion', headers=headers)
+    assert detail.status_code == suggestion.status_code == 200
+    assert detail.json()['ams_preview']['rack_mapping'] == []
+    assert suggestion.json()['job_id'] == 53
+    assert suggestion.json()['inputs']['rack_preview']['rack_mapping'] == []
+
+
+@pytest.mark.parametrize('error', [BadZipFile, KeyError, OSError, ValueError])
+def test_rack_preview_retries_failed_inspection_and_isolates_cached_slots(target, review_db, monkeypatch, error):
+    from unittest.mock import Mock
+    from core import ams_source_inspection
+    from modules.jobs.ams_mapping import job_preview
+    from modules.jobs.models import Job
+    path, _ = target
+    facts = inspect_ams_sources(path.read_bytes())
+    inspect = Mock(side_effect=[error(), facts])
+    monkeypatch.setattr(ams_source_inspection, 'inspect_ams_sources', inspect)
+    job = review_db.get(Job, 53)
+    def slots():
+        return job_preview(review_db, job, {'id': 1, 'role': 'admin', 'group_id': None}, 59)['rack_mapping']
+
+    assert slots() == []
+    mapping = slots()
+    assert mapping[0]['target_slot'] == MAPPING[0] + 1
+    mapping[0]['target_slot'] = 99
+    mapping.clear()
+    assert slots()[0]['target_slot'] == MAPPING[0] + 1
+    assert inspect.call_count == 2
+
+
 @pytest.mark.parametrize('protocol', ['legacy', 'v2'])
 def test_control_commands_at_publish_boundary(target, review_db, protocol):
     from unittest.mock import Mock
@@ -479,7 +522,7 @@ def test_switch_from_printer_api(target, review_db, token_client):
 
 
 @pytest.mark.postgresql
-def test_postgresql_h3c_opt_in_and_failed_state(pg_engine):
+def test_postgresql_h3c_support_and_failed_state(pg_engine):
     from modules.jobs.models import Job
     from modules.jobs.services import transition_job
     from modules.printers.models import Printer
@@ -599,6 +642,18 @@ def test_lookup_failure_at_sender(model, protocol, monkeypatch, caplog):
                     lambda: sender.skip_objects([1])):
         assert command()
     assert sender._client.publish.call_count == 6
+    assert not sender.start_print('unchecked.3mf')
+    assert sender._client.publish.call_count == 6
+
+
+def test_failed_lookup_returns_checked_dispatch_reason_for_direct_start(monkeypatch):
+    from unittest.mock import Mock
+    from modules.printers import printer_models
+    monkeypatch.setattr(printer_models, '_lookup_rack_refusal', Mock(side_effect=RuntimeError()))
+    def reason(command):
+        return printer_models.stored_rack_refusal(None, host='local', serial='fixture', payload={'print': {'command': command}})
+    assert reason('pause') is None
+    assert reason('project_file') == 'Send this job through the checked dispatch path.'
 
 
 def test_education_multicolour_refusal(target):
@@ -718,7 +773,8 @@ def test_saved_mapping_on_single_slot_printer(target, model):
 
 @pytest.mark.parametrize('protocol', ['legacy', 'v2'])
 @pytest.mark.parametrize('by_endpoint', [True, False])
-def test_live_h3c_stored_p1s(target, review_db, protocol, by_endpoint):
+@pytest.mark.parametrize('stored_model', ['P1S', None])
+def test_live_h3c_controls_with_lagging_row(target, review_db, protocol, by_endpoint, stored_model):
     from unittest.mock import Mock
     from modules.printers.adapters.bambu import BambuPrinter
     from modules.printers.telemetry.bambu.adapter import BambuAdapterConfig
@@ -733,11 +789,12 @@ def test_live_h3c_stored_p1s(target, review_db, protocol, by_endpoint):
     sender._client = Mock()
     sender._client.publish.return_value.rc = 0
     sender._client.publish.return_value.is_published.return_value = True
-    review_db.execute(text("UPDATE printers SET model='P1S',machine_type=NULL WHERE id=59"))
+    review_db.execute(text("UPDATE printers SET model=:model,machine_type=NULL WHERE id=59"), {'model': stored_model})
     review_db.commit()
     assert sender.resume_print()
     assert sender.pause_print()
-    assert [json.loads(c.args[1])['print']['command'] for c in sender._client.publish.call_args_list] == ['resume', 'pause']
+    assert sender.stop_print()
+    assert [json.loads(c.args[1])['print']['command'] for c in sender._client.publish.call_args_list] == ['resume', 'pause', 'stop']
 
 
 @pytest.mark.parametrize('model', ['H3C', 'P1S'])

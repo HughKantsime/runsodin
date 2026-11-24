@@ -156,14 +156,17 @@ def identified_h3c(printer):
             and rack_model_identity(get('model'), get('machine_type')) is True)
 
 
-def rack_printer_refusal(printer, *, safety=False, db=None):
+def rack_printer_refusal(printer):
     flagged = printer.get('unidentified_rack') if isinstance(printer, Mapping) else getattr(printer, 'unidentified_rack', False)
     if flagged or (is_h3c_printer(printer) and not identified_h3c(printer)):
         return 'unsupported_rack_printer: Identify the rack printer model before sending jobs or controls.'
     return None
 
 
-def stored_rack_refusal(printer_id, *, host=None, serial=None, payload=None, allow_print_start=False, safety=False, known_h3c=False):
+_CHECKED_START_REQUIRED = 'Send this job through the checked dispatch path.'
+
+
+def stored_rack_refusal(printer_id, *, host=None, serial=None, payload=None, allow_print_start=False, known_h3c=False):
     """Look up the row ID, or match the MQTT topic's serial at a standalone endpoint."""
     print_fields = payload.get('print') if isinstance(payload, dict) else None
     direct_start = isinstance(print_fields, dict) and print_fields.get('command') == 'project_file' and not allow_print_start
@@ -177,22 +180,24 @@ def stored_rack_refusal(printer_id, *, host=None, serial=None, payload=None, all
             if allow_print_start and command == ('print', 'project_file') and not known_h3c:
                 return None
     if known_h3c and direct_start:
-        return 'Send this job through the checked dispatch path.'
+        return _CHECKED_START_REQUIRED
     if printer_id is not None or (host and serial):
         try:
-            return _lookup_rack_refusal(printer_id, host, serial, direct_start)
+            return _lookup_rack_refusal(printer_id, host, serial, direct_start, known_h3c)
         except Exception:
-            return None
+            return _CHECKED_START_REQUIRED if direct_start else None
     return None
 
 
-def _lookup_rack_refusal(printer_id, host, serial, direct_start):
+def _lookup_rack_refusal(printer_id, host, serial, direct_start, known_h3c):
     from core.db import engine
     from sqlalchemy import text
 
     def refusal(row):
+        if known_h3c and row['api_type'] == 'bambu':
+            row = {**row, 'model': 'H3C'}
         if direct_start and is_h3c_printer(row):
-            return 'Send this job through the checked dispatch path.'
+            return _CHECKED_START_REQUIRED
         return rack_printer_refusal(row)
 
     with engine.connect() as conn:

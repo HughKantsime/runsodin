@@ -1,4 +1,5 @@
 """Read-only H3C support against the redacted idle report and local transports."""
+import hashlib
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -239,6 +240,38 @@ def test_dispatch_to_p1s_ignores_stored_rack_rows(review_db, tmp_path, monkeypat
     transport(monkeypatch, path, 'v2', [])
     _, reason = dispatch.dispatch_job(59, 53)
     assert not reason.startswith('unsupported_rack_printer:')
+
+
+@pytest.mark.parametrize('model,machine,file_model', [
+    ('H3C', 'P1S', 'Bambu Lab P1S'),
+    ('P1S', 'Bambu Lab H3C', 'Bambu Lab P1S'),
+    ('P1S', 'Bambu Lab H3C', 'Bambu Lab H3C'),
+])
+def test_conflicting_h3c_identities_refuse_a_non_rack_plate(review_db, tmp_path, monkeypatch, model, machine, file_model):
+    from modules.printers import dispatch, smart_plug
+    engine, path = configure_dispatch(review_db, tmp_path, monkeypatch, 'bambu')
+    with ZipFile(path, 'a') as package:
+        package.writestr('Metadata/project_settings.config', json.dumps({'printer_model': file_model}))
+    with engine.begin() as conn:
+        conn.execute(text('UPDATE printers SET model=:model,machine_type=:machine WHERE id=59'),
+                     {'model': model, 'machine': machine})
+        conn.execute(text('UPDATE jobs SET payload_sha256=:sha WHERE id=53'), {'sha': hashlib.sha256(path.read_bytes()).hexdigest()})
+    monkeypatch.setattr(smart_plug, 'prepare_bounded_dispatch_power', lambda *a, **kw: pytest.fail('Reached device preparation'))
+    ok, reason = dispatch.dispatch_job(59, 53)
+    assert not ok
+    if file_model == 'Bambu Lab P1S':
+        assert reason == 'printer_model_mismatch: Choose a plate sliced for the H3C.'
+    else:
+        assert reason == 'Unverifiable source mapping'
+
+
+def test_rack_refusal_depends_only_on_printer_identity():
+    from inspect import signature
+    from modules.printers.printer_models import rack_printer_refusal
+    from modules.printers.support_levels import require_control_capable_model
+    for guard in (rack_printer_refusal, require_control_capable_model):
+        assert list(signature(guard).parameters) == ['printer']
+    assert rack_printer_refusal({'unidentified_rack': True}).startswith('unsupported_rack_printer:')
 
 
 def test_printer_controls_without_opt_in(offline_store, token_client, monkeypatch):

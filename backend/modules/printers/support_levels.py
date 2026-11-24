@@ -68,8 +68,8 @@ CONTROL_PROOF = {
 }
 
 
-def require_control_capable_model(printer, *, safety=False, db=None):
-    reason = rack_printer_refusal(printer, safety=safety, db=db)
+def require_control_capable_model(printer):
+    reason = rack_printer_refusal(printer)
     if reason:
         from fastapi import HTTPException
         code, _, message = reason.partition(': ')
@@ -199,7 +199,7 @@ def experimental_refusal_for_printer(db, printer_id, *, expected_h3c=None) -> Op
         row = db.execute(text('SELECT id,api_type,model,machine_type,installed_nozzles FROM printers WHERE id=:id'),
                          {'id': printer_id}).mappings().one()
         if is_h3c_printer(row):
-            reason = rack_printer_refusal(row, db=db)
+            reason = rack_printer_refusal(row)
             if reason:
                 return reason
         if expected_h3c is not None and identified_h3c(row) != expected_h3c:
