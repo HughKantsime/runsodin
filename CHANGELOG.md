@@ -15,6 +15,7 @@ All notable changes to O.D.I.N. are documented here.
 - Set the display currency in Settings → General. Prices and costs show the currency code, or a plain number when it is unset.
 - Print archives, the print log and its CSV export include recorded materials and whether they came from charged spools, the sliced file or the job.
 - Print history now explains which date filters to use when a client sends the unsupported `days` parameter.
+- Starting or updating ODIN no longer takes minutes on installs with a long timelapse history; the startup check of timelapse records does the same checks in seconds.
 
 ## [2.6.0] - 2026-11-22
 

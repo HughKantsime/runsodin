@@ -473,7 +473,33 @@ def apply_migration_file(
     return True
 
 
-def apply_python_migration(connection: Connection, module_name: str) -> bool:
+def apply_publication_migration_group(connection: Connection) -> list[str]:
+    """Reuse 019 only inside the uninterrupted 019..023 bootstrap sequence."""
+    group_transaction = connection.get_transaction()
+    applied = []
+    publication_transaction = None
+    for name, migration_id in (
+        ('core.schema.migrations.019_timelapse_publications', 'python:019-timelapse-publications'),
+        ('core.schema.migrations.020_ams_evidence', 'python:020-ams-evidence'),
+        ('core.schema.migrations.021_economic_identity', 'python:021-economic-identity'),
+        ('core.schema.migrations.022_economic_source_lifetimes', 'python:022-economic-source-lifetimes'),
+        ('core.schema.migrations.023_timelapse_retirement_membership', 'python:023-timelapse-retirement-membership'),
+    ):
+        if apply_python_migration(connection, name, _publication_transaction=publication_transaction):
+            applied.append(migration_id)
+            # An apply or ledger insert can fire triggers. Recheck after either.
+            publication_transaction = None
+        elif name == 'core.schema.migrations.019_timelapse_publications' and connection.dialect.name == 'sqlite':
+            # 019 holds the SQLite writer lock. Applied 020 checks AMS tables
+            # with temporary DDL and a zero-row update (no SQLite row triggers).
+            # Applied 021/022 only read economic data and schema. On PostgreSQL,
+            # 020's temporary DDL can fire database-wide event triggers in this
+            # transaction, even with SHARE locks. Repeat 019 there.
+            publication_transaction = group_transaction
+    return applied
+
+
+def apply_python_migration(connection: Connection, module_name: str, *, _publication_transaction=None) -> bool:
     """Apply one source-checksummed Python migration module."""
     ensure_ledger(connection)
     if module_name not in _ALLOWED_PYTHON_MIGRATIONS:
@@ -510,6 +536,12 @@ def apply_python_migration(connection: Connection, module_name: str) -> bool:
             module._source()
             # nosemgrep: python.lang.security.audit.non-literal-import.non-literal-import -- AUDIT_MIGRATION_MODULE is derived solely from the literal MIGRATION_ID in core.schema.audit_integrity_version
             importlib.import_module(AUDIT_MIGRATION_MODULE).validate_actor_legacy(connection)
+        elif migration_id == 'python:019-timelapse-publications':
+            from core.schema.timelapse_publication_bootstrap_validation import validate_publications
+            validate_publications(module, connection)
+        elif migration_id == 'python:023-timelapse-retirement-membership':
+            from core.schema.timelapse_publication_bootstrap_validation import validate_membership
+            validate_membership(module, connection, _publication_transaction if prior else None)
         elif migration_id == 'python:002-education-tenant-integrity':
             from core.schema.education_archive_validation import validate_education_with_archive
             validate_education_with_archive(module, connection)
