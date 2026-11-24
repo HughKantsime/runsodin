@@ -80,7 +80,7 @@ def _run(engine, ids, state, lock):
         for identifier in ids:
             while True:
                 with Session(engine) as db:
-                    row = db.execute(text("SELECT f.file_hash,f.stored_path,f.blob_state " + _CANDIDATES +
+                    row = db.execute(text("SELECT f.file_hash,f.stored_path,f.blob_state " + _CANDIDATES +  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- _CANDIDATES is a module constant; the id is bound
                                           " AND f.id=:id"), {"id": identifier}).first()
                 try:
                     if row and plate_cache.facts_result(row)[1]:
@@ -105,6 +105,7 @@ def start(db, user):
     if lock is None:
         raise HTTPException(409, "A backfill is already running.")
     try:
+        # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- _CANDIDATES is a module constant; no request value reaches the statement
         ids = [r.id for r in db.execute(text("SELECT f.id,f.file_hash,f.stored_path " + _CANDIDATES + " ORDER BY f.id"))
                if Path(r.stored_path or "").suffix.lower() in plate_cache.FACTS_EXTENSIONS
                and not plate_cache.has_cached_result(r.file_hash)]

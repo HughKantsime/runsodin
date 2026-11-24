@@ -96,7 +96,7 @@ def _check_printers(db, job, receipts, actor):
         targets[receipt.printer_id].append(receipt)
     if job.printer_id:
         targets.setdefault(job.printer_id, [])
-    source = db.execute(text(
+    source = db.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- the only interpolated part is the module constant SELECTED_PRINT_FILE_ID_SQL; the job id is bound
         'SELECT pf.original_filename, pf.filename, pf.project_name, m.name FROM jobs j '
         'LEFT JOIN models m ON m.id=j.model_id LEFT JOIN education_submissions s ON s.job_id=j.id '
         f'LEFT JOIN print_files pf ON pf.id=({SELECTED_PRINT_FILE_ID_SQL}) WHERE j.id=:id'

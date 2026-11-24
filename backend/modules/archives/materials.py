@@ -53,6 +53,7 @@ def _fields(db, rows, user):
     education = audience() if callable(audience) else generic_archive_audience_sql()
     files, params = file_visibility(user, "a.print_file_id")
     jobs, job_params = job_visibility(user, "j")
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- files, jobs and education are fixed policy SQL from file_visibility, job_visibility and the audience provider; every value is bound
     query = text(f"""
         SELECT a.id,f.filaments_json,j.filament_type
         FROM print_archives a

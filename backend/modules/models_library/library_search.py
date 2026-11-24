@@ -175,6 +175,7 @@ def completed_file_jobs(db, actor, file_id):
     if should_filter_org(actor, org):
         fence = ("AND j.charged_to_org_id IS NULL" if org is None else "AND j.charged_to_org_id=:org")
         fence += " AND (p.org_id IS NULL OR p.org_id=:org OR p.shared IS TRUE)"
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- fence is one of two fixed strings and job_visibility emits fixed policy SQL for a validated alias; every value is bound
     rows = db.execute(text(f"""
         SELECT j.id, j.actual_end, j.plate_index, j.ams_mapping, p.name AS printer_name
         FROM jobs j JOIN printers p ON p.id=j.printer_id
