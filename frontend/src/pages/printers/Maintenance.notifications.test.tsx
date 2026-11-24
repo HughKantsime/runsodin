@@ -67,7 +67,7 @@ describe('implicit default task and failure rate', () => {
     renderPage()
     expect(await screen.findByText('General service')).toBeInTheDocument()
     expect(screen.getByText('default')).toBeInTheDocument()
-    expect(screen.getByText('30 days: 3 of 6 did not complete (50%) (1 failed, 2 stopped) · 90 days: 6 of 9 did not complete (66.7%) (3 failed, 3 stopped)')).toBeInTheDocument()
+    expect(screen.getByText('Last 90 days: 6 of 9 did not complete (66.7%) (3 failed, 3 stopped)')).toBeInTheDocument()
   })
 
   it('says "no prints" for a window without completed or failed prints', async () => {
@@ -77,7 +77,8 @@ describe('implicit default task and failure rate', () => {
       return json([])
     })
     renderPage()
-    expect(await screen.findByText('30 days: no prints · 90 days: no prints')).toBeInTheDocument()
+    expect(await screen.findByText('Last 30 days: no finished prints')).toBeVisible()
+    expect(screen.getByText('Last 90 days: no finished prints')).toBeVisible()
   })
 })
 
@@ -127,4 +128,14 @@ it.each(['classic', 'foundry'])('keeps the combined count and split visible at p
   const summary = await screen.findByText(/30 days: 3 of 6 did not complete/)
   expect(summary.className).not.toMatch(/hidden/)
   expect(summary.closest('[data-layout]')).toHaveAttribute('data-layout', 'stacked')
+})
+
+it.each([[4, 1, true], [3, 1, false], [10, 0, false]])('marks a high 30-day rate only with enough prints (%i completed, %i stopped)', async (completed, stopped, high) => {
+  const counts = { completed, stopped, failed: 0, did_not_complete: stopped, rate_percent: 100 * Number(stopped) / (Number(completed) + Number(stopped)) }
+  transport.mockImplementation(async (url: string) => json(url === '/api/maintenance/status'
+    ? [{ ...status[0], failure_rate: { last_30_days: counts, last_90_days: counts } }] : []))
+  renderPage()
+  await screen.findByText(/Last 30 days:/)
+  expect(screen.queryAllByText('High')).toHaveLength(high ? 1 : 0)
+  expect(screen.getAllByText(/The rate counts failed and stopped/)).toHaveLength(1)
 })

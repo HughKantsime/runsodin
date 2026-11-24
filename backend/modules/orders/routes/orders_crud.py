@@ -553,7 +553,9 @@ def get_order_invoice(
 
         from core.controlled_redaction import redact_export
         invoice = redact_export(db, current_user, enriched.model_dump())
-        gen = InvoiceGenerator(branding, invoice)
+        from core.finance_currency import read_currency
+        currency = read_currency(db, owner_scope="org" if order.org_id else "global", owner_key=order.org_id or 0)
+        gen = InvoiceGenerator(branding, invoice, currency)
         pdf_bytes = bytes(gen.generate())
     except InvoiceUnsupportedText:
         raise HTTPException(status_code=422, detail="Invoice text contains characters outside the supported fonts.")

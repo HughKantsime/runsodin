@@ -299,7 +299,7 @@ export function EditFilamentModal({ filament, onClose, onSave }: { filament: any
         </div>
 
         <div>
-          <label className="block text-sm text-[var(--brand-text-muted)] mb-1">Cost per Gram ($/g)</label>
+          <label className="block text-sm text-[var(--brand-text-muted)] mb-1">Cost per Gram</label>
           <input
             type="number"
             step="0.001"

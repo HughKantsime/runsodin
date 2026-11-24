@@ -611,8 +611,11 @@ def get_config(current_user: dict = Depends(require_role("viewer")), db: Session
     from modules.jobs.services import scheduler_material_mode as get_mode
     from core.farm_time import farm_zone_source, get_farm_timezone
     blackout_start, blackout_end = get_blackout(db)
+    from core.display_currency import display_currency
+    currency, basis = display_currency(db, current_user)
     effective_zone, effective_source = farm_zone_source(db)
     return {
+        "currency": currency, "currency_basis": basis,
         "spoolman_url": get_spoolman_url(db) or None,
         "spoolman_url_from_env": managed_by_environment(),
         "blackout_start": blackout_start,

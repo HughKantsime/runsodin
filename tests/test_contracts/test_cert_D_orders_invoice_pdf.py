@@ -88,7 +88,7 @@ def test_api_invoice_pdf_is_fpdf2_generated_with_order_content_and_brand_name_an
     assert produced == [response.content]                         # served bytes are exactly fpdf2's output
     document = PdfReader(BytesIO(response.content))
     content = '\n'.join(page.extract_text() for page in document.pages)
-    for expected in ('Northwind Print Farm', 'INV-2001', 'Grace Buyer', 'Dragon Figurine', 'DRG-1', '$12.50', '$25.00', '$4.00', '$29.00'):
+    for expected in ('Northwind Print Farm', 'INV-2001', 'Grace Buyer', 'Dragon Figurine', 'DRG-1', '12.50', '25.00', '4.00', '29.00'):
         assert expected in content, expected
     stream = _contents(document)
     assert _fills(stream).count(_rgb('#123456')) >= 2             # brand primary: header band fill + app-name text

@@ -13,6 +13,7 @@ FIXTURE = Path(__file__).resolve().parents[1] / "accessibility" / "default_permi
 
 def test_accessibility_permissions_fixture_is_the_default_matrix():
     from tests.test_contracts.cert_D_capture import publish
+    assert "models.backfill" not in RBAC_DEFAULT_ACTION_ACCESS
     publish(FIXTURE, {"page_access": RBAC_DEFAULT_PAGE_ACCESS, "action_access": RBAC_DEFAULT_ACTION_ACCESS})
 
 

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react'
+import { screen, fireEvent, cleanup, waitFor } from '@testing-library/react'
+import { renderWithCurrency as render } from '../../test/renderWithCurrency'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 const api = vi.hoisted(() => ({ get: vi.fn(), update: vi.fn(), list: vi.fn() }))
@@ -28,10 +29,18 @@ beforeEach(() => { vi.clearAllMocks() })
 afterEach(cleanup)
 
 describe('Pricing Calculator', () => {
+  it('rounds computed cost per gram to three decimal places', async () => {
+    await show({ ...SAVED, spool_cost: 20, spool_weight: 750 })
+    expect(await screen.findByText('Cost per gram: EUR 0.027')).toBeInTheDocument()
+  })
+
   it('a configuration saved before this change shows the price it always showed', async () => {
     await show()
     // 50 g of a $25/kg spool, 2 h, defaults: cost 5.99, +50% = 8.98 (unchanged from 2.2.0).
-    expect(price()).toBe('$8.98')
+    for (const label of ['Hourly Rate', 'Fixed fee']) {
+      expect(field(label).parentElement!.querySelector('svg')).toHaveClass('lucide-coins')
+    }
+    expect(price()).toBe('EUR 8.98')
     expect(screen.getByTestId('markup-percent').textContent).toBe('50%')
     expect(screen.getByTestId('margin-of-price').textContent).toContain('33.3%')
     expect(screen.queryByText('Selling fees:')).toBeNull()
@@ -50,7 +59,7 @@ describe('Pricing Calculator', () => {
     await show()
     fireEvent.change(field('Target margin'), { target: { value: '50' } })
     expect(field('Markup').value).toBe('100')
-    expect(price()).toBe('$11.97')
+    expect(price()).toBe('EUR 11.97')
     fireEvent.change(field('Markup'), { target: { value: '25' } })
     expect(field('Target margin').value).toBe('20')
   })
@@ -65,11 +74,11 @@ describe('Pricing Calculator', () => {
   it('selling fees raise the price so the markup still applies to cost, and get their own line', async () => {
     await show()
     fireEvent.change(field('Selling fee'), { target: { value: '10' } })
-    expect(price()).toBe('$9.98')                       // 8.98 / 0.9
+    expect(price()).toBe('EUR 9.98')                       // 8.98 / 0.9
     expect(screen.getByText('Selling fees:')).toBeInTheDocument()
     expect(screen.getByTestId('margin-of-price').textContent).toContain('after selling fees')
     fireEvent.change(field('Fixed fee'), { target: { value: '0.3' } })
-    expect(price()).toBe('$10.31')                      // (8.98 + 0.30) / 0.9
+    expect(price()).toBe('EUR 10.31')                      // (8.98 + 0.30) / 0.9
   })
 
   it('a selling fee of 100% is refused: warning shown, nothing saved', async () => {
@@ -84,8 +93,8 @@ describe('Pricing Calculator', () => {
   it('plate handling is shared between the units on a plate', async () => {
     await show()
     fireEvent.change(field('Plate handling'), { target: { value: '4' } })
-    const one = price()                                   // 4 min at $15/h = $1.00 more cost
-    expect(one).toBe('$10.58')
+    const one = price()                                   // 4 min at 15/h = 1.00 more cost
+    expect(one).toBe('EUR 10.58')
     fireEvent.change(field('Units per Bed'), { target: { value: '4' } })
     fireEvent.change(field('Units per Bed'), { target: { value: '1' } })
     expect(price()).toBe(one)

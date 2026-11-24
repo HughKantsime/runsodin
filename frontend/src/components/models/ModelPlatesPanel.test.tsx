@@ -1,10 +1,16 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-const api = vi.hoisted(() => ({ variants: vi.fn(), facts: vi.fn(), thumb: vi.fn() }))
+const api = vi.hoisted(() => ({ variants: vi.fn(), facts: vi.fn(), thumb: vi.fn(), history: vi.fn(), repeat: vi.fn(), can: vi.fn() }))
 vi.mock('../../api/models', () => ({ models: { getVariants: api.variants } }))
-vi.mock('../../api/printFilePlates', () => ({ printFilePlates: { facts: api.facts }, fetchPlateThumbnail: api.thumb }))
+vi.mock('../../api/printFilePlates', async importOriginal => ({
+  ...await importOriginal<typeof import('../../api/printFilePlates')>(),
+  printFilePlates: { facts: api.facts, completedJobs: api.history }, fetchPlateThumbnail: api.thumb,
+}))
+vi.mock('../../permissions', () => ({ canDo: api.can }))
+vi.mock('../../api/jobs', () => ({ jobs: { repeat: api.repeat } }))
+import { unavailableReasons } from '../../api/printFilePlates'
 
 import ModelPlatesPanel from './ModelPlatesPanel'
 
@@ -21,6 +27,7 @@ function mount() {
 }
 
 beforeEach(() => {
+  api.can.mockReturnValue(false)
   api.variants.mockReset().mockResolvedValue({ model_id: 5, model_name: 'Bracket', variants: [{ id: 11, filename: 'a.3mf', printer_model: 'A1' }] })
   api.facts.mockReset().mockResolvedValue(facts())
   api.thumb.mockReset().mockResolvedValue(null)
@@ -100,4 +107,38 @@ it('stacks the plate card on a phone and puts it beside the picture from sm up',
   const card = await screen.findByLabelText('Plate 1')
   expect(card.className).toContain('flex-col')
   expect(card.className).toContain('sm:flex-row')
+})
+
+it.each(Object.entries(unavailableReasons))('explains %s for a visible file', async (reason, message) => {
+  api.facts.mockResolvedValue({ status: 'not_available', reason, file_hash: null })
+  mount()
+  const explanation = await screen.findByText(message)
+  expect(explanation).toBeVisible()
+  expect(explanation).toHaveClass('text-sm', 'text-[var(--brand-muted)]')
+})
+
+it('repeats the selected completed job through the queue and reports a hold', async () => {
+  api.can.mockReturnValue(true)
+  api.history.mockResolvedValue([{ id: 7, printer_name: 'Printer 1', plate_index: 1, actual_end: null, ams_mapping: [2] }])
+  api.repeat.mockResolvedValue({ new_job_id: 8, held_for_planned_load: true })
+  mount()
+  fireEvent.click(await screen.findByText('Print again'))
+  fireEvent.click(await screen.findByRole('button', { name: 'Repeat job #7' }))
+  expect(await screen.findByText(/Queued again as job #8.*On hold/)).toBeVisible()
+  expect(api.history).toHaveBeenCalledWith(11)
+  expect(api.repeat).toHaveBeenCalledWith(7)
+})
+
+it('explains empty linked history without guessing from the model name', async () => {
+  api.can.mockReturnValue(true)
+  api.history.mockResolvedValue([])
+  mount()
+  fireEvent.click(await screen.findByText('Print again'))
+  expect(await screen.findByText('No completed jobs linked to this file.')).toBeVisible()
+})
+
+it('keeps repeat controls out of view without job creation permission', async () => {
+  mount()
+  await screen.findByLabelText('Plate 1')
+  expect(screen.queryByText('Print again')).toBeNull()
 })

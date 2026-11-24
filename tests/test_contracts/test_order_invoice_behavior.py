@@ -65,9 +65,9 @@ def test_customer_invoice_does_not_disclose_internal_costs_and_profit(bom_client
     document=PdfReader(BytesIO(response.content))
     content='\n'.join(page.extract_text() for page in document.pages)
     assert 'Synthetic invoice' in content and 'Own product' in content
-    assert '$40.00' in content and '$4.00' in content
+    assert '40.00' in content and '4.00' in content
     assert all(label not in content for label in ('Platform Fees','Payment Fees','Shipping (cost)','Cost Analysis','Estimated Cost','Actual Cost','Profit:','Total Revenue'))
-    assert 'Invoice Total:' in content and '$44.00' in content
+    assert 'Invoice Total:' in content and '44.00' in content
 
 
 def test_free_invoice_shows_explicit_zero_total(bom_client):
@@ -76,7 +76,7 @@ def test_free_invoice_shows_explicit_zero_total(bom_client):
     assert response.status_code==200
     content='\n'.join(page.extract_text() for page in PdfReader(BytesIO(response.content)).pages)
     assert 'Invoice Total:' in content
-    assert '$0.00' in content
+    assert '0.00' in content and '$' not in content
 
 
 def test_unicode_customer_product_and_branding_are_preserved(bom_client, review_db):
@@ -113,7 +113,7 @@ def test_multipage_invoice_keeps_descriptions_headings_and_page_footers(bom_clie
         if name[:20] in content:
             assert 'Unit Price' in content and 'Subtotal' in content
     assert combined.count('Invoice Total:')==1
-    assert '$4,000.00' in texts[-1]
+    assert '4,000.00' in texts[-1]
 
 
 def test_oversize_footer_is_rejected_without_offpage_text(bom_client,review_db):
@@ -216,3 +216,16 @@ def test_invoice_logo_boundaries_do_not_embed_untrusted_assets(bom_client,review
     response=bom_client.get(f'/orders/{identifier}/invoice.pdf')
     assert response.status_code==200
     assert len(PdfReader(BytesIO(response.content)).pages[0].images)==0
+
+def test_invoice_uses_configured_display_currency(bom_client, review_db):
+    review_db.execute(text("INSERT INTO finance_currency_settings(owner_scope,owner_key,currency) VALUES('org',1,'JPY')"))
+    review_db.commit()
+    identifier = create_invoice_order(bom_client, revenue=24.5, items=[{'product_id':101,'quantity':1,'unit_price':24.5}])
+    # The billed organization also owns the label when a platform administrator downloads the PDF.
+    from core.dependencies import get_current_user
+    caller = bom_client.app.dependency_overrides[get_current_user]()
+    bom_client.app.dependency_overrides[get_current_user] = lambda: {**caller, 'role': 'admin', 'group_id': None}
+    response = bom_client.get(f'/orders/{identifier}/invoice.pdf')
+    assert response.status_code == 200
+    content = '\n'.join(page.extract_text() for page in PdfReader(BytesIO(response.content)).pages)
+    assert 'JPY 25' in content and 'JPY 25.00' not in content

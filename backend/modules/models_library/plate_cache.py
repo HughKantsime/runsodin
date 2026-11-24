@@ -31,6 +31,7 @@ from modules.models_library.threemf_parser import MAX_FACT_PLATES, MAX_TOTAL_THU
 log = logging.getLogger("odin.api")
 
 FACTS_VERSION = 1
+FACTS_EXTENSIONS = frozenset({".3mf", ".gcode", ".bgcode"})
 MAX_PLATE_NUMBER = 9999
 MAX_FACTS_BYTES = 2**20
 _HASH = re.compile(r"[0-9a-f]{64}")
@@ -242,7 +243,8 @@ def store(file_hash, facts: dict) -> dict:
         plates.append({"index": number, "has_thumbnail": thumbnail is not None, "filaments": plate["filaments"],
                        "print_time_seconds": plate["print_time_seconds"], "weight_grams": plate["weight_grams"],
                        "layer_height": plate["layer_height"], "warnings": plate["warnings"]})
-    document = {"version": FACTS_VERSION, "file_hash": file_hash, "slicer": facts["slicer"],
+    document = {"status": "available" if plates else "not_available", "reason": None if plates else "not_sliced",
+                "version": FACTS_VERSION, "file_hash": file_hash, "slicer": facts["slicer"],
                 "plate_count": len(plates), "plates": plates}
     encoded = json.dumps(document, sort_keys=True, allow_nan=False).encode()
     if len(encoded) > MAX_FACTS_BYTES:
@@ -260,28 +262,39 @@ def store(file_hash, facts: dict) -> dict:
 def mark_unavailable(file_hash, reason: str) -> None:
     directory = entry_dir(file_hash)
     _prepare_directory(directory)
-    _atomic_write(directory, "unavailable.json", json.dumps({"version": FACTS_VERSION, "reason": reason}).encode())
+    _atomic_write(directory, "unavailable.json", json.dumps({"version": FACTS_VERSION, "status": "not_available", "reason": reason}).encode())
 
 
 UNAVAILABLE_RETRY_SECONDS = 7 * 86400  # a refused file is looked at again after a week (limits change)
 FAILED_RETRY_SECONDS = 3600            # a failed parse (which can be a crash or timeout) after an hour
 
 
-def is_unavailable(file_hash) -> bool:
+def unavailable_reason(file_hash):
     import time
     try:
         marker = entry_dir(file_hash) / "unavailable.json"
         raw = _read_regular(marker, 4096)
         if raw is None:
-            return False
+            return None
         try:
             reason = json.loads(raw).get("reason")
         except (ValueError, AttributeError):
             reason = None
         wait = FAILED_RETRY_SECONDS if reason in ("failed", "invalid") else UNAVAILABLE_RETRY_SECONDS
-        return time.time() - marker.stat().st_mtime < wait
+        return (reason or "invalid") if time.time() - marker.stat().st_mtime < wait else None
     except (ValueError, OSError):
+        return None
+
+
+def has_cached_result(file_hash) -> bool:
+    """Backfill only missing entries; inspect metadata without loading every document."""
+    if not _valid_hash(file_hash):
         return False
+    return (entry_dir(file_hash) / "facts.json").is_file() or is_unavailable(file_hash)
+
+
+def is_unavailable(file_hash) -> bool:
+    return unavailable_reason(file_hash) is not None
 
 
 def read_facts(file_hash):
@@ -346,21 +359,59 @@ def facts_for_row(row, *, timeout: float = 30):
 
     The blob is staged and re-hashed first, so a cache entry always derives from bytes that hash to
     its key. Raises mesh_isolation.Busy when the 3MF pool is full (caller answers 429)."""
-    if not eligible(row):
-        return None
-    cached = read_facts(row.file_hash)
-    if cached is not None:
-        return cached
-    if is_unavailable(row.file_hash):
-        return None
-    from core.print_payload_snapshot import PayloadUnavailable, stage_payload
+    document, _ = facts_result(row, timeout=timeout)
+    return document
+
+
+def facts_result(row, *, timeout=30):
+    """Return (document, reason). Keep project plates that have only pictures."""
+    from core.print_payload_snapshot import PayloadChanged, PayloadUnavailable, stage_payload
     from modules.models_library.mesh_isolation import plate_facts_blocking
-    try:
-        with stage_payload(row.stored_path, row.file_hash) as snapshot:
-            analysis = plate_facts_blocking(snapshot.path, timeout=timeout)
-    except PayloadUnavailable:
-        return None
-    return store_analysis(row.file_hash, analysis)
+    from modules.models_library.gcode_facts import read_facts as read_gcode
+
+    if not _valid_hash(row.file_hash):
+        return None, "missing_hash"
+    if row.blob_state != "present" or not row.stored_path:
+        return None, "file_missing"
+    path = Path(row.stored_path)
+    extension = path.suffix.lower()
+    if extension not in FACTS_EXTENSIONS:
+        return None, "unsupported_type"
+    if not path.is_file():
+        return None, "file_missing"
+    cached = read_facts(row.file_hash)
+    if cached is None:
+        reason = unavailable_reason(row.file_hash)
+        if reason is None:
+            try:
+                with stage_payload(row.stored_path, row.file_hash) as snapshot:
+                    if extension == ".3mf":
+                        analysis = plate_facts_blocking(snapshot.path, timeout=timeout)
+                        cached = store_analysis(row.file_hash, analysis)
+                    else:
+                        reason, facts = read_gcode(snapshot.path)
+                        if facts is None:
+                            mark_unavailable(row.file_hash, reason)
+                        else:
+                            cached = store(row.file_hash, facts)
+            except PayloadChanged:
+                return None, "hash_mismatch"
+            except PayloadUnavailable:
+                if not path.is_file():
+                    return None, "file_missing"
+                return None, "parse_refused"
+            except OSError:
+                return None, "parse_failed"
+            reason = unavailable_reason(row.file_hash)
+        if cached is None:
+            if reason in {"binary_gcode", "no_slicer_facts"}:
+                return None, reason
+            return None, "parse_refused" if reason in {"too_large", "too_many_members", "facts_too_large"} else "parse_failed"
+    if extension != ".3mf" and cached["plates"] and not cached.get("slicer") and not any(
+        p.get("filaments") or p.get("weight_grams") is not None for p in cached["plates"]
+    ):
+        return None, "no_slicer_facts"
+    return (cached, None) if cached["plates"] else (None, "not_sliced")
 
 
 def thumbnail_for_row(row, plate):

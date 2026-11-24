@@ -111,6 +111,7 @@ def get_print_jobs(
     started_before: Optional[str] = Query(None, description="Exclusive start date or date-time; no offset means UTC."),
     ended_after: Optional[str] = Query(None, description="Inclusive end date or date-time; excludes unknown ends; no offset means UTC."),
     ended_before: Optional[str] = Query(None, description="Exclusive end date or date-time; excludes unknown ends; no offset means UTC."),
+    days: Optional[str] = Query(None, include_in_schema=False),
     offset: int = Query(0, description="Records to skip, 0 or more."),
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_role("viewer", scope="read:jobs")),
@@ -120,6 +121,8 @@ def get_print_jobs(
     Dates mean midnight UTC. After bounds are inclusive; before bounds are exclusive.
     X-Total-Count reports the visible matching records before limit and offset.
     """
+    if days is not None:
+        raise HTTPException(422, "The days parameter is unsupported. Use started_after or ended_after to choose the date range.")
     if not 1 <= limit <= 1000:
         raise HTTPException(422, "limit must be between 1 and 1000.")
     if offset < 0:

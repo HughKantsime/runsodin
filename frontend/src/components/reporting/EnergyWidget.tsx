@@ -1,3 +1,4 @@
+import { useMoney } from '../../contexts/DisplayCurrency'
 import PageState from '../ui/PageState'
 import { useState, useEffect, useRef } from 'react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
@@ -7,6 +8,7 @@ import { getEnergyRate, setEnergyRate as updateEnergyRate } from '../../api'
 const CHART_TOOLTIP = { backgroundColor: 'var(--chart-tooltip-bg)', border: 'none', borderRadius: '6px', boxShadow: 'var(--chart-tooltip-shadow)', color: 'var(--brand-text-primary)' }
 
 export default function EnergyWidget({ jobs }: { jobs?: any[] }) {
+  const money = useMoney()
   const [rate, setRate] = useState<number | null>(null)
   const [editing, setEditing] = useState(false)
   const [tempRate, setTempRate] = useState('')
@@ -91,7 +93,7 @@ export default function EnergyWidget({ jobs }: { jobs?: any[] }) {
         <div className="flex items-center gap-2 text-xs">
           {editing ? (
             <>
-              <span className="text-[var(--brand-text-muted)]">$/kWh:</span>
+              <span className="text-[var(--brand-text-muted)]">Cost per kWh:</span>
               <input
                 type="number"
                 step="0.01"
@@ -111,7 +113,7 @@ export default function EnergyWidget({ jobs }: { jobs?: any[] }) {
             <span>{loading ? 'Loading energy rate...' : 'Rate unavailable'}</span>
           ) : (
             <button onClick={() => setEditing(true)} className="text-[var(--brand-text-muted)] hover:text-[var(--brand-text-primary)] transition-colors">
-              ${rate}/kWh <Pencil size={10} className="inline ml-1" />
+              {money(rate, 'Unknown', 'rate')}/kWh <Pencil size={10} className="inline ml-1" />
             </button>
           )}
         </div>
@@ -127,7 +129,7 @@ export default function EnergyWidget({ jobs }: { jobs?: any[] }) {
           <div className="text-xs text-[var(--brand-text-muted)]">Total kWh</div>
         </div>
         <div className="text-center">
-          <div className="text-2xl font-bold text-green-400">{totalCost === null ? '--' : `$${totalCost.toFixed(2)}`}</div>
+          <div className="text-2xl font-bold text-green-400">{totalCost === null ? '--' : money(totalCost)}</div>
           <div className="text-xs text-[var(--brand-text-muted)]">Total Cost</div>
         </div>
         <div className="text-center">
@@ -144,7 +146,7 @@ export default function EnergyWidget({ jobs }: { jobs?: any[] }) {
             <YAxis tick={{ fill: '#3D4559', fontSize: 11 }} />
             <Tooltip
               contentStyle={CHART_TOOLTIP}
-              formatter={(val, name) => [name === 'kwh' ? `${val} kWh` : `$${val}`, name === 'kwh' ? 'Energy' : 'Cost']}
+              formatter={(val, name) => [name === 'kwh' ? `${val} kWh` : money(val), name === 'kwh' ? 'Energy' : 'Cost']}
             />
             <Bar dataKey="kwh" fill="#F59E0B" radius={[4, 4, 0, 0]} />
           </BarChart>

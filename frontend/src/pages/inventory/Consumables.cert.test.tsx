@@ -1,5 +1,6 @@
 // Cert C (F07) — real Consumables page wired to the captured GET /consumables producer fixture.
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, screen } from '@testing-library/react'
+import { renderWithCurrency as render } from '../../test/renderWithCurrency'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import Consumables from './Consumables'
@@ -19,5 +20,5 @@ it('F07 consumable list, server low-stock flag and inventory value render from t
   expect(stat('Total Items')).toBe('2')
   expect(stat('Low Stock')).toBe('1')
   expect(stat('Active')).toBe('2')
-  expect(stat('Inventory Value')).toBe('$20.36')
+  expect(stat('Inventory Value')).toBe('EUR 20.36')
 })

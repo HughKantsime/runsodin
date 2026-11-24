@@ -1,6 +1,7 @@
 import React from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { renderWithCurrency as render } from '../../test/renderWithCurrency'
 import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import Calculator from '../orders/Calculator'
@@ -61,28 +62,28 @@ it('F10-10.2-04 loads the dedicated Calculator page and model-derived inputs', a
 //   overhead $500 / 100 = $5.00. Base 10 + 6 + 0.5 + 1 + 3 + 4 = $24.50; failure buffer 10% = $2.45; subtotal $31.95.
 it('F10-10.2-01 computes each displayed per-model cost component from saved inputs', async () => {
   await loadCalculator()
-  for (const [label, value] of [['Material Cost:', '$10.00'], ['Labor Cost:', '$6.00'], ['Electricity:', '$0.50'], ['Printer Depreciation:', '$1.00'], ['Packaging:', '$3.00'], ['Failure Buffer (10%):', '$2.45'], ['Overhead:', '$5.00'], ['Other Costs:', '$4.00']]) expect(moneyRow(label)).toHaveTextContent(value)
+  for (const [label, value] of [['Material Cost:', 'EUR 10.00'], ['Labor Cost:', 'EUR 6.00'], ['Electricity:', 'EUR 0.50'], ['Printer Depreciation:', 'EUR 1.00'], ['Packaging:', 'EUR 3.00'], ['Failure Buffer (10%):', 'EUR 2.45'], ['Overhead:', 'EUR 5.00'], ['Other Costs:', 'EUR 4.00']]) expect(moneyRow(label)).toHaveTextContent(value)
 })
 it('F10-10.2-01 CLAIM GAP: subtotal includes monetary costs only, without adding the failure percentage as dollars', async () => {
-  await loadCalculator(); expect(moneyRow('Subtotal:')).toHaveTextContent('$31.95')
+  await loadCalculator(); expect(moneyRow('Subtotal:')).toHaveTextContent('EUR 31.95')
 })
 it('F10-10.2-02 edits and saves manufacturing margin and recomputes price with zero failure rate', async () => {
   // No failure buffer: subtotal $24.50 + $5.00 overhead = $29.50; x 1.25 = $36.875 -> $36.88.
   api.config.mockResolvedValue({ ...config, failure_rate: 0 }); await loadCalculator(); change('Markup', 25)
-  expect(moneyRow('Recommended Price (per unit)')).toHaveTextContent('$36.88')
+  expect(moneyRow('Recommended Price (per unit)')).toHaveTextContent('EUR 36.88')
   fireEvent.click(screen.getByRole('button', { name: 'Save Config' }))
   await waitFor(() => expect(api.save).toHaveBeenCalledWith(expect.objectContaining({ default_margin: 25, failure_rate: 0 }), expect.anything()))
 })
 it('F10-10.2-03 computes per-unit and bulk prices with zero failure rate', async () => {
   api.config.mockResolvedValue({ ...config, failure_rate: 0 }); await loadCalculator(); change('Quantity', 3)
   // $29.50 x 1.50 = $44.25 per item; 3 items = $132.75.
-  expect(moneyRow('Recommended Price (per unit)')).toHaveTextContent('$44.25')
-  expect(moneyRow('Total for 3 units')).toHaveTextContent('$132.75')
+  expect(moneyRow('Recommended Price (per unit)')).toHaveTextContent('EUR 44.25')
+  expect(moneyRow('Total for 3 units')).toHaveTextContent('EUR 132.75')
 })
 it('F10-10.2-03 CLAIM GAP: nonzero failure buffer produces correct per-unit and bulk prices', async () => {
   // $31.95 x 1.50 = $47.925 -> $47.92 (binary float); 3 items = $143.775 -> $143.77.
   await loadCalculator(); change('Quantity', 3)
-  expect([moneyRow('Recommended Price (per unit)').textContent, moneyRow('Total for 3 units').textContent]).toEqual(['Recommended Price (per unit)$47.92', 'Total for 3 units$143.77'])
+  expect([moneyRow('Recommended Price (per unit)').textContent, moneyRow('Total for 3 units').textContent]).toEqual(['Recommended Price (per unit)EUR 47.92', 'Total for 3 unitsEUR 143.77'])
 })
 it('F10-10.1-02 renders actual cost/revenue bars and chronological date ticks', async () => {
   show(<Analytics />); await screen.findByRole('heading', { name: 'Revenue vs Cost' })
@@ -92,9 +93,16 @@ it('F10-10.1-02 renders actual cost/revenue bars and chronological date ticks', 
   const ticks = [...chart.querySelectorAll('.recharts-cartesian-axis-tick-value')].map(el => el.textContent).filter(text => text?.startsWith('Oct '))
   expect(ticks).toEqual(['Oct 1','Oct 2'])
 })
-it('F10-10.1-03 displays model rankings by dollars per hour, preserving service order', async () => {
+it('F10-10.1-03 displays model rankings by value per hour, preserving service order', async () => {
+  api.analytics.mockResolvedValue({
+    ...analytics,
+    summary: { ...analytics.summary, avg_value_per_hour: 10 / 3 },
+    top_by_hour: [{ ...analytics.top_by_hour[0], value_per_hour: 50 / 3 }, analytics.top_by_hour[1]],
+  })
   show(<Analytics />); await screen.findByRole('heading',{name:'Top Performers'})
-  const ranking = panel('Top Performers'); expect(ranking).toHaveTextContent('$/hour')
+  const ranking = panel('Top Performers'); expect(ranking).toHaveTextContent('Value per hour')
+  expect(within(ranking).getByText('EUR 16.67/hr')).toBeVisible()
+  expect(screen.getByText('EUR 3.33')).toBeVisible()
   expect(ranking.textContent!.indexOf('High hourly low count')).toBeLessThan(ranking.textContent!.indexOf('Low hourly high count'))
 })
 it('F10-10.1-03 CLAIM GAP: model rankings are ordered and labeled by job count', async () => {

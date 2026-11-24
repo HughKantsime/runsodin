@@ -1,3 +1,4 @@
+import { useMoney } from '../../contexts/DisplayCurrency'
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Download } from 'lucide-react'
@@ -7,7 +8,6 @@ import type { CostPerPrintRow } from '../../api/reporting'
 import { useLicense } from '../../LicenseContext'
 import { getCurrentUser } from '../../permissions'
 
-const money = (value: number | null) => value == null ? '—' : `$${value.toFixed(2)}`
 
 // "12.5% over estimate" / "3% under estimate": how the prints' actual cost compares with their estimates.
 export function varianceText(percent: number | null): string {
@@ -23,6 +23,7 @@ export function rangeStart(days: number, now = new Date()): string {
 }
 
 function Row({ row, group, minimum }: { row: CostPerPrintRow; group: 'model' | 'product'; minimum: number }) {
+  const money = useMoney()
   const name = row.name ?? (group === 'model' ? 'Prints without a model' : 'Prints without a product')
   const left = [row.jobs_partial > 0 && `${row.jobs_partial} with missing records`, row.jobs_without_usage > 0 && `${row.jobs_without_usage} with no usage recorded`].filter(Boolean).join(', ')
   return <tr className="border-t border-[var(--brand-card-border)]">
@@ -34,8 +35,8 @@ function Row({ row, group, minimum }: { row: CostPerPrintRow; group: 'model' | '
       ? <td colSpan={5} className="py-1.5 text-xs text-[var(--brand-text-muted)]">Needs {minimum} completed prints with full cost records (has {row.jobs_with_full_cost})</td>
       : <>
         <td className="py-1.5 text-right font-mono text-[var(--brand-text-muted)]">{row.pieces}</td>
-        <td className="py-1.5 text-right font-mono text-[var(--brand-text-primary)]">{money(row.average_actual_per_piece)}</td>
-        <td className="py-1.5 text-right font-mono text-[var(--brand-text-muted)]">{money(row.average_estimate_per_piece)}</td>
+        <td className="py-1.5 text-right font-mono text-[var(--brand-text-primary)]">{money(row.average_actual_per_piece, '—')}</td>
+        <td className="py-1.5 text-right font-mono text-[var(--brand-text-muted)]">{money(row.average_estimate_per_piece, '—')}</td>
         <td className="py-1.5 text-right text-[var(--brand-text-muted)]">{varianceText(row.variance_percent)}</td>
         <td className="py-1.5 text-right font-mono text-[var(--brand-text-muted)]">{row.failure_share_percent == null ? '—' : `${row.failure_share_percent}%`}</td>
       </>}

@@ -1,3 +1,4 @@
+import { useMoney } from '../../contexts/DisplayCurrency'
 import PageState from '../../components/ui/PageState'
 import Table from '../../components/ui/Table'
 import MaterialPurchases from '../../components/orders/MaterialPurchases'
@@ -16,6 +17,7 @@ import { DialogSurface } from '../../components/ui'
 const UNIT_OPTIONS = ['piece', 'gram', 'ml', 'meter', 'pack', 'box', 'sheet']
 
 export default function Consumables() {
+  const money = useMoney()
   const queryClient = useQueryClient()
   const [showModal, setShowModal] = useState(false)
   const [showAdjustModal, setShowAdjustModal] = useState(null)
@@ -162,7 +164,7 @@ export default function Consumables() {
         </div>
         <div className="rounded-md p-4 border border-[var(--brand-card-border)]" style={{ background: 'var(--brand-card-bg)' }}>
           <div className="text-2xl font-bold text-[var(--brand-text-primary)]">
-            ${items.reduce((sum, i) => sum + (i.cost_per_unit || 0) * (i.current_stock || 0), 0).toFixed(2)}
+            {money(items.reduce((sum, i) => sum + (i.cost_per_unit || 0) * (i.current_stock || 0), 0))}
           </div>
           <div className="text-xs text-[var(--brand-text-muted)]">Inventory Value</div>
         </div>
@@ -227,7 +229,7 @@ export default function Consumables() {
                     {item.min_stock > 0 && <span className="text-[var(--brand-text-muted)] text-xs ml-1">/ min {item.min_stock}</span>}
                   </td>
                   <td className="p-3 text-[var(--brand-text-muted)] hidden md:table-cell">{item.unit}</td>
-                  <td className="p-3 text-[var(--brand-text-muted)] hidden md:table-cell">{item.cost_per_unit != null ? `$${item.cost_per_unit.toFixed(2)}` : '—'}</td>
+                  <td className="p-3 text-[var(--brand-text-muted)] hidden md:table-cell">{item.cost_per_unit != null ? money(item.cost_per_unit) : '—'}</td>
                   <td className="p-3 text-[var(--brand-text-muted)] hidden lg:table-cell">{item.vendor || '—'}</td>
                   <td className="p-3 text-right">
                     <div className="flex items-center justify-end gap-1">
@@ -289,7 +291,7 @@ export default function Consumables() {
               </div>
               <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label className="text-xs text-[var(--brand-text-muted)]">Cost/Unit ($)</label>
+                  <label className="text-xs text-[var(--brand-text-muted)]">Cost/Unit</label>
                   <input type="number" step="0.01" value={formData.cost_per_unit} onChange={e => setFormData(f => ({ ...f, cost_per_unit: e.target.value }))}
                     className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" />
                 </div>

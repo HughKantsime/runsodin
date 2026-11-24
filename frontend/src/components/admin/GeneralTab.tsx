@@ -1,3 +1,4 @@
+import DisplayCurrencySetting from './DisplayCurrencySetting'
 import ThemeSettings from './ThemeSettings'
 import RemoteAccessStatus from './RemoteAccessStatus'
 import { getCurrentUser } from '../../permissions'
@@ -430,6 +431,7 @@ export default function GeneralTab() {
         )}
       </div>
 
+      {principal?.role === 'admin' && configData && <DisplayCurrencySetting key={`${configData.currency_basis}-${configData.currency}`} basis={configData.currency_basis ?? null} saved={configData.currency ?? null} global={principal.group_id == null} />}
       <FarmTimeZoneSetting config={configData} />
 
       {/* Scheduler Settings */}

@@ -1,3 +1,4 @@
+import SliceFactsBackfill from './SliceFactsBackfill'
 import UpdateSettings from './UpdateSettings'
 import PageState from '../ui/PageState'
 import { useState, useEffect, useRef } from 'react'
@@ -553,6 +554,7 @@ export default function SystemTab() {
       <InstallAppCard />
       <AuditLogLink />
       <UpdateSettings />
+      <SliceFactsBackfill />
       <AboutVersion />
 
       {/* Privacy & Data (GDPR) */}

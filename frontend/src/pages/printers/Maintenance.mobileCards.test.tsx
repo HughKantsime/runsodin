@@ -42,6 +42,11 @@ describe('Maintenance fleet rows', () => {
     const cards = container.querySelectorAll('[data-layout]')
     expect(cards.length).toBeGreaterThan(0)
     cards.forEach(c => expect(c.getAttribute('data-layout')).toBe('stacked'))
+    for (const days of [30, 90]) {
+      const rate = screen.getAllByText(new RegExp(`Last ${days} days:`))[0]
+      expect(rate).toBeVisible()
+      expect(rate.closest('[title]')).toBeNull()
+    }
     const header = cards[0].firstElementChild as HTMLElement
     expect(header.className).toContain('flex-col')
     const [button] = screen.getAllByRole('button', { name: 'Log Service' })

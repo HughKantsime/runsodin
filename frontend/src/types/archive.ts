@@ -3,6 +3,9 @@
 import type { PaginatedResponse } from './common';
 
 export interface Archive {
+  materials?: { material: string; grams: number | null }[];
+  material?: string | null;
+  material_source?: 'spool' | 'file' | 'job' | null;
   accounting_state?: string;
   settleable?: boolean;
   accounting_badge?: string | null;

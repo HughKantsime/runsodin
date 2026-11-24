@@ -1,6 +1,7 @@
 import React from 'react'
 import {afterEach,expect,it,vi} from 'vitest'
-import {cleanup,render,screen} from '@testing-library/react'
+import { cleanup, screen } from '@testing-library/react'
+import { renderWithCurrency as render } from '../../test/renderWithCurrency'
 import {OrderDetailModal} from './OrderModals'
 afterEach(cleanup)
 const base={id:1,order_number:'Synthetic financial truth',status:'pending',items:[],revenue:30,estimated_cost:12.99,actual_cost:null,profit:null,margin_percent:null}
@@ -10,13 +11,13 @@ function show(changes={}) {
 function row(label:string){return screen.getByText(label).parentElement!}
 it('shows estimated cost separately and unknown actual financials',()=>{
  show()
- expect(row('Estimated Cost')).toHaveTextContent('$12.99')
+ expect(row('Estimated Cost')).toHaveTextContent('EUR 12.99')
  for(const label of ['Actual Cost','Profit','Margin'])expect(row(label)).toHaveTextContent('Unknown')
 })
 it('preserves known zero cost profit and margin',()=>{
  show({actual_cost:0,profit:0,margin_percent:0})
- expect(row('Actual Cost')).toHaveTextContent('$0.00')
- expect(row('Profit')).toHaveTextContent('$0.00')
+ expect(row('Actual Cost')).toHaveTextContent('EUR 0.00')
+ expect(row('Profit')).toHaveTextContent('EUR 0.00')
  expect(row('Margin')).toHaveTextContent('0%')
 })
 it('treats invalid actual financial values as unknown',()=>{
@@ -25,8 +26,8 @@ it('treats invalid actual financial values as unknown',()=>{
 })
 it('labels BOM estimates separately from unknown actuals',()=>{
  show({estimated_cogs:21,estimated_profit:-1.5,estimated_margin_percent:-5})
- expect(row('Estimated COGS (BOM)')).toHaveTextContent('$21.00')
- expect(row('Est. Profit')).toHaveTextContent('-$1.50')
+ expect(row('Estimated COGS (BOM)')).toHaveTextContent('EUR 21.00')
+ expect(row('Est. Profit')).toHaveTextContent('EUR -1.50')
  expect(row('Est. Margin')).toHaveTextContent('-5%')
  for(const label of ['Actual Cost','Profit','Margin'])expect(row(label)).toHaveTextContent('Unknown')
 })

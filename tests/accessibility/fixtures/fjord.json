@@ -3,16 +3,131 @@
     "fleet.json",
     "admin.json"
   ],
+  "GET /api/alert-preferences": [],
+  "GET /api/alerts": [],
+  "GET /api/alerts/digest-status": {
+    "enabled": false
+  },
+  "GET /api/analytics": {
+    "jobs_by_date": {
+      "2026-11-15": {
+        "completed": 1,
+        "cost": 5,
+        "created": 1,
+        "revenue": 20
+      },
+      "2026-11-16": {
+        "completed": 1,
+        "cost": 5,
+        "created": 1,
+        "revenue": 20
+      }
+    },
+    "printer_stats": [
+      {
+        "avg_job_hours": 1,
+        "completed_jobs": 2,
+        "failed_jobs": 0,
+        "id": 1,
+        "name": "EDU Printer",
+        "success_rate": 100,
+        "total_hours": 2,
+        "utilization_pct": 40
+      }
+    ],
+    "summary": {
+      "avg_value_per_hour": 20,
+      "completed_jobs": 2,
+      "pending_jobs": 0,
+      "projected_revenue": 0,
+      "total_cost": 10,
+      "total_jobs": 2,
+      "total_margin": 30,
+      "total_models": 1,
+      "total_print_hours": 2,
+      "total_revenue": 40
+    },
+    "top_by_hour": [],
+    "worst_performers": []
+  },
+  "GET /api/analytics/cost-per-print": {
+    "rows": []
+  },
+  "GET /api/analytics/failures": {
+    "by_filament": [],
+    "by_model": [],
+    "by_printer": [],
+    "hms_errors": [],
+    "overall_success_rate": 0,
+    "top_failure_reasons": [],
+    "total_completed": 0,
+    "total_did_not_complete": 0,
+    "total_failed": 0,
+    "total_stopped": 0
+  },
+  "GET /api/analytics/time-accuracy": {
+    "avg_accuracy_pct": 0,
+    "by_model": [],
+    "by_printer": [],
+    "estimate_basis": "retained_schedule_interval",
+    "jobs_with_unknown_estimate": 0,
+    "recent": [],
+    "total_jobs": 0
+  },
+  "GET /api/archives": {
+    "items": [
+      {
+        "actual_duration_seconds": 3600,
+        "completed_at": "2026-11-16T12:00:00Z",
+        "display_name": "Fjord archive",
+        "filament_used_grams": 15,
+        "id": 1,
+        "material": null,
+        "material_source": null,
+        "materials": [],
+        "print_name": "Fjord archive",
+        "printer_display": "EDU Printer",
+        "printer_id": 1,
+        "printer_name": "EDU Printer",
+        "status": "completed",
+        "tags": [
+          "review"
+        ]
+      }
+    ],
+    "total": 1
+  },
   "GET /api/auth/me": {
-    "id": 1,
-    "username": "admin@school.test",
     "email": "admin@school.test",
+    "group_id": null,
+    "id": 1,
     "role": "admin",
-    "group_id": null
+    "username": "admin@school.test"
+  },
+  "GET /api/config/pause-reminders": {
+    "enabled": true,
+    "first_hours": 2,
+    "repeat_hours": 12
+  },
+  "GET /api/config/quiet-hours": {
+    "digest": true,
+    "enabled": false,
+    "end": "07:00",
+    "local_timezone": "UTC",
+    "start": "22:00",
+    "timezone_confirmed": false
+  },
+  "GET /api/config/temperature-alerts": {
+    "enabled": false
+  },
+  "GET /api/consumables": [],
+  "GET /api/filaments": [],
+  "GET /api/inventory/conflicts": {
+    "contradictions": [],
+    "duplicates": [],
+    "slots": []
   },
   "GET /api/license": {
-    "valid": true,
-    "tier": "education",
     "features": [
       "rbac",
       "permissions",
@@ -27,165 +142,68 @@
       "branding",
       "vision"
     ],
+    "managed_externally": true,
     "max_printers": 50,
     "max_users": 500,
-    "managed_externally": true
+    "tier": "education",
+    "valid": true
   },
-  "GET /api/alerts": [],
-  "GET /api/alerts/digest-status": {
-    "enabled": false
-  },
-  "GET /api/products": [],
-  "GET /api/consumables": [],
+  "GET /api/maintenance/logs": [],
+  "GET /api/maintenance/tasks": [],
+  "GET /api/models-with-pricing": [],
   "GET /api/orders": [],
+  "GET /api/printers/1/vision": {
+    "enabled": true
+  },
   "GET /api/production/replenishment": {
     "rows": [],
     "stock": {
       "connected": false,
-      "source": "none",
-      "refresh_in_seconds": 0
+      "refresh_in_seconds": 0,
+      "source": "none"
     },
-    "work_hidden": false,
-    "truncated": false
+    "truncated": false,
+    "work_hidden": false
   },
-  "GET /api/filaments": [],
-  "GET /api/inventory/conflicts": {"duplicates": [], "contradictions": [], "slots": []},
-  "GET /api/spools/reorder": [],
-  "GET /api/spools/spoolman-link-conflicts": [],
-  "GET /api/models-with-pricing": [],
-  "GET /api/maintenance/tasks": [],
-  "GET /api/maintenance/logs": [],
-  "GET /api/archives": {
-    "items": [
-      {
-        "id": 1,
-        "display_name": "Fjord archive",
-        "print_name": "Fjord archive",
-        "status": "completed",
-        "printer_id": 1,
-        "printer_name": "EDU Printer",
-        "printer_display": "EDU Printer",
-        "tags": [
-          "review"
-        ],
-        "completed_at": "2026-11-16T12:00:00Z",
-        "actual_duration_seconds": 3600,
-        "filament_used_grams": 15
-      }
-    ],
-    "total": 1
-  },
-  "GET /api/analytics": {
-    "summary": {
-      "total_jobs": 2,
-      "completed_jobs": 2,
-      "pending_jobs": 0,
-      "total_models": 1,
-      "total_revenue": 40,
-      "projected_revenue": 0,
-      "avg_value_per_hour": 20,
-      "total_print_hours": 2,
-      "total_cost": 10,
-      "total_margin": 30
-    },
-    "top_by_hour": [],
-    "worst_performers": [],
-    "printer_stats": [
-      {
-        "id": 1,
-        "name": "EDU Printer",
-        "completed_jobs": 2,
-        "failed_jobs": 0,
-        "total_hours": 2,
-        "utilization_pct": 40,
-        "success_rate": 100,
-        "avg_job_hours": 1
-      }
-    ],
-    "jobs_by_date": {
-      "2026-11-15": {
-        "created": 1,
-        "completed": 1,
-        "revenue": 20,
-        "cost": 5
-      },
-      "2026-11-16": {
-        "created": 1,
-        "completed": 1,
-        "revenue": 20,
-        "cost": 5
-      }
-    }
-  },
-  "GET /api/analytics/time-accuracy": {
-    "total_jobs": 0,
-    "avg_accuracy_pct": 0,
-    "by_printer": [],
-    "by_model": [],
-    "recent": [],
-    "jobs_with_unknown_estimate": 0,
-    "estimate_basis": "retained_schedule_interval"
-  },
-  "GET /api/analytics/failures": {
-    "total_completed": 0,
-    "total_failed": 0,
-    "total_stopped": 0,
-    "total_did_not_complete": 0,
-    "overall_success_rate": 0,
-    "by_printer": [],
-    "by_model": [],
-    "by_filament": [],
-    "top_failure_reasons": [],
-    "hms_errors": []
-  },
+  "GET /api/products": [],
   "GET /api/settings/energy-rate": {
     "energy_cost_per_kwh": 0.1
   },
-  "GET /api/webhooks": [],
+  "GET /api/smtp-config": {
+    "base_url": "",
+    "enabled": false,
+    "from_address": "",
+    "host": "",
+    "password_set": false,
+    "port": 587,
+    "use_tls": true,
+    "username": ""
+  },
+  "GET /api/spools/reorder": [],
+  "GET /api/spools/spoolman-link-conflicts": [],
+  "GET /api/vision/models": [],
+  "GET /api/vision/monitor-status": {
+    "active_threads": null,
+    "capped": false,
+    "capped_count": 0,
+    "capped_printer_ids": [],
+    "max_threads": 16,
+    "reported": false
+  },
+  "GET /api/vision/printers": [
+    {
+      "camera_source": "auto",
+      "printer_id": 1
+    }
+  ],
   "GET /api/vision/settings": {
     "enabled": true,
     "retention_days": 30
   },
-  "GET /api/vision/monitor-status": {
-    "max_threads": 16,
-    "reported": false,
-    "active_threads": null,
-    "capped": false,
-    "capped_count": 0,
-    "capped_printer_ids": []
-  },
-  "GET /api/vision/models": [],
-  "GET /api/vision/printers": [
-    {
-      "printer_id": 1,
-      "camera_source": "auto"
-    }
-  ],
-  "GET /api/printers/1/vision": {
-    "enabled": true
-  },
+  "GET /api/webhooks": [],
   "POST /api/admin/logs": {
     "lines": [],
-    "source": "backend",
-    "next_cursor": null
-  },
-  "GET /api/alert-preferences": [],
-  "GET /api/config/pause-reminders": {"enabled": true, "first_hours": 2, "repeat_hours": 12},
-  "GET /api/config/quiet-hours": {"enabled": false, "start": "22:00", "end": "07:00", "digest": true, "timezone_confirmed": false, "local_timezone": "UTC"},
-  "GET /api/config/temperature-alerts": {
-    "enabled": false
-  },
-  "GET /api/smtp-config": {
-    "enabled": false,
-    "host": "",
-    "port": 587,
-    "username": "",
-    "password_set": false,
-    "from_address": "",
-    "use_tls": true,
-    "base_url": ""
-  },
-  "GET /api/analytics/cost-per-print": {
-    "rows": []
+    "next_cursor": null,
+    "source": "backend"
   }
 }

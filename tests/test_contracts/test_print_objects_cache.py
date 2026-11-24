@@ -55,6 +55,11 @@ def test_unavailable_marker_overrides_cache_and_hash_mismatch_refuses(stored):
     assert plate_cache.objects_for_row(stored) is None
 
 
+def test_missing_payload_has_no_object_list(stored):
+    os.unlink(stored.stored_path)
+    assert plate_cache.objects_for_row(stored) is None
+
+
 def test_sweep_removes_objects_with_entry(stored, review_db):
     plate_cache.objects_for_row(stored)
     entry = plate_cache.entry_dir(stored.file_hash)

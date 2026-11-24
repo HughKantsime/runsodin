@@ -1,3 +1,4 @@
+import { useMoney } from '../../contexts/DisplayCurrency'
 import PageState from '../../components/ui/PageState'
 import Table from '../../components/ui/Table'
 import { useQuery } from '@tanstack/react-query'
@@ -19,7 +20,6 @@ import { PageHeader, StatCard, ProgressBar as SharedProgressBar, Button } from '
 const COLORS = ['#3B82F6', '#22C55E', '#F59E0B', '#EF4444', '#8B5CF6', '#06B6D4', '#EC4899', '#F97316']
 
 // Unknown (null) money — a counted job has no price/cost — is shown as Unknown, never $0.00.
-const money = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) ? `$${value.toFixed(2)}` : 'Unknown')
 
 const CHART_TOOLTIP = { backgroundColor: 'var(--chart-tooltip-bg)', border: 'none', borderRadius: '6px', boxShadow: 'var(--chart-tooltip-shadow)', color: 'var(--brand-text-primary)' }
 
@@ -110,6 +110,7 @@ function PrinterUtilization({ data }) {
 }
 
 function ModelRankings({ topData, worstData, jobCountData = [] }) {
+  const money = useMoney()
   const RankRow = ({ item, index, isWorst }: { item: { name: string; value_per_hour?: number; value_per_bed?: number; build_time_hours?: number }; index: number; isWorst?: boolean }) => {
     const medalColors = isWorst
       ? ['bg-red-900/50 text-red-300', 'bg-red-900/30 text-red-400', 'bg-red-900/20 text-red-500']
@@ -123,10 +124,10 @@ function ModelRankings({ topData, worstData, jobCountData = [] }) {
         <span className="text-sm flex-1 truncate">{item.name}</span>
         <div className="text-right shrink-0">
           <div className={`font-semibold text-sm tabular-nums ${isWorst ? 'text-red-400' : 'text-green-400'}`}>
-            ${item.value_per_hour?.toFixed(2)}/hr
+            {money(item.value_per_hour, '—', 2)}/hr
           </div>
           <div className="text-xs text-[var(--brand-text-muted)] tabular-nums">
-            ${item.value_per_bed?.toFixed(2)}/bed &middot; {item.build_time_hours}h
+            {money(item.value_per_bed, '—')}/bed &middot; {item.build_time_hours}h
           </div>
         </div>
       </div>
@@ -150,7 +151,7 @@ function ModelRankings({ topData, worstData, jobCountData = [] }) {
         <div className="flex items-center gap-2 mb-3">
           <TrendingUp size={16} className="text-green-400" />
           <h3 className="text-sm font-semibold text-[var(--brand-text-secondary)]">Top Performers</h3>
-          <span className="text-xs text-[var(--brand-text-muted)]">$/hour</span>
+          <span className="text-xs text-[var(--brand-text-muted)]">Value per hour</span>
         </div>
         <div>
           {topData.map((item, i) => <RankRow key={item.id} item={item} index={i} />)}
@@ -161,7 +162,7 @@ function ModelRankings({ topData, worstData, jobCountData = [] }) {
         <div className="flex items-center gap-2 mb-3">
           <TrendingDown size={16} className="text-red-400" />
           <h3 className="text-sm font-semibold text-[var(--brand-text-secondary)]">Needs Improvement</h3>
-          <span className="text-xs text-[var(--brand-text-muted)]">$/hour</span>
+          <span className="text-xs text-[var(--brand-text-muted)]">Value per hour</span>
         </div>
         <div>
           {worstData.map((item, i) => <RankRow key={item.id} item={item} index={i} isWorst />)}
@@ -207,6 +208,7 @@ function FleetOverview({ summary }) {
 
 
 function CostRevenueChart({ data, days = 30 }) {
+  const money = useMoney()
   const knownDailyMoney = (row: unknown): row is { revenue: number; cost: number } =>
     typeof row === 'object' && row !== null && 'revenue' in row && 'cost' in row
     && typeof row.revenue === 'number' && Number.isFinite(row.revenue)
@@ -239,10 +241,10 @@ function CostRevenueChart({ data, days = 30 }) {
           <BarChart data={chartData}>
             <CartesianGrid strokeDasharray="3 3" stroke="#1A1D25" />
             <XAxis dataKey="date" tick={{ fill: '#3D4559', fontSize: 11 }} axisLine={{ stroke: '#374151' }} tickLine={false} />
-            <YAxis tick={{ fill: '#3D4559', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${v}`} />
+            <YAxis tick={{ fill: '#3D4559', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => money(v)} />
             <Tooltip
               contentStyle={CHART_TOOLTIP}
-              formatter={(value) => [`$${value.toFixed(2)}`, undefined]}
+              formatter={(value) => [money(value), undefined]}
             />
             <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
             <Bar dataKey="revenue" fill="#22C55E" name="Revenue" radius={[3, 3, 0, 0]} />
@@ -440,6 +442,7 @@ const DATE_RANGES = [
 ]
 
 export default function Analytics() {
+  const money = useMoney()
   const [days, setDays] = useState(30)
 
   const { data, isLoading, error } = useQuery({
@@ -520,8 +523,8 @@ export default function Analytics() {
           color="amber"
         />
         <StatCard
-          label="Avg $/Hour"
-          value={`$${summary.avg_value_per_hour.toFixed(2)}`}
+          label="Average value per hour"
+          value={money(summary.avg_value_per_hour, 'Unknown', 2)}
           subtitle="across all models"
           icon={TrendingUp}
           color="blue"

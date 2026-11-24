@@ -2,50 +2,52 @@
   "$include": [
     "common.json"
   ],
-  "GET /api/vision/detections": {
-    "items": [],
-    "total": 0
-  },
-  "GET /api/config": {
-    "farm_timezone_effective": {
-      "zone": "America/New_York",
-      "source": "setting"
-    }
-  },
-  "GET /api/printers/1": {
-    "id": 1,
-    "name": "EDU Printer",
-    "nickname": "EDU Printer",
-    "type": "moonraker",
-    "status": "offline",
-    "last_seen": null,
-    "filament_slots": [],
-    "installed_nozzles": []
-  },
-  "GET /api/printers/1/telemetry": [],
-  "GET /api/printers/1/dispatch-recovery": {
-    "state": "no_retained_claim",
-    "release_available": false
-  },
   "GET /api/alerts/summary": {
-    "total": 0,
+    "maintenance_overdue": 0,
     "print_failed": 0,
     "spool_low": 0,
-    "maintenance_overdue": 0
+    "total": 0
   },
   "GET /api/cameras": [],
+  "GET /api/config": {
+    "currency": null,
+    "currency_basis": null,
+    "farm_timezone_effective": {
+      "source": "setting",
+      "zone": "America/New_York"
+    }
+  },
   "GET /api/filaments/combined": [],
+  "GET /api/jobs": [],
+  "GET /api/jobs/1/dispatch-status": {
+    "job_id": 1,
+    "observation": null,
+    "phase": "start_accepted",
+    "retry_blocked": true
+  },
   "GET /api/maintenance/status": [],
   "GET /api/models": [],
   "GET /api/presets": [],
   "GET /api/print-files": [],
   "GET /api/print-jobs": [],
-  "GET /api/jobs": [],
+  "GET /api/printers/1": {
+    "filament_slots": [],
+    "id": 1,
+    "installed_nozzles": [],
+    "last_seen": null,
+    "name": "EDU Printer",
+    "nickname": "EDU Printer",
+    "status": "offline",
+    "type": "moonraker"
+  },
+  "GET /api/printers/1/dispatch-recovery": {
+    "release_available": false,
+    "state": "no_retained_claim"
+  },
+  "GET /api/printers/1/telemetry": [],
   "GET /api/spools": [],
-  "GET /api/jobs/1/dispatch-status": {
-    "job_id": 1,
-    "phase": "start_accepted",
-    "retry_blocked": true,
-    "observation": null
+  "GET /api/vision/detections": {
+    "items": [],
+    "total": 0
   }
 }

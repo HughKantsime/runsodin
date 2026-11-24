@@ -1,4 +1,5 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { renderWithCurrency as render } from '../../test/renderWithCurrency'
 import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
@@ -46,7 +47,7 @@ test('F02-2.8-14 denied edit/delete permissions remove mutation controls',async(
 })
 test('F02-2.8-19/20 two selected archives compare exact IDs and highlight differing rows',async()=>{
  await loaded();screen.getAllByRole('checkbox').forEach(box=>fireEvent.click(box));fireEvent.click(screen.getByRole('button',{name:'Compare'}))
- const dialog=screen.getByRole('dialog');await within(dialog).findByText('$2.00')
+ const dialog=screen.getByRole('dialog');await within(dialog).findByText('EUR 2.00')
  expect(api.compare).toHaveBeenCalledWith(11,12);expect(within(dialog).getByRole('columnheader',{name:'Synthetic A'})).toBeInTheDocument();expect(within(dialog).getByRole('columnheader',{name:'Synthetic B'})).toBeInTheDocument()
  expect(within(dialog).getByText('Cost').closest('tr')).toHaveClass('bg-amber-900/20');expect(within(dialog).getByText('Printer').closest('tr')).not.toHaveClass('bg-amber-900/20')
  expect(within(dialog).getByText('Filament (g)')).toBeInTheDocument();expect(within(dialog).getByText('Started')).toBeInTheDocument();expect(within(dialog).getByText('Completed')).toBeInTheDocument()

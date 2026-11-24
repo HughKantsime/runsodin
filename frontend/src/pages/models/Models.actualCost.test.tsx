@@ -1,4 +1,5 @@
-import { render, screen, cleanup } from '@testing-library/react'
+import { screen, cleanup } from '@testing-library/react'
+import { renderWithCurrency as render } from '../../test/renderWithCurrency'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import Models from './Models'
@@ -28,7 +29,7 @@ afterEach(() => cleanup())
 test('a model with three prints on full cost records shows its actual cost per piece and how it compares', () => {
   mount()
   const line = screen.getByTestId('model-actual-cost')
-  expect(line).toHaveTextContent('Actual: $5.66 per piece over 3 prints')
+  expect(line).toHaveTextContent('Actual: EUR 5.66 per piece over 3 prints')
   expect(line).toHaveTextContent('Prints cost 7.9% more than estimated')
 })
 
