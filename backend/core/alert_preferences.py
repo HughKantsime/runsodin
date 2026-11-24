@@ -21,17 +21,20 @@ def preferences_for(db, alert_type):
     return list(users.values())
 
 
-def seed_attention_preferences(db):
+def seed_attention_preferences(db) -> bool:
     """Add missing defaults on upgrade; preserve every explicit user opt-out.
 
-    Called in the alert transaction, including installations
-    where only some users already have the new preferences. No schema change.
+    Return whether the alert transaction has new preferences to commit.
     """
-    for kind in ('print_paused', 'print_cancelled'):
+    inserted = 0
+    for kind in ('print_paused', 'print_cancelled', 'printer_error'):
         # PostgreSQL infers the inserted value as alerttype and the comparison as
         # text. Keep separate binds so neither context dictates the other's type.
-        db.execute(text("INSERT INTO alert_preferences(user_id,alert_type,in_app,browser_push,email) "
-                        "SELECT u.id,:kind,TRUE,TRUE,FALSE FROM users u "
-                        "WHERE NOT EXISTS (SELECT 1 FROM alert_preferences p "
-                        "WHERE p.user_id=u.id AND LOWER(CAST(p.alert_type AS TEXT))=:match_kind)"),
-                   {'kind': kind, 'match_kind': kind})
+        result = db.execute(text(
+            "INSERT INTO alert_preferences(user_id,alert_type,in_app,browser_push,email) "
+            "SELECT u.id,:kind,TRUE,TRUE,FALSE FROM users u "
+            "WHERE NOT EXISTS (SELECT 1 FROM alert_preferences p "
+            "WHERE p.user_id=u.id AND LOWER(CAST(p.alert_type AS TEXT))=:match_kind)"
+        ), {'kind': kind, 'match_kind': kind})
+        inserted += result.rowcount
+    return inserted > 0

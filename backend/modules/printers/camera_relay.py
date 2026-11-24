@@ -1,8 +1,8 @@
 """Internal pinned relay for HTTP/MJPEG and Bambu chamber cameras.
 
-go2rtc hands HTTP camera sources to ffmpeg, which resolves names itself and
-follows redirects. Instead of the camera URL, the go2rtc config names this
-relay; ffmpeg therefore only ever talks to ODIN, and ODIN fetches the camera:
+go2rtc uses this relay directly for both the main HTTP camera stream and its
+MJPEG stream. ODIN fetches the camera and passes the response through
+without an ffmpeg transcode:
 
 - through the LAN device destination policy (core.webhook_utils.device_request):
   host resolved and validated, connection pinned to the validated address,
@@ -193,7 +193,7 @@ def relay_base_url() -> str:
 
 
 def relay_url(printer_id: int) -> str:
-    """URL go2rtc/ffmpeg use for this printer's HTTP camera. The address is checked before
+    """URL go2rtc uses for this printer's HTTP camera. The address is checked before
     the token is made: a refused address (RelayUrlRefused) yields no token."""
     base = relay_base_url()
     return base + RELAY_PATH.format(printer_id=int(printer_id), token=relay_token(printer_id))
@@ -269,7 +269,7 @@ _SNIFF_BYTES = 64 * 1024
 def _body_matches(content_type: str, head: bytes) -> bool:
     """The body really is what the camera declared: a multipart stream starts with its
     boundary delimiter, an image with a JPEG start-of-image marker. Anything else (an HLS
-    playlist, HTML, another container format) is refused before ffmpeg sees a byte."""
+    playlist, HTML, another container format) is refused before the relay sends any bytes."""
     kind = (content_type or "").split(";", 1)[0].strip().lower()
     if kind.startswith("multipart/"):
         import re

@@ -4,6 +4,10 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Printer errors, including temperature problems and unconfirmed pause, resume, or stop commands, now reach you in the app and by push by default. Previously, unconfirmed commands and temperature problems reached only subscribed webhooks unless you had a printer-error preference.
+
 ## [2.6.0] - 2026-11-22
 
 

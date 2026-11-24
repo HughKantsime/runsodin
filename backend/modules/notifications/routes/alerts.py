@@ -392,6 +392,20 @@ async def delete_alert(
 
 # ============== Alert Preferences ==============
 
+def _saved_preferences(db, uid):
+    # Read the stored spelling as text so legacy rows can be displayed and updated
+    # by id. Match the dispatcher's choice when both spellings already exist.
+    stored = cast(AlertPreference.alert_type, String)
+    rows = db.query(AlertPreference.id, AlertPreference.user_id, func.lower(stored).label("alert_type"),
+                    AlertPreference.in_app, AlertPreference.browser_push, AlertPreference.email,
+                    AlertPreference.threshold_value).filter(AlertPreference.user_id == uid).order_by(
+                        (stored == func.lower(stored)).desc(), AlertPreference.id.desc())
+    by_type = {}
+    for row in rows:
+        by_type.setdefault(row.alert_type, row)
+    return by_type
+
+
 @router.get("/alert-preferences", response_model=List[AlertPreferenceResponse])
 async def get_alert_preferences(
     current_user: dict = Depends(get_current_user),
@@ -401,20 +415,17 @@ async def get_alert_preferences(
     if not current_user:
         raise HTTPException(status_code=401, detail="Not authenticated")
 
-    prefs = db.query(AlertPreference).filter(
-        AlertPreference.user_id == current_user["id"]
-    ).all()
-
-    if not prefs:
+    uid = current_user["id"]
+    saved = _saved_preferences(db, uid)
+    if not saved:
         from modules.notifications.alert_dispatcher import seed_alert_preferences
-        seed_alert_preferences(db, current_user["id"])
-        prefs = db.query(AlertPreference).filter(
-            AlertPreference.user_id == current_user["id"]
-        ).all()
+        seed_alert_preferences(db, uid)
+        saved = _saved_preferences(db, uid)
 
-    existing_types = {pref.alert_type for pref in prefs}
-    for default_id, alert_type in ((-1, AlertType.PRINT_PAUSED), (-2, AlertType.PRINT_CANCELLED)):
-        if alert_type not in existing_types:
+    prefs = sorted(saved.values(), key=lambda row: row.id)
+    for default_id, alert_type in ((-1, AlertType.PRINT_PAUSED), (-2, AlertType.PRINT_CANCELLED),
+                                  (-3, AlertType.PRINTER_ERROR)):
+        if alert_type not in saved:
             # Negative IDs identify response-only defaults; PUT upserts by alert type.
             prefs.append(AlertPreferenceResponse(
                 id=default_id, user_id=current_user["id"], alert_type=alert_type,
@@ -434,26 +445,17 @@ async def update_alert_preferences(
         raise HTTPException(status_code=401, detail="Not authenticated")
 
     uid = current_user["id"]
+    saved = _saved_preferences(db, uid)
     for pref_data in data.preferences:
-        existing = db.query(AlertPreference).filter(
-            AlertPreference.user_id == uid,
-            AlertPreference.alert_type == pref_data.alert_type
-        ).first()
-
-        if existing:
-            existing.in_app = pref_data.in_app
-            existing.browser_push = pref_data.browser_push
-            existing.email = pref_data.email
-            existing.threshold_value = pref_data.threshold_value
+        kind = pref_data.alert_type
+        values = pref_data.model_dump(exclude={"alert_type"})
+        if kind in saved:
+            db.query(AlertPreference).filter(AlertPreference.id == saved[kind].id).update(values)
         else:
-            db.add(AlertPreference(
-                user_id=uid,
-                alert_type=pref_data.alert_type,
-                in_app=pref_data.in_app,
-                browser_push=pref_data.browser_push,
-                email=pref_data.email,
-                threshold_value=pref_data.threshold_value
-            ))
+            pref = AlertPreference(user_id=uid, alert_type=kind, **values)
+            db.add(pref)
+            db.flush()
+            saved[kind] = pref
 
     db.commit()
     return {"status": "ok", "message": "Preferences updated"}

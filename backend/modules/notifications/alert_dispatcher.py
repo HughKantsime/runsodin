@@ -57,6 +57,7 @@ DEFAULT_PREFERENCES = [
     {"alert_type": AlertType.PRINT_PAUSED, "in_app": True, "browser_push": True, "email": False, "threshold_value": None},
     {"alert_type": AlertType.PRINT_CANCELLED, "in_app": True, "browser_push": True, "email": False, "threshold_value": None},
     {"alert_type": AlertType.PRINT_FAILED, "in_app": True, "browser_push": True, "email": False, "threshold_value": None},
+    {"alert_type": AlertType.PRINTER_ERROR, "in_app": True, "browser_push": True, "email": False, "threshold_value": None},
     {"alert_type": AlertType.SPOOL_LOW, "in_app": True, "browser_push": False, "email": False, "threshold_value": 100.0},
     {"alert_type": AlertType.MAINTENANCE_OVERDUE, "in_app": True, "browser_push": False, "email": False, "threshold_value": None},
     {"alert_type": AlertType.JOB_SUBMITTED, "in_app": True, "browser_push": True, "email": False, "threshold_value": None},
@@ -423,11 +424,10 @@ def stage_alert(
 
     db.flush()  # Pending alerts must participate even with SessionLocal(autoflush=False).
     from core.alert_preferences import seed_attention_preferences
-    seed_attention_preferences(db)
+    seeded_preferences = seed_attention_preferences(db)
     preferences = preferences_for(db, alert_type)
 
     # Auto-seed preferences without committing the caller transaction.
-    seeded_preferences = False
     if not preferences:
         users = db.execute(text("SELECT id FROM users WHERE is_active IS TRUE")).fetchall()
         for user_row in users:

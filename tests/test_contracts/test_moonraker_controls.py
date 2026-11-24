@@ -126,6 +126,8 @@ def test_monitor_replay_from_attended_capture(farm, monkeypatch, action):
 def test_replacement_and_offline_timeout_alert_once(farm, monkeypatch):
     with farm.factory() as db:
         install_printer(db)
+        assert db.execute(text("SELECT in_app,browser_push,email FROM alert_preferences "
+                               "WHERE user_id=1 AND alert_type='printer_error'")).one() == (True, True, False)
         pending(db, monkeypatch, "pause")
         start = pending(db, monkeypatch, "resume")
         observe(db, "paused", start + timedelta(seconds=270))
@@ -136,6 +138,8 @@ def test_replacement_and_offline_timeout_alert_once(farm, monkeypatch):
             controls.observe_control(db, 9, "Test printer", now=start + timedelta(seconds=seconds))
         assert controls._read(db, 9) is None
         assert len(farm.delivered) == 1
+        plan, = farm.delivered
+        assert set(plan.push_users) == {1, 2} and not plan.email_users
         rows = db.execute(text("SELECT user_id,message FROM alerts ORDER BY user_id")).all()
         assert rows == [(i, "Test printer: ODIN sent Resume but the printer did not confirm it within 5 minutes. Check the printer.") for i in (1,2)]
         assert db.execute(text("SELECT action FROM audit_logs WHERE action LIKE 'printer.%' ORDER BY id")).scalars().all() == [

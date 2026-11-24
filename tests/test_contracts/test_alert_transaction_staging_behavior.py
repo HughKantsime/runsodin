@@ -4,6 +4,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 from core.base import AlertType, AlertSeverity
 from modules.notifications.models import AlertPreference
+from tests.test_contracts.test_cert_E_notif_postgres import pg_engine
 from tests.test_contracts.test_education_review_workflow import review_db
 
 
@@ -109,3 +110,42 @@ def test_push_cleanup_commit_failure_preserves_committed_job_and_alert(review_db
         assert independent.execute(text('SELECT COUNT(*) FROM jobs WHERE id=992')).scalar_one() == 1
         assert independent.execute(text('SELECT COUNT(*) FROM alerts WHERE job_id=992')).scalar_one() == 1
         assert independent.execute(text('SELECT COUNT(*) FROM push_subscriptions WHERE user_id=4')).scalar_one() == 1
+
+
+@pytest.mark.parametrize('database', ['sqlite', pytest.param('postgresql', marks=pytest.mark.postgresql)])
+def test_printer_error_upgrade_preserves_existing_choices(request, database, monkeypatch):
+    from modules.notifications import alert_dispatcher as dispatcher
+    engine = (request.getfixturevalue('pg_engine') if database == 'postgresql'
+              else request.getfixturevalue('review_db').get_bind())
+    if database == 'postgresql':
+        # The current native enum only allows lowercase. Model a legacy label on the owned test DB.
+        with engine.begin() as conn:
+            conn.exec_driver_sql("ALTER TYPE alerttype ADD VALUE 'PRINTER_ERROR'")
+    with Session(engine) as db:
+        db.execute(text("INSERT INTO users(id,username,password_hash,role,is_active) VALUES "
+                        "(991,'missing','unused','operator',TRUE),(992,'off','unused','operator',TRUE),"
+                        "(993,'legacy','unused','operator',TRUE)"))
+        db.execute(text("INSERT INTO alert_preferences(user_id,alert_type,in_app,browser_push,email) VALUES "
+                        "(992,'printer_error',FALSE,FALSE,FALSE),(993,'PRINTER_ERROR',FALSE,FALSE,FALSE)"))
+        query = text("SELECT id,user_id,CAST(alert_type AS TEXT),in_app,browser_push,email,threshold_value "
+                     "FROM alert_preferences WHERE user_id IN (991,992,993) "
+                     "AND LOWER(CAST(alert_type AS TEXT))='printer_error' ORDER BY user_id")
+        before = db.execute(query).all()
+        db.commit()
+        plans = []
+        monkeypatch.setattr(dispatcher, 'deliver_staged_alert', lambda _, plan: plans.append(plan))
+        monkeypatch.setattr(dispatcher, 'should_suppress_notification', lambda **_: False)
+        # Even when nobody receives this alert the upgrade must commit for every user.
+        dispatcher.dispatch_alert(db, AlertType.PRINTER_ERROR, AlertSeverity.WARNING, 'Printer error',
+                                  target_user_ids=[992, 993])
+        with Session(engine) as reader:
+            new, *existing = reader.execute(query).all()
+        assert existing == before
+        assert new[1:] == (991, 'printer_error', True, True, False, None)
+        dispatcher.dispatch_alert(db, AlertType.PRINTER_ERROR, AlertSeverity.WARNING, 'Printer error',
+                                  target_user_ids=[991, 992, 993])
+        first, second = plans
+        assert first.in_app_users == first.push_users == first.email_users == ()
+        assert second.in_app_users == second.push_users == (991,) and second.email_users == ()
+        assert db.execute(text('SELECT user_id FROM alerts WHERE user_id IN (991,992,993)')).scalars().all() == [991]
+        assert db.execute(query).all() == [new, *before]

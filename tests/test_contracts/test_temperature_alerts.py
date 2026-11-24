@@ -31,13 +31,13 @@ def farm(tmp_path, monkeypatch):
         # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fixture SQL
         connection.execute(text("INSERT INTO users(id,username,password_hash,role,is_active,group_id) VALUES"
                                 "(1,'admin','x','admin',1,NULL),(2,'op','x','operator',1,NULL)"))
-        # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fixture SQL
-        connection.execute(text("INSERT INTO alert_preferences(user_id,alert_type,in_app,browser_push,email) VALUES"
-                                "(1,'printer_error',1,0,0),(2,'printer_error',1,0,0)"))
+    factory = sessionmaker(bind=engine)
+    with factory() as db:
+        for uid in (1, 2):
+            alert_dispatcher.seed_alert_preferences(db, uid)
     delivered = []
     monkeypatch.setattr(alert_dispatcher, "should_suppress_notification", lambda **_: False)
     monkeypatch.setattr(alert_dispatcher, "deliver_staged_alert", lambda db, plan: delivered.append(plan))
-    factory = sessionmaker(bind=engine)
     farm = SimpleNamespace(engine=engine, factory=factory, delivered=delivered)
     farm.run = lambda minute: temperature_alerts.run_pass(factory, now=BASE + timedelta(minutes=minute))
     yield farm
