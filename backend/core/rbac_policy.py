@@ -24,7 +24,6 @@ RBAC_DEFAULT_PAGE_ACCESS = {
     "upload": ["admin", "operator"],
     "maintenance": ["admin", "operator"],
     **{key: ["admin"] for key in LOCKED_PAGES},
-    "branding": ["admin"],
     "education_reports": ["admin", "operator"],
     "education": ["admin", "operator", "viewer"],
     "orders": ["admin", "operator", "viewer"],

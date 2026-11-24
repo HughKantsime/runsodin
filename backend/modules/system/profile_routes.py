@@ -524,7 +524,7 @@ async def apply_profile(
     gcodes = _profile_commands(row.category, profile_data)
     from core.auth import SECRET_KEY
     from core.dispatch_identity import build_identity
-    from core.dispatch_target_lock import acquire_target_lock
+    from core.dispatch_target_lock import STORAGE_REASONS, acquire_target_lock
     from core.dispatch_target_guard import unresolved_target
     from modules.printers.dispatch import _get_printer_info
     key=SECRET_KEY.encode() if isinstance(SECRET_KEY,str) else None
@@ -535,9 +535,9 @@ async def apply_profile(
     engine=db.get_bind();db.rollback()
     acquired=acquire_target_lock(engine,initial.target_key)
     if acquired.status!='acquired':
-        if acquired.message:
+        if acquired.message and acquired.reason in STORAGE_REASONS:
             raise HTTPException(409, {'storage_reason': acquired.reason, 'message': acquired.message})
-        raise HTTPException(409, 'Profile target is busy or uncertain; reconcile before retrying')
+        raise HTTPException(409, acquired.message or 'Profile target is busy or uncertain; reconcile before retrying')
     target_handle=acquired.handle
     try:
         current_row=db.execute(text('SELECT * FROM printer_profiles WHERE id=:id'),{'id':profile_id}).fetchone()

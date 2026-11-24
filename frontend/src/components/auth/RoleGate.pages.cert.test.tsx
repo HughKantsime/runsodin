@@ -189,19 +189,18 @@ for (const page of Object.keys(PAGES)) {
   it(`${page}: a role removed from the key is refused`, async () => {
     const roles: string[] = (WIRE.roles as any).admin.permissions.page_access[page]
     const victim = (['viewer', 'operator'] as Role[]).find(r => roles.includes(r))
-    if (!victim) return  // admin-only page; admin cannot be removed from admin/settings/audit and is the only holder
+    if (!victim) return  // No non-admin grant to remove.
     serve(victim, { [page]: roles.filter(r => r !== victim) })
     visit(PAGES[page][0])
     await expectRefused(page)
   })
-  if (['admin', 'settings', 'audit'].includes(page)) continue // The server fixes these page grants.
+  if (['admin', 'settings', 'audit', 'branding'].includes(page)) continue // The server fixes these page grants.
   it(`${page}: follows the effective matrix after a grant`, async () => {
     const roles: string[] = (WIRE.roles as any).admin.permissions.page_access[page]
     const guest = (['viewer', 'operator'] as Role[]).find(r => !roles.includes(r))
     if (!guest) return
     serve(guest, { [page]: [...roles, guest] })
     visit(PAGES[page][0])
-    if (page === 'branding') await expectRefused(page) // This route redirects to Settings.
-    else expect(await screen.findByRole('heading', { name: PAGES[page][1] })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: PAGES[page][1] })).toBeInTheDocument()
   })
 }

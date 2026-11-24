@@ -314,11 +314,15 @@ PAGE_ROUTES: dict[str, list[tuple[str, str]]] = {
     "education_reports": [("GET", "/api/education/usage-report")],
 }
 
-# Pages whose own routes restrict every read, independently of the matrix.
+# Settings sections enforce admin or superadmin reads. User administration reads
+# require admin. GET /api/audit-logs, /api/audit-logs/verify,
+# /api/export/audit-logs/jsonl and /api/settings/siem require platform superadmin.
+# The Branding page redirects to Settings. GET /api/branding is public for login and invoices.
 LOCKED_PAGES = {
     "settings": "Only administrators can open Settings",
     "admin": "Only administrators can open user administration",
     "audit": "Only platform administrators can open the audit log",
+    "branding": "Only administrators can open Branding in Settings",
 }
 
 # Page keys whose data comes only from shared endpoints (used by other pages,
@@ -337,7 +341,6 @@ PAGE_SHARED: dict[str, str] = {
     "upload": "the page only writes (upload.upload / upload.schedule / upload.delete)",
     "maintenance": "GET /api/maintenance/status also feeds the dashboard widget",
     **LOCKED_PAGES,
-    "branding": "GET /api/branding is public (login page and invoices)",
     "education": "Education reads are governed by Education workflow principals",
     "orders": "GET /api/orders also feeds global search and products",
     "products": "GET /api/products also feeds orders and global search",

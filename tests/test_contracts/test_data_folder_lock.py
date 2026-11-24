@@ -47,8 +47,10 @@ def test_lock_directory_creation_denied_names_the_folder_and_owner_fix(engine, m
     monkeypatch.setattr(locks.os, 'mkdir', denied)
     result = locks.acquire_target_lock(engine, KEY)
     assert (result.status, result.reason) == ('uncertain', 'lock_permissions')
-    assert database.parent.name in result.message and database.name + '.odin-sender-locks' in result.message
-    assert f'UID {os.geteuid()}' in result.message and 'ownership and write access' in result.message
+    assert database.parent.name in result.message
+    assert database.name not in result.message and str(database.parent) not in result.message
+    assert f'must be owned by the ODIN user (UID {os.geteuid()})' in result.message
+    assert 'write access' in result.message and 'No command was sent' in result.message
 
 
 def device_of(folder):
@@ -214,6 +216,17 @@ def test_profile_refusal_identifies_storage_or_conflict(profile_client, review_d
         response = client.post('/profiles/101/apply', headers=headers, json={'printer_id': 9})
         assert response.status_code == 409
         assert response.json()['detail'] == ({'storage_reason': 'folder_permissions', 'message': sentence} if mode else sentence)
+    assert calls == []
+
+
+@pytest.mark.parametrize('reason', [None, 'target_busy'])
+def test_profile_non_storage_refusal_preserves_message(profile_client, monkeypatch, reason):
+    client, issue, calls, _ = profile_client
+    message = 'Printer target is busy.'
+    monkeypatch.setattr(locks, 'acquire_target_lock', lambda *_: locks.TargetLockResult('conflict', reason=reason, message=message))
+    response = client.post('/profiles/101/apply', headers=issue(['read:models', 'write:printers']), json={'printer_id': 9})
+    assert response.status_code == 409
+    assert response.json()['detail'] == message
     assert calls == []
 
 

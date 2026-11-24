@@ -24,8 +24,8 @@ async function settingsAccess() { show(<Settings />); fireEvent.click(screen.get
 function response(data: any, ok = true) { return { ok, status: ok ? 200 : 403, headers: new Headers(), json: async () => data, text: async () => JSON.stringify(data) } }
 beforeEach(() => {
   vi.clearAllMocks(); boundary.role = 'admin'; boundary.failMember = false; boundary.invalidCandidates = false
-  const locks = {settings: 'Only administrators can open Settings', admin: 'Only administrators can open user administration', audit: 'Only platform administrators can open the audit log'}
-  let permissions = { page_access: {settings: ['admin'], admin: ['admin'], audit: ['admin'], jobs: ['admin']}, action_access: {} }
+  const locks = {settings: 'Only administrators can open Settings', admin: 'Only administrators can open user administration', audit: 'Only platform administrators can open the audit log', branding: 'Only administrators can open Branding in Settings'}
+  let permissions = { page_access: {settings: ['admin'], admin: ['admin'], audit: ['admin'], branding: ['admin'], jobs: ['admin']}, action_access: {} }
   boundary.fetch.mockImplementation(async (url: unknown, options: any = {}) => {
     const path = String(url); const method = options.method || 'GET'
     if (path === '/api/orgs/17/members' && method === 'POST' && boundary.failMember) return response({ detail: 'Fixture membership denied' },false)
@@ -145,7 +145,7 @@ it('shows each server-locked page as fixed and leaves ordinary pages editable', 
   await settingsAccess()
   fireEvent.click(screen.getByRole('button', { name: 'Permissions' }))
   expect(await screen.findByText('Only administrators can open Settings')).toBeVisible()
-  for (const page of ['settings', 'admin', 'audit']) {
+  for (const page of ['settings', 'admin', 'audit', 'branding']) {
     for (const role of ['admin', 'operator', 'viewer']) {
       const cell = screen.getByRole('switch', { name: `${role}: ${page}` })
       expect(cell).toBeDisabled()

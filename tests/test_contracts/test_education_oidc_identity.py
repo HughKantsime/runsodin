@@ -682,7 +682,7 @@ def test_verified_new_pro_user_has_ordinary_viewer_scope_after_upgrade(oidc_db, 
     assert check_org_access(user, None) and not check_org_access(user, 1)
 
 
-def test_pro_verified_email_requires_an_existing_organization_to_link_a_placeholder(oidc_db, tier_license):
+def test_pro_verified_email_refuses_to_link_platform_admin(oidc_db, tier_license):
     from modules.organizations.routes_oidc import OIDCIdentityError, _resolve_oidc_user
 
     tier_license("pro")
@@ -692,4 +692,34 @@ def test_pro_verified_email_requires_an_existing_organization_to_link_a_placehol
     ))
     with pytest.raises(OIDCIdentityError, match="oidc_email_conflict"):
         _resolve_oidc_user(oidc_db, _config(default_group_id=None), _claims(), {}, verified_email=True)
+    assert oidc_db.execute(text("SELECT oidc_subject FROM users WHERE username='placeholder'")).scalar_one() is None
+
+
+@pytest.mark.parametrize("default_group", [None, 1])
+def test_pro_verified_email_adopts_unassigned_placeholder(oidc_db, tier_license, default_group):
+    from modules.organizations.routes_oidc import _resolve_oidc_user
+
+    tier_license("pro")
+    oidc_db.execute(text(
+        "INSERT INTO users (username,email,password_hash,role,is_active) "
+        "VALUES ('placeholder','student@example.test','','viewer',1)"
+    ))
+    user = _resolve_oidc_user(oidc_db, _config(default_group_id=default_group), _claims(), {}, verified_email=True)
+    stored = oidc_db.execute(text(
+        "SELECT username, group_id, oidc_subject FROM users WHERE id=:id"
+    ), {"id": user["id"]}).one()
+    assert tuple(stored) == ("placeholder", None, _claims()["sub"])
+
+
+@pytest.mark.parametrize("group_id,password,mfa", [(1, "", False), (None, "fixture", False), (None, "", True)])
+def test_pro_verified_email_refuses_organization_or_credentials(oidc_db, tier_license, group_id, password, mfa):
+    from modules.organizations.routes_oidc import OIDCIdentityError, _resolve_oidc_user
+
+    tier_license("pro")
+    oidc_db.execute(text(
+        "INSERT INTO users (username,email,password_hash,role,is_active,group_id,mfa_enabled) "
+        "VALUES ('placeholder','student@example.test',:password,'viewer',1,:group_id,:mfa)"
+    ), {"group_id": group_id, "password": password, "mfa": mfa})
+    with pytest.raises(OIDCIdentityError, match="oidc_email_conflict"):
+        _resolve_oidc_user(oidc_db, _config(default_group_id=1), _claims(), {}, verified_email=True)
     assert oidc_db.execute(text("SELECT oidc_subject FROM users WHERE username='placeholder'")).scalar_one() is None

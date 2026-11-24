@@ -18,6 +18,12 @@ import threading
 import uuid
 
 
+# 'other' is the SQLite fallback when the database and lock files cannot be verified.
+STORAGE_REASONS = frozenset({
+    'filesystem', 'folder_permissions', 'lock_permissions', 'folder_owner', 'file_owner', 'other',
+})
+
+
 @dataclass(frozen=True)
 class TargetLockResult:
     status: str
@@ -109,12 +115,16 @@ def _storage_refusal(storage, folder='the data folder'):
         'Keep the data folder on a local disk or a Docker volume. No command was sent.'))
 
 
-def _owner_refusal(item, *, folder=False, allow_root=False):
+def _owner_guidance(item, *, allow_root=False):
     owner = f'the ODIN user (UID {os.geteuid()})'
     if allow_root:
         owner += ' or root (UID 0)'
+    return f'{item} must be owned by {owner}.'
+
+
+def _owner_refusal(item, *, folder=False, allow_root=False):
     return TargetLockResult('uncertain', reason='folder_owner' if folder else 'file_owner',
-                            message=f'{item} must be owned by {owner}. No command was sent.')
+                            message=f'{_owner_guidance(item, allow_root=allow_root)} No command was sent.')
 
 
 _LOCK_FILE_PERMISSIONS = TargetLockResult('uncertain', reason='lock_permissions', message=(
@@ -283,8 +293,8 @@ def _sqlite(engine,key):
             pass
         except PermissionError:
             return TargetLockResult('uncertain', reason='lock_permissions', message=(
-                f'ODIN cannot create {ascii(directory_name)} inside the data folder {ascii(parent.name or "/")}. '
-                f'Give the ODIN user (UID {os.geteuid()}) ownership and write access to the data folder. No command was sent.'))
+                f'{_owner_guidance(folder_label, allow_root=True)} Give the ODIN user write access '
+                'to create the printer lock folder. No command was sent.'))
         try:
             directory_fd = os.open(directory_name, dir_flags, dir_fd=parent_fd)
         except PermissionError:

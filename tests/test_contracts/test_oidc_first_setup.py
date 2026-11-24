@@ -163,7 +163,7 @@ def test_first_save_may_leave_generic_provider_disabled(setup_client):
     }).status_code == 200
 
 
-@pytest.mark.parametrize("page", ["admin", "settings", "audit"])
+@pytest.mark.parametrize("page", ["admin", "settings", "audit", "branding"])
 def test_locked_page_refuses_non_admin_roles_and_ignores_stored_grants(setup_client, page):
     from core.models import SystemConfig
     from core.rbac_policy import page_roles

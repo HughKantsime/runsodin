@@ -220,7 +220,7 @@ def _resolve_oidc_user(
         return bound
 
     needs_group = get_license().has_feature("user_groups")
-    group_id = config.get("default_group_id")
+    group_id = config.get("default_group_id") if needs_group else None
     valid_group = group_id is not None and db.execute(
         text("SELECT 1 FROM groups WHERE id=:id AND is_org IS TRUE"),
         {"id": group_id},
@@ -246,8 +246,9 @@ def _resolve_oidc_user(
             has_local_password = bool((mapping.get("password_hash") or "").strip())
             has_mfa = bool(mapping.get("mfa_enabled"))
             if (
-                not valid_group
-                or mapping.get("group_id") != group_id
+                mapping.get("group_id") != group_id
+                # An organization-less admin is the platform superadmin.
+                or (not needs_group and mapping.get("role") == "admin")
                 or not bool(mapping.get("is_active"))
                 or mapping.get("oidc_issuer") is not None
                 or mapping.get("oidc_subject") is not None
@@ -289,8 +290,6 @@ def _resolve_oidc_user(
         raise OIDCIdentityError("oidc_role_configuration_invalid")
     if needs_group and not valid_group:
         raise OIDCIdentityError("oidc_default_tenant_required")
-    if not needs_group:
-        group_id = None
 
     username = email.split("@", 1)[0]
     base_username = username
