@@ -4,6 +4,8 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
 - Education submissions now count toward the student's print quota when approved. If the student has reached a limit, the submission stays in review.
 
 ## [2.7.0] - 2026-11-24

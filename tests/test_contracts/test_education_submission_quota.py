@@ -1,4 +1,5 @@
 """A student spends one job from their print quota when review queues a submission."""
+import io
 import uuid
 from unittest.mock import patch
 
@@ -13,13 +14,16 @@ from core.db import get_db
 from core.dependencies import get_current_user
 from core.quota import _get_period_key
 from modules.organizations import education_review_service, routes_education_reviews
-from modules.organizations.education_policy import reconcile_dispatch_denial
+from modules.organizations.education_policy import reconcile_dispatch_denial, reconcile_schedule_denial
+from modules.organizations.education_schemas import SubmissionRejection
+from modules.organizations.education_submission_service import process_sliced_3mf_submission
 from tests.test_contracts.test_api_token_delegation_behavior import token_client
 from tests.test_contracts.test_education_classes import attach, setup
 from tests.test_contracts.test_education_classes_edges import another_submission
 from tests.test_contracts.test_education_classes_migration import native_engine, pg_engine
 from tests.test_contracts.test_education_mapped_approval_endpoint import mapped_case
 from tests.test_contracts.test_education_review_workflow import _principal, review_session
+from tests.test_contracts.test_education_submission_upload import _ample_disk, _sliced_3mf
 
 
 REFUSAL = "This student has used up their print quota for this period."
@@ -135,16 +139,58 @@ def test_owner_precedence(review_db, approve, charged_to, submitter, owner):
     assert usage(review_db) == [(owner, 1, 0, 0)]
 
 
-def test_return_to_review_charges_only_on_fresh_approval(review_db, approve):
+def test_missing_job_quota_owner_allows_approval(review_db, approve):
+    db = review_db
+    db.execute(text('UPDATE jobs SET charged_to_user_id=4 WHERE id=13'))
+    db.execute(text('DELETE FROM users WHERE id=4'))
+    db.execute(text('UPDATE users SET quota_jobs=1 WHERE id IN (1,2)'))
+    db.commit()
+    assert approve().status_code == 200
+    assert state(db, 14) == ('pending', 'pending', 2)
+    assert usage(db) == []
+
+
+@pytest.mark.parametrize('return_to_review,second_period', [
+    (reconcile_dispatch_denial, '2026-10'),
+    (reconcile_schedule_denial, '2026-11'),
+], ids=['dispatch-same-month', 'scheduler-later-month'])
+def test_return_to_review_only_charges_first_approval(review_db, approve, return_to_review, second_period):
+    db = review_db
+    db.execute(text("UPDATE users SET quota_jobs=1,quota_period='monthly' WHERE id=1"))
+    db.commit()
+    with patch('core.quota._get_period_key', return_value='2026-10') as period:
+        assert approve().status_code == 200
+        assert usage(db) == [(1, 1, 0, 0)]
+        period.return_value = second_period
+        assert return_to_review(db, submission_id=14, job_id=13, expected_revision=2,
+                                reason='Printer compatibility changed')
+        db.commit()
+        assert state(db, 14) == ('submitted', 'submitted', 3)
+        assert approve(revision=3).status_code == 200
+    assert state(db, 14) == ('pending', 'pending', 4)
+    assert db.execute(text('SELECT user_id,period_key,jobs_used FROM quota_usage')).all() == [(1, '2026-10', 1)]
+
+
+def test_revised_upload_after_rejection_counts_as_new_job(review_db, approve, tmp_path, monkeypatch):
     db = review_db
     db.execute(text('UPDATE users SET quota_jobs=2 WHERE id=1'))
     db.commit()
     assert approve().status_code == 200
     assert reconcile_dispatch_denial(db, submission_id=14, job_id=13, expected_revision=2,
                                      reason='Printer compatibility changed')
-    assert state(db, 14) == ('submitted', 'submitted', 3)
+    education_review_service.reject_submission(
+        db, submission_id=14, principal=_principal(2),
+        body=SubmissionRejection(revision=3, reason='Revise supports', command_id=uuid.uuid4()),
+    )
+    _ample_disk(monkeypatch)
+    revised = process_sliced_3mf_submission(
+        db, source=io.BytesIO(_sliced_3mf()), original_filename='revised.3mf',
+        operation_id=str(uuid.uuid4()), principal=_principal(1), cost_center_id=7,
+        storage_root=tmp_path / 'uploads',
+    )
+    assert revised['id'] != 14 and revised['job_id'] != 13
     assert usage(db) == [(1, 1, 0, 0)]
-    assert approve(revision=3).status_code == 200
+    assert approve(revised['id']).status_code == 200
     assert usage(db) == [(1, 2, 0, 0)]
 
 

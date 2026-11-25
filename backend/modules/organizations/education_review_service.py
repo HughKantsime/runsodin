@@ -416,8 +416,14 @@ def _charge_student_quota(db: Session, row) -> None:
     owner = db.execute(text(
         "SELECT u.id,u.quota_jobs,u.quota_grams,u.quota_hours,u.quota_period "
         "FROM jobs j JOIN users u ON u.id=COALESCE(j.charged_to_user_id,j.submitted_by,:student) "
-        "WHERE j.id=:job AND j.charged_to_org_id=:org"
-    ), {"student": row.submitted_by, "job": row.job_id, "org": row.org_id}).mappings().one()
+        "WHERE j.id=:job AND j.charged_to_org_id=:org "
+        # Approvals from before quota enforcement also count as already admitted.
+        "AND NOT EXISTS (SELECT 1 FROM education_audit_events WHERE org_id=:org "
+        "AND resource_type='submission' AND resource_id=:submission AND action='submission.approve')"
+    ), {"student": row.submitted_by, "job": row.job_id, "org": row.org_id,
+        "submission": str(row.id)}).mappings().first()
+    if owner is None:
+        return
     try:
         charge_job_quota(db, owner)
     except OdinError as error:
