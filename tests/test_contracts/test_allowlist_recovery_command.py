@@ -147,6 +147,17 @@ def test_legacy_mode_and_zero_ttl(factory, monkeypatch, capsys):
     assert "Running ODIN applies this at once." in capsys.readouterr().out
 
 
+def test_truthy_enabled_keeps_enforced_networks(factory, capsys):
+    store(factory, {**ENABLED, "enabled": 1})
+    assert _ip_allowlist_denial(factory, "198.51.100.8") == 403
+    assert main(["--disable"], session_factory=factory) == 0
+    assert "networks and mode were kept" in capsys.readouterr().out
+    assert saved(factory) == DISABLED
+    details = audits(factory)[-1].details
+    assert details["previous_enabled"] is True
+    assert details["network_count"] == len(ENABLED["cidrs"])
+
+
 def test_audit_failure_rolls_back(factory, engine, capsys):
     store(factory, ENABLED)
     before = audits(factory)
@@ -188,16 +199,44 @@ def test_invalid_json_with_real_entry_point(tmp_path, malformed):
     with engine.begin() as db:
         db.execute(text("INSERT INTO system_config (key, value) VALUES ('ip_allowlist', :value)"),
                    {"value": malformed})
-    env = dict(os.environ, DATABASE_URL=str(engine.url), DEBUG="true", ODIN_AUDIT_KEY_DIR=str(tmp_path / "keys"))
+    env = dict(os.environ, DATABASE_URL=str(engine.url), DEBUG="true", ODIN_AUDIT_KEY_DIR=str(tmp_path / "keys"),
+               ODIN_IP_ALLOWLIST_CACHE_SECONDS="2")
     command = [sys.executable, "-m", "modules.system.allowlist_recovery"]
-    for args, expected in [([], "cannot be read"), (["--disable"], "old list could not be kept")]:
+    for args, expected in [
+        ([], "The stored allowlist cannot be read.\nTo disable the IP allowlist, run this command again with --disable.\n"),
+        (["--disable"], "The IP allowlist is disabled. The old list could not be kept.\nRunning ODIN applies this within 2 seconds.\n"),
+    ]:
         result = subprocess.run(command + args, cwd=BACKEND, env=env, capture_output=True, text=True)
-        assert result.returncode == 0 and expected in result.stdout
-        assert "bad-json-marker" not in result.stdout and "SELECT" not in result.stdout and not result.stderr
+        assert result.returncode == 0
+        assert result.stdout == expected
+        assert not result.stderr
     factory = sessionmaker(bind=engine)
     assert saved(factory) == EMPTY
     [entry] = audits(factory)
     assert entry.details == {"stored_value_unreadable": True, "source": "from the host command"}
+    engine.dispose()
+
+
+@pytest.mark.parametrize("uri", ["1", "true"])
+def test_sqlite_uri_recovery_leaves_no_new_thread(tmp_path, uri):
+    path = tmp_path / "allowlist.db"
+    engine = create_engine(f"sqlite:///{path}")
+    bootstrap_database(engine)
+    factory = sessionmaker(bind=engine)
+    store(factory, ENABLED)
+    code = """
+import threading
+before = set(threading.enumerate())
+from modules.system.allowlist_recovery import main
+for args in ([], ["--disable"]):
+    assert main(args) == 0
+    assert set(threading.enumerate()) <= before
+"""
+    env = dict(os.environ, DATABASE_URL=f"sqlite:///{path.as_uri()}?mode=rw&uri={uri}",
+               ODIN_AUDIT_KEY_DIR=str(tmp_path / "keys"))
+    subprocess.run([sys.executable, "-c", code], check=True, cwd=BACKEND, env=env, timeout=30)
+    assert saved(factory) == DISABLED
+    assert len(audits(factory)) == 1
     engine.dispose()
 
 
@@ -208,6 +247,27 @@ def test_missing_database_exits_cleanly_without_creating_it(tmp_path):
                             capture_output=True, text=True)
     assert result.returncode == 1 and not path.exists()
     assert not result.stdout and result.stderr == "ODIN could not read or save the IP allowlist.\n"
+
+
+def test_debug_sql_on_import_stays_off_stdout(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'allowlist.db'}")
+    with engine.begin() as db:
+        SystemConfig.__table__.create(db)
+    engine.dispose()
+    # core.db opens its first SQLite connection while the module is loading.
+    code = """
+from sqlalchemy import Engine, event
+@event.listens_for(Engine, "engine_connect", once=True)
+def on_first_connection(conn):
+    conn.exec_driver_sql("PRAGMA user_version")
+from modules.system.allowlist_recovery import main
+raise SystemExit(main([]))
+"""
+    result = subprocess.run([sys.executable, "-c", code], check=True, cwd=BACKEND, text=True,
+                            env=dict(os.environ, DATABASE_URL=str(engine.url), DEBUG="true"),
+                            capture_output=True)
+    assert result.stdout == ("No allowlist is stored.\n"
+                             "To disable the IP allowlist, run this command again with --disable.\n")
 
 
 def test_unknown_argument(capsys):

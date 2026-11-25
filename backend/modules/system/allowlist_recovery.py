@@ -1,5 +1,6 @@
 """Show or disable the IP allowlist from the ODIN host."""
 import argparse
+from contextlib import redirect_stdout
 import ipaddress
 import json
 from pathlib import Path
@@ -8,6 +9,7 @@ from urllib.parse import unquote, urlsplit
 
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
+from sqlalchemy.util import asbool
 
 from core.audit import log_audit
 from core.ip_allowlist_cache import cache_ttl_seconds
@@ -21,11 +23,13 @@ def _session():
     url = make_url(settings.database_url)
     if url.get_backend_name() == "sqlite":
         path = url.database or ""
-        if url.query.get("uri", "").lower() == "true" and path.startswith("file:"):
+        if path.startswith("file:") and asbool(url.query.get("uri", False)):
             path = unquote(urlsplit(path).path)
         if not Path(path).is_file():
             raise FileNotFoundError
-    from core.db import SessionLocal, engine
+    # With DEBUG enabled, the import itself can echo SQL on the first connection.
+    with redirect_stdout(sys.stderr):
+        from core.db import SessionLocal, engine
     engine.echo = False  # Keep SQL debug output out of the host command.
     return SessionLocal()
 
@@ -40,10 +44,14 @@ def _policy(raw):
         return None
     try:
         value = json.loads(raw, parse_constant=_reject_non_json_number)
-        if (not isinstance(value, dict) or not isinstance(value.get("enabled"), bool)
-                or not isinstance(value.get("cidrs"), list)
+        if (not isinstance(value, dict) or not isinstance(value.get("cidrs"), list)
                 or not isinstance(value.get("mode", "api_and_ui"), str)):
             return None
+        if not isinstance(value.get("enabled"), bool):
+            # Middleware enforces a nonempty list for any truthy enabled value.
+            if not (value.get("enabled") and value["cidrs"]):
+                return None
+            value["enabled"] = True
         for network in value["cidrs"]:
             if not isinstance(network, str):
                 return None
