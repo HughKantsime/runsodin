@@ -18,7 +18,7 @@ How to rotate authentication, encryption, and audit signing keys in a deployed O
 
 ## 1. Rotate JWT_SECRET_KEY
 
-JWT secrets sign auth tokens. Rotating invalidates all active sessions — users must re-login.
+When ODIN starts with a new signing key, people must sign in again in browsers and apps, including on phones.
 
 ```bash
 # 1. Stop the container
@@ -35,7 +35,20 @@ chmod 600 /path/to/odin-data/.jwt_secret
 docker compose up -d
 ```
 
-**Impact:** All active sessions and tokens are invalidated. Users must log in again. No data loss.
+**Impact**
+
+Old WebSocket and controlled-log stream tokens stop working. Anyone partway through an MFA challenge, MFA setup, or OIDC sign-in must start sign-in again. When ODIN detects the key change, it also clears saved phone sign-ins. ODIN starts tracking the key the first time a version with this check starts, so a key changed during that same upgrade restart does not clear them.
+
+Other credentials have their own controls.
+
+- **Personal API tokens**, including agent and camera-only overlay tokens, keep working. Revoke the token under **Account → API Tokens**.
+- **The legacy global API key** still works. To retire it, replace or remove the configured `API_KEY` and recreate the container. If you supply the key through `API_KEY_FILE`, update that source.
+- **Unused password-reset links** work until they expire. Completing a password reset cancels the account’s other reset links.
+- **Authenticator apps and unused recovery codes** still work. Under **Account → Two-Factor Authentication**, disable MFA and set it up again to replace the authenticator, or choose **Regenerate recovery codes** to replace just the codes.
+- **Education roster receipts.** Restart a sign-in still waiting for Google or Canvas to respond. An unused code already returned to the same browser or an unexpired import preview can still work. Choose **Save roster settings** for that provider to cancel its outstanding receipts.
+- **Square and Google Classroom** keep their stored access credentials. Choose **Disconnect locally** in Square or **Disconnect** in Google Classroom to remove ODIN’s stored tokens.
+- **Notification webhook URLs and provider tokens** still work. Delete the provider’s entry under **Webhooks** to stop ODIN from using it.
+- **Push registrations** stay active. Under **Notifications**, choose **Disable Push** to unsubscribe from browser push. To remove a native device registration, use `DELETE /api/v1/push/register/{device_id}` for that account. For Web Push signing keys, see section 2a.
 
 ---
 
