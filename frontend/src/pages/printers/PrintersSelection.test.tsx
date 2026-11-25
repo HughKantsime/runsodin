@@ -4,10 +4,15 @@ import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import Printers from './Printers'
 import { applyTheme } from '../../hooks/themePreferences'
+import { bulkOps } from '../../api'
+import { bulkNames, testBulkUpdatePage } from '../../test/bulkUpdateCases'
+
+const notices = vi.hoisted(() => ({ partial: vi.fn(), success: vi.fn(), error: vi.fn() }))
+vi.mock('react-hot-toast', () => ({ default: Object.assign(notices.partial, notices) }))
 vi.mock('../../LicenseContext', () => ({ useLicense: () => ({ isPro: true, atPrinterLimit: () => false }) }))
 vi.mock('../../permissions', () => ({ canDo: () => true, canAccessPage: () => true, getCurrentUser: () => null }))
 beforeEach(() => { sessionStorage.clear(); localStorage.clear() })
-afterEach(() => { cleanup(); applyTheme('dark', 'classic') })
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.clearAllMocks(); applyTheme('dark', 'classic') })
 it.each(['classic', 'foundry'] as const)('%s printer selection retains its name and bulk-selection behavior', family => {
   applyTheme('dark', family)
   const client = new QueryClient({ defaultOptions: { queries: { enabled: false, retry: false } } })
@@ -30,4 +35,17 @@ it.each(['classic', 'foundry'] as const)('%s printer selection retains its name 
   expect(screen.getByText('1 selected')).toBeInTheDocument()
   fireEvent.click(checkbox)
   expect(checkbox).not.toBeChecked()
+})
+
+testBulkUpdatePage({
+  item: 'printer', action: 'Disable', notices,
+  checkbox: name => screen.getByRole('checkbox', { name: `Select ${name}` }),
+  mount: async (affected, skips) => {
+    vi.spyOn(bulkOps, 'printers').mockResolvedValue({ status: 'ok', affected, skipped: skips.map(({ id, detail }) => ({ printer_id: id, detail })) })
+    const client = new QueryClient({ defaultOptions: { queries: { enabled: false, retry: false } } })
+    client.setQueryData(['auth', 'me'], { role: 'admin' })
+    client.setQueryData(['printers', null], bulkNames.map((name, i) => ({ id: 41 + i, name, api_type: 'bambu', is_active: true, filament_slots: [], tags: [] })))
+    render(<QueryClientProvider client={client}><MemoryRouter><Printers /></MemoryRouter></QueryClientProvider>)
+    await screen.findByRole('checkbox', { name: 'Select Birch' })
+  },
 })

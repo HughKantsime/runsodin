@@ -11,6 +11,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Filter, Printer as PrinterIcon } from 'lucide-react'
 import clsx from 'clsx'
 import toast from 'react-hot-toast'
+import { runBulkUpdate } from '../../utils/bulkUpdate'
 import ConfirmModal from '../../components/shared/ConfirmModal'
 import { getPlugState, plugPowerOn, plugPowerOff, updatePlugConfig, removePlugConfig } from '../../api'
 import { printers, filaments, bulkOps, spools as spoolsApi } from '../../api'
@@ -131,8 +132,15 @@ export default function Printers() {
     setSelectedPrinters(prev => prev.size === ids.length ? new Set() : new Set(ids))
   }
   const bulkPrinterAction = useMutation({
-    mutationFn: ({ action, extra }: { action: string; extra?: Record<string, unknown> }) => bulkOps.printers([...selectedPrinters], action, extra),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['printers'] }); setSelectedPrinters(new Set()) },
+    mutationFn: ({ action }: { action: string }) => runBulkUpdate({
+      item: 'printer', selected: selectedPrinters, setSelected: setSelectedPrinters,
+      send: ids => bulkOps.printers(ids, action),
+      nameOf: id => {
+        const printer = printersData?.find(printer => printer.id === id)
+        return printer?.nickname || printer?.name
+      },
+    }),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['printers'] }) },
     onError: mutErr('Bulk printer action failed'),
   })
 
@@ -357,10 +365,10 @@ export default function Printers() {
       ) : (
         <>
         {selectedPrinters.size > 0 && canDo('printers.edit') && (
-          <div className="flex items-center gap-3 mb-4 p-3 bg-[var(--brand-primary)]/10 border border-[var(--brand-primary)]/30 rounded-md">
+          <div className="flex flex-wrap items-center gap-3 mb-4 p-3 bg-[var(--brand-primary)]/10 border border-[var(--brand-primary)]/30 rounded-md">
             <span className="text-sm" style={{ color: 'var(--brand-text-secondary)' }}>{selectedPrinters.size} selected</span>
-            <Button variant="success" size="sm" onClick={() => bulkPrinterAction.mutate({ action: 'enable' })}>Enable</Button>
-            <Button variant="warning" size="sm" onClick={() => bulkPrinterAction.mutate({ action: 'disable' })}>Disable</Button>
+            <Button variant="success" size="sm" disabled={bulkPrinterAction.isPending} onClick={() => bulkPrinterAction.mutate({ action: 'enable' })}>Enable</Button>
+            <Button variant="warning" size="sm" disabled={bulkPrinterAction.isPending} onClick={() => bulkPrinterAction.mutate({ action: 'disable' })}>Disable</Button>
             <Button variant="tertiary" size="sm" onClick={() => setSelectedPrinters(new Set())}>Clear</Button>
           </div>
         )}

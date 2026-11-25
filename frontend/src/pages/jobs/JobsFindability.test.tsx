@@ -19,7 +19,8 @@ vi.mock('../../api', () => ({
 }))
 vi.mock('../../contexts/OrgContext', () => ({ useOrg: () => ({ orgId: 17 }) }))
 vi.mock('../../permissions', () => ({ canDo: () => true, getCurrentUser: () => ({ id: 3, role: 'operator' }) }))
-vi.mock('react-hot-toast', () => ({ default: { success: vi.fn(), error: vi.fn() } }))
+const notice = vi.hoisted(() => vi.fn())
+vi.mock('react-hot-toast', () => ({ default: Object.assign(notice, { success: vi.fn(), error: vi.fn() }) }))
 
 const base = { priority: 3, quantity: 1, duration_hours: 2, colors_list: [], hold: false, is_locked: false, order_item_id: null, charged_to_org_id: 17, queue_position: null }
 const clients: QueryClient[] = []
@@ -178,7 +179,9 @@ it('a selection above the server limit of 100 is sent in batches', async () => {
   // Regression (Codex sign-off 11-12): the Active view loads up to 500 jobs, Select all sent
   // them in one request and the server refused it.
   api.list.mockImplementation(async () => Array.from({ length: 135 }, (_, i) => ({ ...base, id: 1000 + i, item_name: `Bulk job ${i}`, status: 'pending' })))
-  api.bulk.mockResolvedValue({ affected: 1, skipped: 0 })
+  api.bulk.mockImplementation(async (ids: number[]) => ({
+    status: 'ok', affected: ids.length - 1, skipped: [{ job_id: ids[0], detail: 'This job belongs to no organization.' }],
+  }))
   await show('/jobs', 'Bulk job 0')
   fireEvent.click(screen.getByRole('checkbox', { name: 'Select all jobs' }))
   await screen.findByText('135 selected')
@@ -187,6 +190,12 @@ it('a selection above the server limit of 100 is sent in batches', async () => {
   expect(api.bulk.mock.calls.map(c => c[0].length)).toEqual([100, 35])
   expect(new Set(api.bulk.mock.calls.flatMap(c => c[0])).size).toBe(135)
   expect(api.bulk.mock.calls.every(c => c[1] === 'set_priority')).toBe(true)
+  const names = api.bulk.mock.calls.map(([ids]) => `Bulk job ${ids[0] - 1000}`)
+  await waitFor(() => expect(notice).toHaveBeenCalledExactlyOnceWith(
+    `133 jobs updated. 2 not changed.\n2 (${names.join(', ')}): This job belongs to no organization.`, expect.anything(),
+  ))
+  expect(screen.getByText('2 selected')).toBeInTheDocument()
+  names.forEach(name => expect(screen.getByRole('checkbox', { name: `Select job ${name}` })).toBeChecked())
 }, 20000)   // selects 150 rows one by one: about 3 s alone, over the 5 s default on a loaded machine or CI runner
 
 it('the extra row of a deep-linked job shows that it is selected', async () => {

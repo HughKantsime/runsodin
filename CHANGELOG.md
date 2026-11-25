@@ -6,6 +6,7 @@ All notable changes to O.D.I.N. are documented here.
 
 ### Fixed
 
+- Bulk actions on printers, jobs, and spools now show how many items changed and why others were skipped. Items identified as unchanged stay selected.
 - On installs with organizations, members of an organization can no longer edit or delete printers, printer profiles, jobs they did not submit, models, print files, spools, orders, products, archives or projects that belong to no organization. They can still see and use them. Platform administrators and users without an organization are unchanged.
 - Erasing an account now removes its API token names from the audit log, including names of tokens already revoked by the owner or an administrator.
 - Square setup access on an API token: other administrators can now see and revoke it, it is removed when its owner stops being an administrator, refused attempts are recorded in the audit log, and granting it asks for confirmation.

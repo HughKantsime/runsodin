@@ -15,6 +15,7 @@ import { useOrg } from '../../contexts/OrgContext'
 import FailureReasonModal from '../../components/jobs/FailureReasonModal'
 import { updateJobFailure } from '../../api'
 import toast from 'react-hot-toast'
+import { runBulkUpdate } from '../../utils/bulkUpdate'
 import ConfirmModal from '../../components/shared/ConfirmModal'
 import JobRow, { JobCardList } from '../../components/jobs/JobRow'
 import { PricingConfigured } from '../../components/jobs/JobCost'
@@ -143,27 +144,19 @@ export default function Jobs() {
   const toggleSelectAll = (jobIds) => setSelectedJobs(prev => jobIds.length > 0 && jobIds.every(id => prev.has(id)) ? new Set() : new Set(jobIds))
 
   const bulkAction = useMutation({
-    // The server takes at most 100 jobs per request and the Active view can hold more, so a
-    // large selection goes in batches; counts from every batch are added up.
-    mutationFn: async ({ action, extra }: { action: string; extra?: Record<string, unknown> }) => {
-      const ids = [...selectedJobs]
-      if (ids.length <= BULK_BATCH) return bulkOps.jobs(ids, action, extra)
-      let affected = 0, skipped = 0, counted = true
-      for (let i = 0; i < ids.length; i += BULK_BATCH) {
-        const part = (await bulkOps.jobs(ids.slice(i, i + BULK_BATCH), action, extra) ?? {}) as { affected?: number; skipped?: number }
-        if (Number.isInteger(part.affected) && Number.isInteger(part.skipped)) { affected += part.affected as number; skipped += part.skipped as number }
-        else counted = false
-      }
-      return counted ? { affected, skipped } : {}
-    },
-    onSuccess: (result, vars) => {
-      queryClient.invalidateQueries({ queryKey: ['jobs'] }); setSelectedJobs(new Set())
-      if (vars.action === 'reschedule') {
-        const counts = (result ?? {}) as { affected?: number; skipped?: number }
-        if (Number.isInteger(counts.affected) && (counts.affected ?? -1) >= 0 && Number.isInteger(counts.skipped) && (counts.skipped ?? -1) >= 0) toast.success(`${counts.affected} job(s) returned to queue; ${counts.skipped} unchanged`)
-        else toast.error('Reschedule result unavailable. Refresh the queue.')
-      } else toast.success(`Bulk ${vars.action} completed`)
-    },
+    mutationFn: ({ action, extra }: { action: string; extra?: Record<string, unknown> }) => runBulkUpdate({
+      item: 'job', selected: selectedJobs, setSelected: setSelectedJobs, batchSize: BULK_BATCH,
+      send: ids => bulkOps.jobs(ids, action, extra),
+      nameOf: id => {
+        const job = deepJob?.id === id ? deepJob : jobsData?.find(job => job.id === id)
+        return job ? displayName(job) : undefined
+      },
+      onAllChanged: count => {
+        const outcome = { reschedule: 'returned to the queue', cancel: 'cancelled', delete: 'deleted', set_priority: 'updated to priority 1' }[action]
+        toast.success(`${count} ${count === 1 ? 'job' : 'jobs'} ${outcome}.`)
+      },
+    }),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['jobs'] }) },
     // An earlier batch may already have been applied: show the real state.
     onError: (err, vars) => { queryClient.invalidateQueries({ queryKey: ['jobs'] }); toast.error(`Bulk ${vars.action} failed: ${err.message}`) },
   })
@@ -501,7 +494,7 @@ export default function Jobs() {
       </div>
 
       {selectedJobs.size > 0 && (
-        <div className="flex items-center gap-3 mb-3 p-3 bg-[var(--brand-primary)]/10 border border-[var(--brand-primary)]/30 rounded-md">
+        <div className="flex flex-wrap items-center gap-3 mb-3 p-3 bg-[var(--brand-primary)]/10 border border-[var(--brand-primary)]/30 rounded-md">
           <span className="text-sm text-[var(--brand-text-secondary)]">{selectedJobs.size} selected</span>
           <Button variant="tertiary" size="sm" onClick={() => bulkAction.mutate({ action: 'cancel' })} disabled={bulkAction.isPending}>Cancel</Button>
           <Button variant="tertiary" size="sm" onClick={() => bulkAction.mutate({ action: 'set_priority', extra: { priority: 1 } })} disabled={bulkAction.isPending}>Priority 1</Button>

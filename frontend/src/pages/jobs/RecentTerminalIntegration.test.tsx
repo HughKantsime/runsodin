@@ -3,12 +3,12 @@ import { afterEach, expect, test, vi } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import Jobs from './Jobs'
-const api = vi.hoisted(() => ({ list: vi.fn(), recent: vi.fn(), bulk: vi.fn(), success: vi.fn() }))
+const api = vi.hoisted(() => ({ list: vi.fn(), recent: vi.fn(), bulk: vi.fn(), success: vi.fn(), error: vi.fn() }))
 vi.mock('../../api', () => ({
   jobs: { list: api.list, recentTerminal: api.recent, create: vi.fn(), update: vi.fn(), reorder: vi.fn(), dispatch: vi.fn(), start: vi.fn(), complete: vi.fn(), cancel: vi.fn(), delete: vi.fn(), repeat: vi.fn() },
   models: { list: vi.fn().mockResolvedValue([]) }, modelRevisions: { list: vi.fn().mockResolvedValue([]) }, printers: { list: vi.fn().mockResolvedValue([]) }, presets: { list: vi.fn().mockResolvedValue([]), create: vi.fn(), schedule: vi.fn() }, getApprovalSetting: vi.fn().mockResolvedValue({ require_approval: false }), scheduler: { run: vi.fn() }, bulkOps: { jobs: api.bulk }, approveJob: vi.fn(), rejectJob: vi.fn(), resubmitJob: vi.fn(), updateJobFailure: vi.fn()
 }))
-vi.mock('react-hot-toast', () => ({ default: { success: api.success, error: vi.fn() } }))
+vi.mock('react-hot-toast', () => ({ default: { success: api.success, error: api.error } }))
 vi.mock('../../contexts/OrgContext', () => ({ useOrg: () => ({ orgId: 17 }) }))
 vi.mock('../../permissions', () => ({ canDo: () => false, getCurrentUser: () => ({ id: 3, role: 'viewer' }) }))
 afterEach(() => { cleanup(); vi.clearAllMocks() })
@@ -67,8 +67,9 @@ test('bulk reschedule reports zero/skipped truthfully and prevents duplicate pen
   expect(api.bulk).toHaveBeenCalledTimes(1)
   const { act } = await import('@testing-library/react')
   act(() => finish({ affected: 0, skipped: 1 }))
-  await waitFor(() => expect(api.success).toHaveBeenCalledWith('0 job(s) returned to queue; 1 unchanged'))
-  expect(api.success).not.toHaveBeenCalledWith('Bulk reschedule completed')
+  await waitFor(() => expect(api.error).toHaveBeenCalledWith('0 jobs updated. 1 not changed.\n1 (Scheduled queue row): No reason was provided.', expect.anything()))
+  expect(api.success).not.toHaveBeenCalled()
+  expect(screen.getByRole('checkbox', { name: 'Select job Scheduled queue row' })).toBeChecked()
   client.clear()
 })
 
