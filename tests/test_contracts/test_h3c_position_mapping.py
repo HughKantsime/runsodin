@@ -82,6 +82,10 @@ def test_sparse_rack_mapping(dialect, request, tmp_path, monkeypatch):
                 validate_for_printer(db, changed, job['filaments_json'], 901, actor, stored_path=path)
             assert (exc.value.status_code, exc.value.detail) == (400, sentence)
         assert options() == (None, POSITION_GATE_MESSAGE)
+        job['ams_mapping'] = None
+        planned = [GROUPS.get(i, -1) for i in range(1, 10)]
+        options_off, error = options()
+        assert error is None and options_off['ams_mapping'] == planned
         update_config(ConfigUpdate(h3c_allow_different_positions=True), {}, db)
         for selection in (IDENTITY, None):
             job['ams_mapping'] = selection
@@ -89,7 +93,7 @@ def test_sparse_rack_mapping(dialect, request, tmp_path, monkeypatch):
             assert error is None and accepted['ams_mapping'] == IDENTITY
         sources = accepted.source_facts['sources']
         trays = onboard_inventory(db, 901)
-        preview = rack_preview(sources, trays, tools, None)
+        preview = rack_preview(sources, trays, tools, None, allow_different=True)
         assert preview['rack_mapping'] == [dict(source_slot=f, target_slot=f) for f in GROUPS]
         fields = print_mapping_fields(accepted['ams_mapping'], h3c=True)
         assert fields == {'ams_mapping': [28, 29, 30, 31, 32, 33, 34, -1, 36],
@@ -102,6 +106,9 @@ def test_sparse_rack_mapping(dialect, request, tmp_path, monkeypatch):
         db.execute(text("UPDATE filament_slots SET color_hex='#101010' WHERE printer_id=901 AND slot_number=2"))
         db.commit()
         assert options() == (None, 'Choose a mapping for filament 1.')
+        update_config(ConfigUpdate(h3c_allow_different_positions=False), {}, db)
+        accepted, error = options()
+        assert error is None and accepted['ams_mapping'] == planned
 
 
 @pytest.mark.parametrize('dialect', ['sqlite', pytest.param('postgresql', marks=pytest.mark.postgresql)])
@@ -116,7 +123,11 @@ def test_dispatch_audit_keeps_file_and_loaded_colours(dialect, request):
     assert warning == dict(filament=3, position=4, file_color='#FFFFFF', loaded_color='#123456')
     detail = {'color_warnings': [warning]}
     with Session(engine) as db:
-        db.add(Printer(id=902, name='Test rack', model='H3C', api_type='bambu'))
+        if dialect == 'sqlite':
+            # PostgreSQL shares this database with test_sparse_rack_mapping.
+            db.add(Printer(id=901, name='Test rack'))
+            db.flush()
+        db.add(Printer(id=902, name='Audit rack', model='H3C', api_type='bambu'))
         db.flush()
         db.add(Job(id=902, item_name='Colour warning', printer_id=902))
         db.commit()
@@ -152,3 +163,19 @@ def test_nearest_colour_and_ambiguous_or_missing_candidates():
     sources[1]['material'] = 'PETG'
     with pytest.raises(ValueError, match='^Choose a mapping for filament 2[.]$'):
         derive_mapping(sources, rack_candidates(sources, trays, tools))
+
+
+def test_uncontested_exact_colours_use_lowest_position_in_preview():
+    source = dict(source_index=2, group_id=0, color='#112233', material='PLA', nozzle_diameter=.4, volume_type='Standard')
+    trays = [dict(slot=i, color_hex='112233', material='PLA') for i in (5, 2)]
+    tools = [dict(position=t['slot'], side='rack', present=True, diameter=.4, type='HS01') for t in trays]
+    result = rack_preview([source], trays, tools, None, allow_different=True)
+    assert result['rack_mapping'] == [dict(source_slot=3, target_slot=2)]
+    assert result['required'][0]['selection_note'] == 'Position 2 is the lowest position with the same exact colour.'
+
+
+def test_incomplete_assignment_names_first_unplaceable_filament():
+    sources = [dict(source_index=i, color='#111111') for i in (0, 3, 8)]
+    trays = [dict(slot=n, color_hex='111111') for n in (1, 2)]
+    with pytest.raises(ValueError, match='^Choose a mapping for filament 9[.]$'):
+        derive_mapping(sources, [trays] * 3)

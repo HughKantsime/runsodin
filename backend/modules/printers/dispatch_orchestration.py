@@ -50,7 +50,7 @@ def dispatch_prepared(job,creds,source_path,remote_filename,payload_sha256,educa
         # Same record as a maintenance refusal: timeline event and the job owner's alert.
         from modules.printers.dispatch_ams_gate import GateRefusal
         message = license_lock.refusal_message(licensed)
-        dispatch._notify_start_outcome(job, 'adapter_rejected', gate_refusal=GateRefusal(
+        dispatch._notify_start_outcome(job, 'gate_refused', gate_refusal=GateRefusal(
             licensed.detail.get('code', 'license_policy_unavailable'), message), message=message)
         return False, message
     key=SECRET_KEY.encode() if isinstance(SECRET_KEY,str) else None
@@ -139,7 +139,7 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
                 return False, _missing_mapping(job)
             return False, f'Payload capability inspection failed: {exc}; no command was sent'
         if refusal:
-            dispatch._notify_start_outcome(job, 'adapter_rejected', gate_refusal=refusal)
+            dispatch._notify_start_outcome(job, 'gate_refused', gate_refusal=refusal, message=refusal.detail)
             return False, f'{refusal.code}: {refusal.detail}'
     from modules.printers.dispatch_background import attempt_token
     claim=dispatch_claims.acquire(engine,job['printer_id'],job['id'],identity.target_key,
@@ -164,7 +164,7 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
                 from core.h3c_plate import RackMessage
                 if isinstance(error, RackMessage):
                     from modules.printers.dispatch_ams_gate import GateRefusal
-                    dispatch._notify_start_outcome(job, 'adapter_rejected', gate_refusal=GateRefusal(error.code, error))
+                    dispatch._notify_start_outcome(job, 'gate_refused', gate_refusal=GateRefusal(error.code, error), message=error)
                 result = (False, error)
             else:
                 derived = options.get('ams_mapping') is not None and job.get('ams_mapping') is None
@@ -208,8 +208,9 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
                             preflight = create_capability_gate(job=job, creds=creds,
                                 staged_path=staged.path, plate_number=options.get('plate_num', 1), target_handle=target_handle, **rack_options)
                             if not preflight.prepare():
-                                dispatch._notify_start_outcome(job, 'adapter_rejected', gate_refusal=preflight.refusal)
                                 result = (False, dispatch._gate_refusal_message(preflight))
+                                dispatch._notify_start_outcome(job, 'gate_refused', gate_refusal=preflight.refusal,
+                                                               message=preflight.refusal.detail)
                                 raise CapabilityRefused(result[1])
                         # Generic observations need an exact attempt identity,
                         # independent of display names and reused source names.
@@ -312,6 +313,8 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
                                 result=(False,'Printer command outcome needs database reconciliation before retrying')
                             elif not accepted and not clean_refusal:
                                 result=(False,result[1]+'; Dispatch claim requires explicit reconciliation before retrying')
+                            if warnings:
+                                result = (result[0], result[1] + ' ' + ' '.join(w['message'] for w in warnings))
     except CapabilityRefused as exc:
         result = (False, str(exc))
     except TargetOwnershipLost:

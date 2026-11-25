@@ -29,7 +29,7 @@ def s1_filaments_json(filaments_json, stored_path):
     return json.dumps(stored_or_file_materials(filaments_json, stored_path))
 
 
-def validate_for_printer(db, mapping, filaments_json, printer_id, actor, *, stored_path=None, check_material=True):
+def validate_for_printer(db, mapping, filaments_json, printer_id, actor, *, stored_path=None, plate_index=0, check_material=True):
     if mapping is None:
         return None
     printer = accessible_printer(db, printer_id, actor)
@@ -57,7 +57,7 @@ def validate_for_printer(db, mapping, filaments_json, printer_id, actor, *, stor
             if exc.target_slot > 9:
                 raise HTTPException(400, 'Choose an onboard tray in positions 1 to 9.') from None
             raise
-        sources = read_rack_sources(stored_path, 0)
+        sources = read_rack_sources(stored_path, plate_index)
         if not sources or {s['source_index'] for s in sources} != {i for i, n in enumerate(result) if n >= 0}:
             raise HTTPException(400, 'This mapping needs a verified H3C rack slice.')
         from modules.printers.models import Printer
@@ -171,7 +171,9 @@ def preview(db, filaments_json, printer_id, actor, *, stored_path=None, plate_in
         available = [tray for tray in available if 1 <= tray['slot'] <= 9]
         sources = read_rack_sources(stored_path, plate_index)
         if sources:
-            return rack_preview(sources, available, db.get(Printer, printer_id).installed_nozzles, stored_mapping)
+            from core.h3c_plate import different_positions_enabled
+            return rack_preview(sources, available, db.get(Printer, printer_id).installed_nozzles, stored_mapping,
+                                allow_different=stored_mapping is None and different_positions_enabled(db))
         return {**preview_for_slots(filaments_json, available), 'rack_mapping': [], 'suggested_mapping': [],
                 'file_note': 'The rack tools could not be read from this file.'}
     return preview_for_slots(filaments_json, selectable_slots(db, printer_id, printer.api_type, available))

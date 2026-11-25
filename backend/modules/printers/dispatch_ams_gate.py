@@ -223,12 +223,10 @@ def create_ams_start_gate(engine, *, admission_inputs, staged_path, mapping, tar
         for source in sources:
             tray = trays[mapping[source['source_index']] + 1]
             if h3c:
-                from modules.printers.h3c_mapping import color_warning, material_refusal
-                color = tray.color_hex or facts.get('inventory_colors', {}).get(tray.slot_number)
-                warning = color_warning(source, tray.slot_number, color)
+                from modules.printers.h3c_mapping import start_color_warning, material_refusal
+                warning = start_color_warning(source, tray.slot_number, tray.color_hex,
+                                              facts.get('inventory_colors', {}).get(tray.slot_number))
                 if warning:
-                    if not tray.color_hex:
-                        warning['color_source'] = 'last_reported'
                     warnings.append(warning)
                 loaded = tray.material if tray.material_state == 'reported' else (
                     'empty' if tray.material_state == 'explicit_empty' else None)

@@ -51,6 +51,8 @@ export function RackSlotPreview({ preview, mapping = preview?.rack_mapping, onCh
         <div>Filament {file.slot} · {file.material ? materialLabel(file.material) : 'Material unknown'} · {file.color || 'Colour unknown'}</div>
         {file.diameter && <div>Sliced for a {file.diameter} mm {file.tool} tool</div>}
         {position && <div>Position {position} · {tray ? materialLabel(tray.material) : 'Contents unknown'} · {color}</div>}
+        {file.selection_note && preview.rack_mapping?.some(row => row.source_slot === file.slot && row.target_slot === position)
+          && <p>{file.selection_note}</p>}
         {position && file.different_colors?.includes(position) && <strong>Colour differs</strong>}
         {position && file.eligible && !file.eligible.includes(position) && <p>Position {position} is unavailable for this filament.</p>}
         {onChange && file.eligible && <select aria-label={`Filament ${file.slot} position`} value={position ?? ''}

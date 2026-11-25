@@ -19,7 +19,7 @@ def onboard_inventory(db, printer_id):
 
 def material_refusal(source, position, loaded):
     if loaded == 'empty':
-        return RackMessage('tray_empty', f'Position {position} is empty.')
+        return RackMessage('tray_material_unreported', f'Position {position} is empty.')
     actual = canonical_reported_material(loaded)
     if actual is None:
         return RackMessage('tray_material_unreported', f'The material at position {position} is unreported.')
@@ -35,6 +35,24 @@ def color_warning(source, position, loaded_hex):
                     file_color=source['color'], loaded_color='#' + color.upper())
 
 
+def start_color_warning(source, position, live, inventory):
+    loaded = hex_color(live)
+    previous = hex_color(inventory)
+    warning = color_warning(source, position, loaded or previous)
+    if warning:
+        if not loaded:
+            warning['color_source'] = 'last_reported'
+        comparison = f"file {warning['file_color']}, loaded {warning['loaded_color']}"
+    elif loaded and previous and loaded != previous:
+        warning = dict(filament=source['source_index'] + 1, position=position, file_color=source.get('color'),
+                       previous_color='#' + previous.upper(), loaded_color='#' + loaded.upper())
+        comparison = f"previously {warning['previous_color']}, loaded {warning['loaded_color']}"
+    else:
+        return None
+    warning['message'] = f"Filament {warning['filament']} colour differs at position {position} ({comparison})."
+    return warning
+
+
 def rack_candidates(sources, available, installed):
     tools = rack_tools(installed)
     return [[tray for tray in available if 1 <= tray['slot'] <= 9 and not tray.get('do_not_feed')
@@ -42,15 +60,20 @@ def rack_candidates(sources, available, installed):
              and not position_refusal(source, tray['slot'], tools)] for source in sources]
 
 
-def derive_mapping(sources, candidates):
+def planned_mapping(sources):
+    mapping = [-1] * (max(s['source_index'] for s in sources) + 1)
+    for source in sources:
+        mapping[source['source_index']] = source['group_id']
+    return mapping
+
+
+def derive_mapping(sources, candidates, *, selection_notes=None):
     """Find a unique best complete assignment. Nine trays bound the subset search."""
     def choose(index):
         return ValueError(RackMessage('ams_mapping_required', f"Choose a mapping for filament {sources[index]['source_index'] + 1}."))
 
     scores = []
-    for i, (source, trays) in enumerate(zip(sources, candidates)):
-        if not trays:
-            raise choose(i)
+    for source, trays in zip(sources, candidates):
         required = source.get('color')
         row = {}
         for tray in trays:
@@ -61,10 +84,14 @@ def derive_mapping(sources, candidates):
                                      color_distance(required, color) if known and not exact else 0.)
         scores.append(row)
 
+    furthest = 0
+
     @lru_cache(None)
     def best(i, used):
+        nonlocal furthest
+        furthest = max(furthest, i)
         if i == len(scores):
-            return (0, 0, 0.), (), None
+            return (0, 0, 0.), ()
         optimum = None
         for target, cost in scores[i].items():
             bit = 1 << target
@@ -74,28 +101,33 @@ def derive_mapping(sources, candidates):
             if tail is None:
                 continue
             score = tuple(a + b for a, b in zip(cost, tail[0]))
+            choices = (frozenset((target,)),) + tail[1]
             if optimum and score[:2] == optimum[0][:2] and isclose(score[2], optimum[0][2], abs_tol=1e-9):
-                optimum = optimum[0], optimum[1], i
+                optimum = optimum[0], tuple(a | b for a, b in zip(optimum[1], choices))
             elif optimum is None or score < optimum[0]:
-                optimum = score, (target,) + tail[1], tail[2]
+                optimum = score, choices
         return optimum
 
     result = best(0, 0)
     if result is None:
-        # Only filaments with the same spec and material can compete for a tray.
-        for i, row in enumerate(scores):
-            if sum(other.keys() == row.keys() for other in scores) > len(row):
-                raise choose(i)
-        raise choose(0)
-    if result[2] is not None:
-        raise choose(result[2])
+        raise choose(furthest)
+    # A tray shared by different filaments across optimal plans needs an operator.
+    # Interchangeable exact-colour trays for just one filament are unambiguous.
+    choices = result[1]
     vector = [-1] * (max(s['source_index'] for s in sources) + 1)
-    for source, target in zip(sources, result[1]):
+    for i, (source, targets) in enumerate(zip(sources, choices)):
+        target = min(targets)
+        if len(targets) > 1:
+            if (any(targets & other for j, other in enumerate(choices) if j != i)
+                    or any(scores[i][t][0] for t in targets)):
+                raise choose(i)
+            if selection_notes is not None:
+                selection_notes[source['source_index']] = f'Position {target + 1} is the lowest position with the same exact colour.'
         vector[source['source_index']] = target
     return vector
 
 
-def rack_preview(sources, available, installed, stored):
+def rack_preview(sources, available, installed, stored, *, allow_different):
     candidates = rack_candidates(sources, available, installed)
     rows = []
     for source, trays in zip(sources, candidates):
@@ -106,7 +138,13 @@ def rack_preview(sources, available, installed, stored):
                          different_colors=[t['slot'] for t in available if color_warning(source, t['slot'], t.get('color_hex'))]))
     result = dict(required=rows, available=available, suggested_mapping=[], rack_mapping=[])
     try:
-        mapping = derive_mapping(sources, candidates) if stored is None else stored
+        notes = {}
+        mapping = stored
+        if mapping is None:
+            mapping = derive_mapping(sources, candidates, selection_notes=notes) if allow_different else planned_mapping(sources)
+        for row in rows:
+            if row['slot'] - 1 in notes:
+                row['selection_note'] = notes[row['slot'] - 1]
         result['rack_mapping'] = [dict(source_slot=i+1, target_slot=n+1) for i, n in enumerate(mapping)
                                   if type(n) is int and n >= 0]
     except ValueError as exc:

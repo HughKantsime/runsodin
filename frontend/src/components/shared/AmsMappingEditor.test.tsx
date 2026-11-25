@@ -15,7 +15,7 @@ function Harness({ context = 'file8:printer1', stored = wire.stored, submit = vi
 test.each(['classic', 'foundry'])('edits a saved H3C position and shows both colours in %s', theme => {
   document.documentElement.dataset.themeFamily = theme
   try {
-    const file = { ...preview, required: [{ ...preview.required[0], diameter: 0.4, tool: 'standard', eligible: [1, 4], different_colors: [1] }],
+    const file = { ...preview, required: [{ ...preview.required[0], diameter: 0.4, tool: 'standard', selection_note: 'Position 4 is the lowest position with the same exact colour.', eligible: [1, 4], different_colors: [1] }],
       available: [{ ...preview.available[0], material: 'PETG', color_hex: 'FF0000' }, preview.available[1],
         { ...preview.available[0], slot: 8, material: 'TPU' }],
       rack_mapping: [{ source_slot: 4, target_slot: 4 }] }
@@ -23,6 +23,7 @@ test.each(['classic', 'foundry'])('edits a saved H3C position and shows both col
     render(<Harness preview={file} stored={[-1, -1, -1, 0]} submit={submit} />)
     const picker = screen.getByLabelText('Filament 4 position')
     expect(picker).toHaveValue('1')
+    expect(screen.queryByText(/lowest position/)).toBeNull()
     expect(screen.getByText('Sliced for a 0.4 mm standard tool')).toBeInTheDocument()
     expect(screen.getByText('Filament 4 · PETG · #FFFFFF')).toBeInTheDocument()
     expect(screen.getByText('Position 1 · PETG · #FF0000')).toBeInTheDocument()
@@ -30,6 +31,7 @@ test.each(['classic', 'foundry'])('edits a saved H3C position and shows both col
     expect(screen.queryByRole('option', { name: /Position 8/ })).toBeNull()
     fireEvent.change(picker, { target: { value: '4' } })
     expect(screen.queryByText('Colour differs')).toBeNull()
+    expect(screen.getByText('Position 4 is the lowest position with the same exact colour.')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
     expect(submit).toHaveBeenCalledWith([{ source_slot: 4, target_slot: 4 }])
   } finally { document.documentElement.dataset.themeFamily = 'classic' }

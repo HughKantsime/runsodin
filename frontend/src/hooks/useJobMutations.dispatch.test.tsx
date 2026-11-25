@@ -45,3 +45,14 @@ it.each(['refused', 'needs_reconciliation'] as const)('shows the server nozzle m
   expect(toast.success).not.toHaveBeenCalled()
   client.clear()
 })
+
+it('shows the accepted dispatch colour warning', async () => {
+  const message = 'Print started. Filament 1 colour differs at position 9 (file #FF6A13, loaded #FFFFFF).'
+  vi.mocked(jobs.dispatch).mockResolvedValue({confirmation: 'accepted', status: {job_id: 53, phase: 'start_accepted', message, retry_blocked: true, observation: null}})
+  const client = new QueryClient()
+  const wrapper = ({children}:any) => <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  const {result} = renderHook(() => useJobMutations(), {wrapper})
+  act(() => result.current.dispatchJob.mutate(53))
+  await waitFor(() => expect(toast.success).toHaveBeenCalledWith(message))
+  client.clear()
+})

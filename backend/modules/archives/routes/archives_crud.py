@@ -611,7 +611,7 @@ def reprint_archive(
             raise HTTPException(400, "Original print file contents changed")
     validate_plate(file_path, body.plate_index, printer.api_type)
     from core.ams_mapping import validate_for_printer
-    mapping = validate_for_printer(db, body.ams_mapping, file['filaments_json'], printer.id, user, stored_path=file['stored_path'])
+    mapping = validate_for_printer(db, body.ams_mapping, file['filaments_json'], printer.id, user, stored_path=file['stored_path'], plate_index=body.plate_index)
     identity = user if isinstance(user, dict) else vars(user)
     new_job = Job(
         item_name=human_name(model_name=model.name, original_filename=file['original_filename']),

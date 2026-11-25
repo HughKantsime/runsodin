@@ -95,10 +95,10 @@ def installed_nozzles(packet, *, dual=False, include_rack=False, observed_at=Non
             identity = {'nozzle_id': identifier, 'side': 'rack',
                         'position': address + 1 if type(address) is int and 0 <= address < 9 else None,
                         'stat': row.get('stat') if type(row.get('stat')) is int else None}
+            # No capture maps a nonempty 3D.uncalibrated_nozzles entry to a rack position.
             calibration = packet.get('3D')
-            if isinstance(calibration, dict) and 'uncalibrated_nozzles' in calibration:
-                # Empty is verified in rack captures. Nonempty entries have no verified position encoding.
-                identity['calibration_clear'] = calibration['uncalibrated_nozzles'] == []
+            if isinstance(calibration, dict) and calibration.get('uncalibrated_nozzles') == []:
+                identity['calibration_clear'] = True
             if identity['position'] is not None:
                 identity['virtual_slot_id'] = rack_slot_id(identity['position'])
             if type(source) is int:
@@ -169,10 +169,8 @@ def position_refusal(source, position, installed):
     tools = [row for row in installed if isinstance(row, dict) and row.get('side') == 'rack'
              and row.get('position') == position]
     if len(tools) != 1 or tools[0].get('present') is not True:
-        return RackMessage('tool_missing', f'Position {position} needs a reported, installed tool.')
+        return RackMessage('nozzle_mismatch', f'Position {position} needs a reported, installed tool.')
     tool = tools[0]
-    if tool.get('calibration_clear') is False:
-        return RackMessage('tool_uncalibrated', f'Check tool calibration before using position {position}.')
     diameter = number(tool.get('diameter'), positive=True)
     prefix = str(tool.get('type') or '')[:2]
     actual = {'HS': 'standard', 'HH': 'standard', 'HT': 'TPU'}.get(prefix)

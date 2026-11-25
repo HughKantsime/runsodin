@@ -81,11 +81,14 @@ def _validated_print_options(job,creds,stored_path,payload_sha256):
                         from modules.printers.dispatch_ams_gate import rack_sources
                         sources = rack_sources(job, facts)
                         from core.db import engine
-                        from modules.printers.h3c_mapping import onboard_inventory, rack_candidates, derive_mapping
+                        from core.h3c_plate import different_positions_enabled
+                        from modules.printers.h3c_mapping import onboard_inventory, rack_candidates, derive_mapping, planned_mapping
                         with engine.connect() as conn:
                             trays = onboard_inventory(conn, printer_id)
+                            allow_different = derived and different_positions_enabled(conn)
                         if derived:
-                            mapping = derive_mapping(sources, rack_candidates(sources, trays, creds.get('installed_nozzles')))
+                            mapping = (derive_mapping(sources, rack_candidates(sources, trays, creds.get('installed_nozzles')))
+                                       if allow_different else planned_mapping(sources))
                         facts['inventory_colors'] = {t['slot']: t['color_hex'] for t in trays}
                     else:
                         source = facts['source_index']
@@ -202,7 +205,7 @@ def _missing_mapping(job):
     refusal = GateRefusal('ams_mapping_required', detail)
     # Diagnostics must not turn a known no-upload refusal into an uncertain one.
     try:
-        dispatch._notify_start_outcome(job, 'adapter_rejected', gate_refusal=refusal, message=detail)
+        dispatch._notify_start_outcome(job, 'gate_refused', gate_refusal=refusal, message=detail)
     except Exception:
         pass
     try:

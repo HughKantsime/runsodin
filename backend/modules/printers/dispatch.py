@@ -805,7 +805,8 @@ def read_dispatch_progress(db, token, job_id):
     claim_state = db.execute(text('SELECT state FROM printer_dispatch_claims WHERE token=:token AND job_id=:job'),
                              {'token': token, 'job': job_id}).scalar_one_or_none()
     running = active(token)
-    if claim_state and (claim_state != 'adapter_entered' or not running):
+    # While the worker is finishing, its final record carries the operator's colour warnings.
+    if claim_state and (not running or claim_state not in ('adapter_entered', 'accepted')):
         record['phase'] = {'preparing': 'preparing' if running else 'needs_reconciliation',
             'adapter_entered': 'needs_reconciliation', 'accepted': 'start_accepted',
             'uncertain': 'needs_reconciliation'}[claim_state]

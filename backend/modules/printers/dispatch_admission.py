@@ -55,7 +55,7 @@ def deploy_window_refusal(job):
     if isinstance(job, dict) and job.get('id') is not None:
         from modules.printers.dispatch import _notify_start_outcome
         from modules.printers.dispatch_ams_gate import GateRefusal
-        _notify_start_outcome(job, 'adapter_rejected',
+        _notify_start_outcome(job, 'gate_refused',
             gate_refusal=GateRefusal('deploy_window', deploy_freeze.MESSAGE), message=deploy_freeze.MESSAGE)
     return Admission(False, 'deploy_window')
 

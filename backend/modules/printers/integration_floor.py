@@ -741,10 +741,6 @@ class Floor:
             if 'color_hex' in loaded_tray and hex_color(required_color) and hex_color(loaded_tray['color_hex']):
                 if not same_color(required_color, {'color_hex': loaded_tray['color_hex']}):
                     entry['color_warning'] = 'Colour differs'
-                    if entry['ok'] is True:
-                        entry['ok'] = False
-                    if status == 'match':
-                        status = 'colour_differs'
         reason = None
         if status == "mismatch":
             bad = next((s for s in slots if s["slot"] == failed), None)

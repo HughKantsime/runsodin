@@ -31,6 +31,11 @@ describe('dispatch response uncertainty', () => {
     expect(await dispatchWithConfirmation(53)).toEqual({confirmation:'accepted'})
     expect(fetch).toHaveBeenCalledTimes(1)
   })
+  it('keeps the message from a synchronous acceptance', async () => {
+    const message = 'Filament 1 colour differs at position 9 (file #FF6A13, loaded #FFFFFF).'
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({success:true, job_id:53, message})))
+    expect(await dispatchWithConfirmation(53)).toEqual({confirmation:'accepted', message})
+  })
   it('never interprets missing claim or malformed GET as safe to retry',async () => {
     vi.stubGlobal('fetch',vi.fn().mockRejectedValueOnce(new TypeError('lost')).mockResolvedValueOnce(Response.json({job_id:53})))
     expect(await dispatchWithConfirmation(53)).toEqual({confirmation:'unconfirmed'})

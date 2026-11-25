@@ -82,7 +82,7 @@ export type AmsMapping = { source_slot: number; target_slot: number }[];
 
 export interface ArchiveAmsRequirement {
   slot: number; color: string; material: string;
-  diameter?: number; tool?: string; eligible?: number[]; different_colors?: number[];
+  diameter?: number; tool?: string; eligible?: number[]; different_colors?: number[]; selection_note?: string;
 }
 export interface ArchiveAmsSlot { catalogue_name?: string | null; do_not_feed?: boolean; slot: number; color: string; color_hex: string; material: string; spool_id: number | null }
 export interface ArchiveAmsSuggestion { source_slot: number; target_slot: number; confidence: 'exact' | 'material_only' }

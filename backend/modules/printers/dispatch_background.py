@@ -82,7 +82,9 @@ def progress(phase, *, message=None, ams_mapping_derived=False):
         if ams_mapping_derived:
             record['ams_mapping_derived'] = True
         if message is not None:
-            record['message'] = message[:500]
+            # A successful nine-position H3C start can carry one colour sentence per filament.
+            limit = 1500 if phase == 'start_accepted' else 500
+            record['message'] = message[:limit]
         if phase in ('start_accepted', 'refused', 'needs_reconciliation'):
             final_key = result_key(record['job_id'])
             if not insert(conn, final_key, record):

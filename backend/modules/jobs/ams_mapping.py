@@ -64,7 +64,7 @@ def checked_changes(db, actor, job, changes):
                 raise HTTPException(409, 'The file has changed. Review the mapping again.')
         changes['ams_mapping'] = validate_for_printer(
             db, vector_entries(mapping, file.filaments_json), file.filaments_json, target, actor,
-            stored_path=file.stored_path, check_material=changes.get('hold', job.hold) is not True)
+            stored_path=file.stored_path, plate_index=job.plate_index or 0, check_material=changes.get('hold', job.hold) is not True)
         changes.update(pin_columns(target))
         changes['printer_id'] = target
     return changes
@@ -201,7 +201,8 @@ def assert_release_ready(db, actor, job):
     file = source_file(db, job, actor)
     mapping = [{'source_slot': i + 1, 'target_slot': slot + 1}
                for i, slot in enumerate(job.ams_mapping) if slot >= 0]
-    validate_for_printer(db, mapping, file.filaments_json, job_pin(job) or job.printer_id, actor, stored_path=file.stored_path)
+    validate_for_printer(db, mapping, file.filaments_json, job_pin(job) or job.printer_id, actor,
+                         stored_path=file.stored_path, plate_index=job.plate_index or 0)
 
 
 def checked_repeat_mapping(db, actor, original):
@@ -213,11 +214,11 @@ def checked_repeat_mapping(db, actor, original):
                for i, slot in enumerate(original.ams_mapping) if slot >= 0]
     args = (db, mapping, file.filaments_json, job_pin(original) or original.printer_id, actor)
     # Check every slot first: an early material mismatch must not hide a later structural error.
-    validated = validate_for_printer(*args, stored_path=file.stored_path, check_material=False)
+    validated = validate_for_printer(*args, stored_path=file.stored_path, plate_index=original.plate_index or 0, check_material=False)
     if original.hold:
         return validated, True
     try:
-        validate_for_printer(*args, stored_path=file.stored_path)
+        validate_for_printer(*args, stored_path=file.stored_path, plate_index=original.plate_index or 0)
     except MappingMaterialMismatch:
         return validated, True
     return validated, False

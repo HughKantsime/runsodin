@@ -108,12 +108,12 @@ POSITION_GATE_MESSAGE = ('Sending an H3C filament from a different position than
 def different_positions_enabled(db):
     from sqlalchemy import text
     from core.system_config_values import config_bool
-    return config_bool(db.execute(text(
+    return not REQUIRE_VERIFIED_H3C_POSITION or config_bool(db.execute(text(
         "SELECT value FROM system_config WHERE key='h3c_allow_different_positions'")).scalar_one_or_none())
 
 
 def position_gate(db, sources, mapping):
-    if REQUIRE_VERIFIED_H3C_POSITION and any(mapping[s['source_index']] != s['group_id'] for s in sources):
+    if any(mapping[s['source_index']] != s['group_id'] for s in sources):
         if not different_positions_enabled(db):
             return RackMessage('h3c_position_unverified', POSITION_GATE_MESSAGE)
     return None
