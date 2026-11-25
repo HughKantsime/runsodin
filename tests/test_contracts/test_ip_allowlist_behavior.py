@@ -1,13 +1,15 @@
 """Owned actual configuration/middleware acceptance; no host firewall changes."""
 import ipaddress
+import json
 from pathlib import Path
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import text
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
+from core import ip_allowlist_cache
 from tests.test_contracts.test_education_review_workflow import review_db
 
 @pytest.fixture(autouse=True)
@@ -15,6 +17,25 @@ def owned_runtime(monkeypatch):
     import secrets
     monkeypatch.setenv('JWT_SECRET_KEY',secrets.token_urlsafe(48))
     monkeypatch.delenv('API_KEY',raising=False)
+    ip_allowlist_cache.invalidate()
+    yield
+    ip_allowlist_cache.invalidate()
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_policy_cache_isolated_between_behavior_cases(enabled):
+    # Each in-memory database is independent, but both have the same cache key.
+    engine = create_engine("sqlite://")
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("CREATE TABLE system_config (key TEXT, value TEXT)"))
+            conn.execute(text("INSERT INTO system_config VALUES ('ip_allowlist', :policy)"),
+                         {"policy": json.dumps({"enabled": enabled})})
+        policy = ip_allowlist_cache.policy(lambda: Session(engine), clock=lambda: 1000.0)
+        assert policy["enabled"] is enabled
+    finally:
+        engine.dispose()
+
 
 @pytest.fixture
 def allowlist_app(review_db,monkeypatch):
