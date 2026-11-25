@@ -4,6 +4,14 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- If a poor connection interrupts a mobile session renewal, the app can recover without asking for your password when it retries within ten minutes. After a longer pause, you still need your password.
+
+### Security
+
+- A mobile sign-in token that was just replaced can recover its replacement from the same device up to five times within ten minutes. Once the replacement is used, the server refuses the earlier token and records the attempt in the audit log.
+
 ## [2.7.0] - 2026-11-24
 
 

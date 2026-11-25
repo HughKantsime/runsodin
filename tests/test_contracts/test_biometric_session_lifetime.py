@@ -1,4 +1,5 @@
 """Owned biometric HTTP rotation and issued-session authority contract."""
+import secrets
 from datetime import datetime, timedelta, timezone
 
 from fastapi import FastAPI
@@ -21,7 +22,7 @@ def test_biometric_refresh_rotates_once_and_records_issued_session(review_db, mo
     engine = review_db.get_bind()
     engine.hide_parameters = True
     BiometricToken.__table__.create(engine, checkfirst=True)
-    raw = 'owned-synthetic-refresh-token'
+    raw = secrets.token_hex(32)
     device = 'owned-synthetic-device'
     expiry = datetime.now(timezone.utc) + timedelta(days=-1 if fault == 'expired' else 1)
     if fault == 'zero_microseconds':
@@ -55,11 +56,13 @@ def test_biometric_refresh_rotates_once_and_records_issued_session(review_db, mo
     with TestClient(app) as client:
         if fault == 'race':
             from concurrent.futures import ThreadPoolExecutor
-            from threading import Barrier
+            from threading import Barrier, local
             barrier = Barrier(2)
             original_execute = Session.execute
+            worker = local()
             def synchronized_parent(self, statement, *args, **kwargs):
-                if str(statement).startswith('UPDATE users SET id=id'):
+                if str(statement).startswith('UPDATE users SET id=id') and not getattr(worker, 'arrived', False):
+                    worker.arrived = True
                     barrier.wait(timeout=10)
                 return original_execute(self, statement, *args, **kwargs)
             monkeypatch.setattr(Session, 'execute', synchronized_parent)
@@ -68,10 +71,15 @@ def test_biometric_refresh_rotates_once_and_records_issued_session(review_db, mo
                     return independent.post('/auth/biometric-refresh', json={'refresh_token':raw,'device_id':device})
             with ThreadPoolExecutor(max_workers=2) as pool:
                 responses = list(pool.map(refresh_independently, range(2)))
+            monkeypatch.setattr(Session, 'execute', original_execute)
             statuses = sorted(r.status_code for r in responses)
-            assert statuses in ([200, 401], [200, 503])
+            assert statuses in ([200, 200], [200, 503])
+            completed = [client.post('/auth/biometric-refresh', json={'refresh_token': raw, 'device_id': device})
+                         if response.status_code == 503 else response for response in responses]
+            assert all(response.status_code == 200 for response in completed)
+            assert completed[0].json()['refresh_token'] == completed[1].json()['refresh_token']
             with Session(engine) as fresh:
-                assert fresh.execute(text('SELECT COUNT(*) FROM active_sessions WHERE user_id=1')).scalar_one() == 1
+                assert fresh.execute(text('SELECT COUNT(*) FROM active_sessions WHERE user_id=1')).scalar_one() == 2
                 assert fresh.query(BiometricToken).count() == 1
             return
         if fault in ('expired', 'inactive', 'wrong_device'):
@@ -97,9 +105,10 @@ def test_biometric_refresh_rotates_once_and_records_issued_session(review_db, mo
         replacement = response.json()['refresh_token']
         assert replacement and replacement != raw
         assert response.json()['expires_at']
-        assert client.post('/auth/biometric-refresh', json={'refresh_token': raw, 'device_id': device}).status_code == 401
+        retry = client.post('/auth/biometric-refresh', json={'refresh_token': raw, 'device_id': device})
+        assert retry.status_code == 200 and retry.json()['refresh_token'] == replacement
         second = client.post('/auth/biometric-refresh', json={'refresh_token': replacement, 'device_id': device})
         assert second.status_code == 200
         assert second.json()['refresh_token'] != replacement
     with Session(engine) as fresh:
-        assert fresh.execute(text('SELECT COUNT(*) FROM active_sessions WHERE user_id=1')).scalar_one() == 2
+        assert fresh.execute(text('SELECT COUNT(*) FROM active_sessions WHERE user_id=1')).scalar_one() == 3

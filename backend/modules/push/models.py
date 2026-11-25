@@ -65,8 +65,8 @@ class BiometricToken(Base):
       3. On subsequent app opens: Face ID gate → POST /auth/biometric-refresh → new JWT
       4. On logout: DELETE /auth/biometric-token → token revoked
 
-    Tokens are rolling: each /biometric-refresh issues a new token and invalidates
-    the previous one (single-use-on-refresh).
+    Using the current token rotates it. For ten minutes the same device can retry
+    the previous token up to five times to recover the unused successor.
     """
     __tablename__ = "biometric_tokens"
 
@@ -79,7 +79,7 @@ class BiometricToken(Base):
     # SHA-256 hash of the token value (never store plaintext)
     token_hash = Column(String(64), nullable=False, unique=True)
 
-    # Token has been consumed by a refresh — one-time use per rotation
+    # Revoked credentials cannot renew or retry.
     is_revoked = Column(Boolean, default=False, nullable=False)
 
     expires_at = Column(DateTime, nullable=False)
