@@ -47,6 +47,7 @@ _ROTATION_LABEL = b"odin-biometric-rotate-v1"
 _UNKNOWN = "Invalid or revoked biometric token"
 _SAVED_SIGN_IN_EXPIRED = "This device's saved sign-in has expired. Sign in with your password."
 _RETRY = "auth.biometric_retry_used"
+_CAP = "auth.biometric_retry_cap_refused"
 _LATE = "auth.biometric_late_retry_refused"
 _REPLAY = "auth.biometric_replay_refused"
 
@@ -230,13 +231,15 @@ def _retry(db, body, token_hash, key, request):
     age = (now - row.last_used_at.replace(tzinfo=timezone.utc)).total_seconds()
     if kind == "grand-predecessor":
         action = _REPLAY
-    elif 0 <= age <= BIOMETRIC_RETRY_SECONDS and _audit_count(db, row, _RETRY) < BIOMETRIC_RETRY_MAX:
+    elif not 0 <= age <= BIOMETRIC_RETRY_SECONDS:
+        action = _LATE
+    elif _audit_count(db, row, _RETRY) >= BIOMETRIC_RETRY_MAX:
+        action = _CAP
+    else:
         _check_expiry(row)
         _authorize(db, user)
         _audit(db, row, _RETRY, now, age)
         return _issue(db, user, request, successor, row.expires_at.replace(tzinfo=timezone.utc))
-    else:
-        action = _LATE
 
     if not _audit_count(db, row, action):
         _audit(db, row, action, now, age)

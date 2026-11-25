@@ -10,6 +10,7 @@ All notable changes to O.D.I.N. are documented here.
 
 ### Security
 
+- When ODIN restarts after a change to the sign-in key, everyone with a saved phone sign-in must sign in again.
 - A mobile sign-in token that was just replaced can recover its replacement from the same device up to five times within ten minutes. Once the replacement is used, the server refuses the earlier token and records the attempt in the audit log.
 
 ## [2.7.0] - 2026-11-24

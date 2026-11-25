@@ -27,7 +27,7 @@ else:
 from core.app_websocket import ConnectionManager, ws_manager, _ws_broadcaster
 from core.app_maintenance import (
     _discover_modules, _resolve_load_order, _periodic_cleanup,
-    _check_schema_drift, _revoke_legacy_biometric_tokens, _apply_amber_default_branding,
+    _check_schema_drift, _revoke_legacy_biometric_tokens, _apply_amber_default_branding, _check_signing_secret,
 )
 
 # Middleware setup
@@ -442,6 +442,11 @@ def create_app() -> FastAPI:
             _revoke_legacy_biometric_tokens(engine)
         except Exception as e:
             log.warning("One-time biometric token revocation did not complete: %s", e)  # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure -- static message; exception comes from SQL whose only bound values are the marker key, never token data
+
+        try:
+            _check_signing_secret(engine)
+        except Exception:
+            log.warning("Could not check saved phone sign-ins. ODIN will try again at the next start.")
 
         # 2.2 one-time data fix: untouched green accent defaults move to the designed amber
         # (branding.AMBER_DEFAULTS). Guarded by a system_config flag; no schema change.

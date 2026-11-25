@@ -26,6 +26,7 @@ DEVICE = "test-001-phone"
 UNKNOWN = "Invalid or revoked biometric token"
 EXPIRED = "This device's saved sign-in has expired. Sign in with your password."
 USED = "auth.biometric_retry_used"
+CAP = "auth.biometric_retry_cap_refused"
 LATE = "auth.biometric_late_retry_refused"
 REPLAY = "auth.biometric_replay_refused"
 
@@ -139,7 +140,7 @@ def test_late_retry_and_old_generations(client, native_engine, rotation_age):
     assert [row.action for row in audits(native_engine)] == [LATE, REPLAY]
 
 
-def test_cap_is_per_rotation_and_device(client, native_engine):
+def test_cap_is_per_rotation_and_device(client, native_engine, monkeypatch):
     device2 = DEVICE[:8] + "-tablet"
     a = seed(native_engine)
     b = seed(native_engine, device=device2)
@@ -151,7 +152,23 @@ def test_cap_is_per_rotation_and_device(client, native_engine):
     for _ in range(2):
         refused(refresh(client, a), EXPIRED)
     assert session_count(native_engine) == 7 and snapshot(native_engine) == before
-    assert [r.action for r in audits(native_engine)] == [USED] * 5 + [LATE]
+    rows = audits(native_engine)
+    assert [r.action for r in rows] == [USED] * 5 + [CAP]
+    assert rows[-1].details["device_row_id"] == before[0]["id"]
+    assert rows[-1].details["device_id"] == DEVICE[:8]
+    assert 0 <= rows[-1].details["seconds_since_rotation"] <= 600
+
+    class Later(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime.now(tz) + timedelta(minutes=11)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(biometric, "datetime", Later)
+        for _ in range(2):
+            refused(refresh(client, a), EXPIRED)
+    assert [r.action for r in audits(native_engine)] == [USED] * 5 + [CAP, LATE]
+    assert session_count(native_engine) == 7 and snapshot(native_engine) == before
     renew(client, b, device2)
     renew(client, successor)
     renew(client, successor)
@@ -186,7 +203,7 @@ def test_device_and_owner_binding(client, native_engine):
     assert row.entity_id == 2
 
 
-def test_signing_key_change_closes_only_old_retry(client, native_engine, monkeypatch):
+def test_signing_key_change_without_restart_closes_only_old_retry(client, native_engine, monkeypatch):
     a = seed(native_engine)
     b = renew(client, a)["refresh_token"]
     before = snapshot(native_engine)

@@ -51,6 +51,7 @@ USERS_CREDENTIAL_COLUMNS = frozenset({
 # system_config keys that carry credential, transport or setup material.
 GUARDED_CONFIG_KEYS = frozenset({
     "smtp_config", "base_url", "setup_complete", "setup_admin_claimed", "require_mfa",
+    "signing_secret_fingerprint",
 })
 GUARDED_CONFIG_PREFIXES = ("oidc",)
 # Deletes that change authentication behaviour itself (SSO config, setup/MFA/SMTP keys).
