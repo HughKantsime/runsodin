@@ -1,4 +1,6 @@
 """Generic job AMS edits, serialized with dispatch claim acquisition."""
+import hashlib
+import os
 from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
@@ -36,6 +38,7 @@ def assert_editable(db, job):
 
 
 def checked_changes(db, actor, job, changes):
+    revision = changes.pop('ams_file_revision', None)
     explicit = 'ams_mapping' in changes
     target = changes.get('printer_id', job.printer_id)
     pin = pinned_printer_id(changes.get('target_type', job.target_type), changes.get('target_filter', job.target_filter))
@@ -53,7 +56,12 @@ def checked_changes(db, actor, job, changes):
         if pin is not None and target is not None and pin != target:
             raise HTTPException(409, 'AMS mapping target must match the assigned printer')
         target = pin or target
-        file = source_file(db, job, actor)
+        if job.print_file_id is None and revision:
+            file = bind_reviewed_rack_file(db, job, actor, changes, target, revision)
+        else:
+            file = source_file(db, job, actor)
+            if revision and file_revision(file, target) != revision:
+                raise HTTPException(409, 'The file has changed. Review the mapping again.')
         changes['ams_mapping'] = validate_for_printer(
             db, vector_entries(mapping, file.filaments_json), file.filaments_json, target, actor,
             stored_path=file.stored_path, check_material=changes.get('hold', job.hold) is not True)
@@ -102,6 +110,45 @@ def source_file(db, job, actor, *, file_id=None):
     return file
 
 
+def file_revision(file, printer_id):
+    """An opaque preview identity for a model-selected file, before its first explicit binding."""
+    try:
+        stat = os.stat(file.stored_path, follow_symlinks=False)
+    except (OSError, TypeError):
+        return None
+    identity = (file.id, printer_id, stat.st_dev, stat.st_ino, stat.st_size, stat.st_ctime_ns)
+    return hashlib.sha256(repr(identity).encode()).hexdigest()
+
+
+def bind_reviewed_rack_file(db, job, actor, changes, target, revision):
+    """Bind the reviewed slice on the first explicit mapping of a model-selected job."""
+    from core.ams_mapping import accessible_printer
+    from core.print_file_binding import job_file_id, require_bound_target
+    from core.model_preview_access import is_education_owned_file
+    from core.print_payload_snapshot import hash_regular_payload, PayloadUnavailable
+    from modules.printers.services import is_h3c_printer
+    from modules.jobs.education_guard import assert_generic_model_reference_allowed
+    printer = accessible_printer(db, target, actor)
+    if changes.get('model_id', job.model_id) != job.model_id or not is_h3c_printer(printer._mapping):
+        raise HTTPException(409, 'Review the mapping for the selected file and printer.')
+    file = source_file(db, job, actor, file_id=job_file_id(db, job.model_id))
+    if file.blob_state != 'present' or file_revision(file, target) != revision:
+        raise HTTPException(409, 'The file has changed. Review the mapping again.')
+    assert_generic_model_reference_allowed(db, file.model_id)
+    if is_education_owned_file(db, file.id, file.stored_path):
+        raise HTTPException(409, 'Education files require their approval workflow.')
+    require_bound_target(db, file.id, target)
+    try:
+        digest = hash_regular_payload(file.stored_path)
+    except (OSError, PayloadUnavailable):
+        raise HTTPException(409, 'The print file could not be verified.') from None
+    if (any(value and value.lower() != digest for value in (file.file_hash, job.payload_sha256))
+            or file_revision(file, target) != revision):
+        raise HTTPException(409, 'The file has changed. Review the mapping again.')
+    changes.update(print_file_id=file.id, plate_index=job.plate_index or 0, payload_sha256=digest)
+    return file
+
+
 def job_preview(db, job, actor, target):
     from core.ams_mapping import accessible_printer
     from core.print_file_binding import job_file_id
@@ -111,8 +158,14 @@ def job_preview(db, job, actor, target):
             return None
         file_id = job_file_id(db, job.model_id, job.print_file_id)
         file = source_file(db, job, actor, file_id=file_id)
-        return preview(db, file.filaments_json, target, actor, stored_path=file.stored_path,
-                       plate_index=job.plate_index or 0)
+        revision = file_revision(file, target) if job.print_file_id is None else None
+        result = preview(db, file.filaments_json, target, actor, stored_path=file.stored_path,
+                         plate_index=job.plate_index or 0, stored_mapping=job.ams_mapping)
+        if revision and file.blob_state == 'present' and result and any('eligible' in row for row in result['required']):
+            from core.model_preview_access import is_education_owned_file
+            if not is_education_owned_file(db, file.id, file.stored_path):
+                result['ams_file_revision'] = revision
+        return result
     except HTTPException:
         return None  # An unavailable or inaccessible file must not hide the job itself.
 
@@ -136,7 +189,8 @@ def detail_view(db, job, actor):
     result['ams_preview'] = job_preview(db, job, actor, target)
     if job.hold and result['ams_preview'] is not None:
         result['ams_preview']['planned_loads'] = planned_loads(job, result['ams_preview'])
-    result['ams_mapping_editable'] = job.print_file_id is not None and result['ams_preview'] is not None
+    facts = result['ams_preview']
+    result['ams_mapping_editable'] = facts is not None and (job.print_file_id is not None or bool(facts.get('ams_file_revision')))
     return result
 
 

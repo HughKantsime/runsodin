@@ -12,10 +12,9 @@ Install dependency: pip install paho-mqtt --break-system-packages
 import json
 import ssl
 import time
-import math
 import logging
 log = logging.getLogger("odin.bambu")
-from typing import Optional, Dict, List, Any, Tuple
+from typing import Optional, Dict, List, Any
 from dataclasses import dataclass, field
 
 try:
@@ -119,17 +118,7 @@ def map_bambu_filament_type(bambu_type: str) -> str:
 
 # ============== Color Utilities ==============
 
-def hex_to_rgb(hex_color: str) -> Tuple[int, int, int]:
-    hex_color = hex_color.lstrip('#')
-    if len(hex_color) >= 6:
-        return (int(hex_color[0:2], 16), int(hex_color[2:4], 16), int(hex_color[4:6], 16))
-    return (128, 128, 128)
-
-
-def color_distance(hex1: str, hex2: str) -> float:
-    r1, g1, b1 = hex_to_rgb(hex1)
-    r2, g2, b2 = hex_to_rgb(hex2)
-    return math.sqrt((r2-r1)**2 + (g2-g1)**2 + (b2-b1)**2)
+from core.filament_color import hex_to_rgb, color_distance
 
 
 def find_closest_color_match(target_hex: str, candidates: List[Dict], max_distance: float = 50.0) -> Optional[Dict]:

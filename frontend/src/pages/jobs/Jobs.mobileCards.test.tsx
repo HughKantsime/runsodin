@@ -107,10 +107,9 @@ describe('Jobs phone cards vs desktop table', () => {
     show()
     fireEvent.click(await screen.findByRole('button', { name: action }))
     const preview = await screen.findByRole('region', { name: 'Rack slot preview' })
-    expect(preview).toHaveTextContent('This file prints from the slots below; the colours in the file are labels.')
     const rows = within(preview).getAllByRole('listitem')
     expect(rows).toHaveLength(5)
-    slots.forEach((slot, i) => expect(rows[i]).toHaveTextContent(`Filament ${i + 1} #FFFFFF → Slot ${slot} · PLA · #12345${slot}`))
+    slots.forEach((slot, i) => expect(rows[i]).toHaveTextContent(`Filament ${i + 1} · PLA · #FFFFFFPosition ${slot} · PLA · #12345${slot}`))
     expect(h.dispatch).not.toHaveBeenCalled()
   })
 

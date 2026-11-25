@@ -80,11 +80,15 @@ export interface ArchiveCompareResult {
 // One-based file filament IDs (filaments_json.slot) and one-based printer trays.
 export type AmsMapping = { source_slot: number; target_slot: number }[];
 
-export interface ArchiveAmsRequirement { slot: number; color: string; material: string }
+export interface ArchiveAmsRequirement {
+  slot: number; color: string; material: string;
+  diameter?: number; tool?: string; eligible?: number[]; different_colors?: number[];
+}
 export interface ArchiveAmsSlot { catalogue_name?: string | null; do_not_feed?: boolean; slot: number; color: string; color_hex: string; material: string; spool_id: number | null }
 export interface ArchiveAmsSuggestion { source_slot: number; target_slot: number; confidence: 'exact' | 'material_only' }
 
 export interface ArchiveAmsPreview {
+  ams_file_revision?: string;
   rack_mapping?: AmsMapping;
   planned_loads?: string[];
   required: ArchiveAmsRequirement[];

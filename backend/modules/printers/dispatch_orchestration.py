@@ -160,7 +160,12 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
             raise CapabilityRefused(camera_refusal)
         with stage_payload(source_path,payload_sha256) as staged:
             options,error=dispatch._validated_print_options(job,creds,staged.path,staged.sha256)
-            if error:result=(False,error)
+            if error:
+                from core.h3c_plate import RackMessage
+                if isinstance(error, RackMessage):
+                    from modules.printers.dispatch_ams_gate import GateRefusal
+                    dispatch._notify_start_outcome(job, 'adapter_rejected', gate_refusal=GateRefusal(error.code, error))
+                result = (False, error)
             else:
                 derived = options.get('ams_mapping') is not None and job.get('ams_mapping') is None
                 if derived:
@@ -240,6 +245,7 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
                                         education_provider=provider,education_reservation=reservation),
                                     staged_path=staged.path,mapping=options['ams_mapping'],target_handle=target_handle,
                                     source_facts=source_facts)
+                            ams_gate = before_start
                             if creds['api_type'] == 'bambu':
                                 from modules.printers.dispatch_capability_gate import create_capability_gate
                                 before_start = create_capability_gate(job=job, creds=creds,
@@ -277,7 +283,7 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
                                     held = True
                             if held:
                                 no_command = False
-                            if derived:
+                            if derived and (result[0] or not rack_options):
                                 result = (result[0], result[1] + '; AMS mapping derived from verified file source')
                             if filament.warning and result[0] is True:
                                 result = (result[0], result[1] + '; ' + filament.warning)
@@ -294,9 +300,11 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
                                 and (gate_code != 'printer_maintenance_hold' or preflight_no_start))
                             from modules.printers.dispatch_background import audit_actor
                             actor = audit_actor()
+                            warnings = getattr(ams_gate, 'color_warnings', None) if rack_options else None
+                            extra_detail = {'audit_detail': {'color_warnings': warnings}} if warnings else {}
                             recorded = (dispatch_claims.release_unstarted(engine, claim.token) if clean_refusal else
                                 dispatch_claims.record_outcome(engine,claim.token,'accepted' if accepted else 'uncertain',
-                                    **({'audit_actor': actor} if actor is not None else {})))
+                                    **extra_detail, **({'audit_actor': actor} if actor is not None else {})))
                             if recorded and clean_refusal:
                                 from modules.printers.start_next import confirm_no_start
                                 confirm_no_start()

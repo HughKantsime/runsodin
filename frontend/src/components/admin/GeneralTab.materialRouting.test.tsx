@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, expect, it, vi } from 'vitest'
 import GeneralTab from './GeneralTab'
 const api = vi.hoisted(() => ({ update: vi.fn(async (d: unknown) => d), config: {} as Record<string, unknown> }))
+vi.mock('../../permissions', async original => ({ ...await original(), getCurrentUser: () => ({ role: 'admin', group_id: null }) }))
 vi.mock('../../LicenseContext', () => ({ useLicense: () => ({ tier: 'pro', isPro: true, max_printers: null, max_users: null, hasFeature: () => false }) }))
 vi.mock('../../api', async importOriginal => ({ ...await importOriginal(), pricingConfig: { get: async () => ({}) },
   config: { get: async () => api.config, update: api.update, getRemoteAccess: vi.fn().mockResolvedValue({configured:false,url:null,check_url:null}), getNetwork: async () => ({}), testSpoolman: vi.fn() } }))
@@ -46,4 +47,13 @@ it('Save Scheduling Settings does not resend the mode', async () => {
   await screen.findByDisplayValue('http://10.0.0.6:7912')
   fireEvent.click(screen.getByRole('button', { name: /Save Scheduling Settings/ }))
   await waitFor(() => expect(api.update).toHaveBeenCalledWith({ spoolman_url: 'http://10.0.0.6:7912', blackout_start: '22:30', blackout_end: '05:30' }))
+})
+
+it('keeps crossed H3C positions off until an administrator chooses them', async () => {
+  api.config = {}
+  mount()
+  const checkbox = await screen.findByRole('checkbox', { name: /Allow H3C jobs/ })
+  expect(checkbox).not.toBeChecked()
+  fireEvent.click(checkbox)
+  await waitFor(() => expect(api.update).toHaveBeenCalledWith({ h3c_allow_different_positions: true }))
 })

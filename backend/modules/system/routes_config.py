@@ -13,6 +13,7 @@ from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy import bindparam, text
 from sqlalchemy.orm import Session
 
+from core.h3c_plate import different_positions_enabled
 from core.system_config_values import config_bool, config_text, write_config_text
 from starlette.responses import JSONResponse, Response
 
@@ -623,6 +624,7 @@ def get_config(current_user: dict = Depends(require_role("viewer")), db: Session
         # null: the window was never saved with a time zone, so its clock times are UTC
         "blackout_timezone": get_blackout_timezone(db),
         "scheduler_material_mode": get_mode(db),
+        "h3c_allow_different_positions": different_positions_enabled(db),
         # null: no admin has set it. The effective zone is what "today" follows and which rule gave it
         # (setting, quiet_hours, server = the TZ environment variable, utc).
         "farm_timezone": get_farm_timezone(db),
@@ -649,6 +651,9 @@ def update_config(config: ConfigUpdate, current_user: dict = Depends(require_sup
         set_blackout(db, config.blackout_start, config.blackout_end, config.blackout_timezone)
 
     mode_change = {}
+    if config.h3c_allow_different_positions is not None:
+        mode_change['h3c_allow_different_positions'] = {'from': different_positions_enabled(db), 'to': config.h3c_allow_different_positions}
+        write_config_text(db, 'h3c_allow_different_positions', str(config.h3c_allow_different_positions).lower())
     if config.farm_timezone is not None:
         from core.farm_time import get_farm_timezone, set_farm_timezone
         mode_change["farm_timezone"] = {"from": get_farm_timezone(db), "to": set_farm_timezone(db, config.farm_timezone)}
@@ -656,7 +661,7 @@ def update_config(config: ConfigUpdate, current_user: dict = Depends(require_sup
         from modules.jobs.services import scheduler_material_mode as get_mode, set_scheduler_material_mode as set_mode
         mode_change["scheduler_material_mode"] = {"from": get_mode(db), "to": set_mode(db, config.scheduler_material_mode)}
 
-    log_audit(db, "config.updated", "system", details={"keys": [k for k in ["spoolman_url", "blackout_start", "blackout_end", "blackout_timezone", "scheduler_material_mode", "farm_timezone"] if getattr(config, k) is not None], **mode_change})
+    log_audit(db, "config.updated", "system", details={"keys": [k for k in ["spoolman_url", "blackout_start", "blackout_end", "blackout_timezone", "scheduler_material_mode", "farm_timezone", "h3c_allow_different_positions"] if getattr(config, k) is not None], **mode_change})
     db.commit()
     return {"success": True, "message": "Config updated."}
 

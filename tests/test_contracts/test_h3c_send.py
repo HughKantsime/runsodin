@@ -157,9 +157,15 @@ def target(review_db, monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize('problem,reason', [
-    (None, None), ('missing', 'Filament 5 requires slot 5'), ('range', 'Filament 1 requires slot 9'), ('duplicate', 'Filament 1 requires slot 9'),
-    ('empty', 'slot'), ('wrong_material', 'slot'), ('absent', 'Position 9'),
-    ('diameter', 'Position 9'), ('standard_on_tpu', 'Position 9'), ('tpu_on_standard', 'Position 9'),
+    (None, None), ('missing', 'Choose a position for filament 5.'), ('range', 'Filament 1 needs an onboard tray in positions 1 to 9.'),
+    ('external_ht', 'Filament 1 needs an onboard tray in positions 1 to 9.'),
+    ('duplicate', 'Choose separate positions for the two filaments assigned to position 7.'),
+    ('empty', 'Position 9 is empty.'), ('wrong_material', 'Filament 1 needs PLA. Position 9 holds ABS.'),
+    ('absent', 'Position 9 needs a reported, installed tool.'),
+    ('diameter', 'Filament 1 was sliced for a 0.4 mm standard tool. Position 9 holds a 0.6 mm standard tool.'),
+    ('standard_on_tpu', 'Filament 1 was sliced for a 0.4 mm standard tool. Position 9 holds a TPU tool.'),
+    ('tpu_on_standard', 'Filament 1 was sliced for a 0.4 mm TPU tool. Position 9 holds a standard tool.'),
+    ('calibration', 'Check tool calibration before using position 9.'),
     ('wrong_model', 'printer_model_mismatch'), ('bed', '330 x 320'),
 ])
 def test_offline_plate_checks_without_opt_in(target, review_db, problem, reason):
@@ -185,12 +191,14 @@ def test_offline_plate_checks_without_opt_in(target, review_db, problem, reason)
     if problem == 'duplicate': mapping[0] = mapping[1]
     if problem == 'missing': mapping.pop()
     if problem == 'range': mapping[0] = 9
+    if problem == 'external_ht': mapping[0] = 128
     if problem in ('empty', 'wrong_material'):
         review_db.execute(text('UPDATE filament_slots SET filament_type=:m WHERE printer_id=59 AND slot_number=9'),
                           {'m': 'empty' if problem == 'empty' else 'ABS'})
         review_db.commit()
     tools = json.loads(creds['installed_nozzles'])
     tool = next(row for row in tools if row.get('position') == 9)
+    if problem == 'calibration': tool['calibration_clear'] = False
     if problem == 'absent': tool['present'] = False
     if problem == 'diameter': tool['diameter'] = 0.6
     if problem == 'standard_on_tpu': tool['type'] = 'HT01'
@@ -206,13 +214,19 @@ def test_offline_plate_checks_without_opt_in(target, review_db, problem, reason)
     job['payload_sha256'] = hashlib.sha256(path.read_bytes()).hexdigest()
     options, error = dispatch._validated_print_options(job, creds, path, job['payload_sha256'])
     if reason:
-        assert options is None and reason in error, error
+        assert (options, error) == (None, reason)
+        codes = {'missing': 'ams_mapping_required', 'range': 'onboard_tray_required', 'external_ht': 'onboard_tray_required',
+                 'duplicate': 'duplicate_position',
+                 'empty': 'tray_empty', 'wrong_material': 'material_mismatch', 'absent': 'tool_missing',
+                 'calibration': 'tool_uncalibrated', 'diameter': 'nozzle_mismatch',
+                 'standard_on_tpu': 'nozzle_mismatch', 'tpu_on_standard': 'nozzle_mismatch'}
+        assert error.code == codes[problem]
     else:
         assert options['ams_mapping'] == MAPPING
 
 
 @pytest.mark.parametrize('protocol', ['legacy', 'v2'])
-@pytest.mark.parametrize('outcome', ['manual', 'auto', 'timeout', 'busy', 'lock_unavailable', 'transfer', 'refused_connection', 'tls', 'no_suback', 'mqtt_down', 'mqtt_lost', 'sub_refused', 'write_failed', 'upload_rejected', 'start_rejected', 'no_reply', 'empty_tray', 'changed_tool'])
+@pytest.mark.parametrize('outcome', ['manual', 'auto', 'colour_changed', 'crossed', 'gate_disabled', 'uncalibrated', 'timeout', 'busy', 'lock_unavailable', 'transfer', 'refused_connection', 'tls', 'no_suback', 'mqtt_down', 'mqtt_lost', 'sub_refused', 'write_failed', 'upload_rejected', 'start_rejected', 'no_reply', 'empty_tray', 'changed_tool'])
 def test_one_checked_dispatch(target, review_db, monkeypatch, caplog, protocol, outcome):
     from modules.printers.telemetry.bambu import ftp_upload, project_reply
     from tests.test_contracts.test_multi_source_ams_dispatch import transport
@@ -221,8 +235,22 @@ def test_one_checked_dispatch(target, review_db, monkeypatch, caplog, protocol, 
     if outcome == 'auto':
         review_db.execute(text('UPDATE jobs SET ams_mapping=NULL WHERE id=53'))
         review_db.commit()
+    selection = MAPPING.copy()
+    if outcome in ('crossed', 'gate_disabled'):
+        from core.system_config_values import write_config_text
+        selection[0], selection[1] = selection[1], selection[0]
+        write_config_text(review_db, 'h3c_allow_different_positions', 'true')
+        review_db.execute(text('UPDATE jobs SET ams_mapping=:m WHERE id=53'), {'m': json.dumps(selection)})
+        review_db.commit()
     # Reuse the offline upload and MQTT boundary. Exercise the real reply parser.
     def after_upload():
+        if outcome == 'gate_disabled':
+            write_config_text(review_db, 'h3c_allow_different_positions', 'false')
+            review_db.commit()
+        if outcome == 'uncalibrated':
+            report['3D']['uncalibrated_nozzles'] = [16]
+        if outcome == 'colour_changed':
+            report['ams']['ams'][0]['tray'][MAPPING[0]]['tray_color'] = 'FFFFFF00'
         if outcome == 'empty_tray':
             report['ams']['tray_exist_bits'] = hex(255 << 28)
         if outcome == 'changed_tool':
@@ -319,6 +347,11 @@ def test_one_checked_dispatch(target, review_db, monkeypatch, caplog, protocol, 
         assert not ok and 'subscri' in message and events == ['upload']
         row = review_db.execute(text('SELECT status,fail_notes FROM jobs WHERE id=53')).one()
         assert row.status == 'failed' and 'subscription was refused (code 128)' in row.fail_notes
+    elif outcome == 'gate_disabled':
+        from core.h3c_plate import POSITION_GATE_MESSAGE
+        assert (ok, message, events) == (False, POSITION_GATE_MESSAGE, ['upload'])
+    elif outcome == 'uncalibrated':
+        assert not ok and 'Check tool calibration' in message and events == ['upload']
     elif outcome == 'changed_tool':
         assert not ok and 'Position 9' in message and events == ['upload']
     elif outcome == 'empty_tray':
@@ -338,6 +371,17 @@ def test_one_checked_dispatch(target, review_db, monkeypatch, caplog, protocol, 
         assert ok, message
         assert events == ['upload', 'start']
         assert len(sent) == 1 and sent[0]['use_ams'] is True and sent[0]['command'] == 'project_file'
+        if outcome == 'colour_changed':
+            detail = review_db.execute(text("SELECT details FROM audit_logs WHERE entity_id=53 AND action='job.dispatched'")).scalar_one()
+            assert json.loads(detail)['color_warnings'] == [
+                dict(filament=1, position=9, file_color='#FF6A13', loaded_color='#FFFFFF')]
+        if outcome == 'crossed':
+            assert sent[0]['ams_mapping'] == [28 + n for n in selection]
+            assert sent[0]['ams_mapping2'] == [dict(ams_id=32, slot_id=n) for n in selection]
+            assert set(sent[0]) == {'sequence_id', 'command', 'param', 'subtask_name', 'url', 'bed_type', 'timelapse',
+                                    'bed_leveling', 'flow_cali', 'vibration_cali', 'layer_inspect', 'use_ams',
+                                    'profile_id', 'project_id', 'subtask_id', 'task_id', 'ams_mapping', 'ams_mapping2'}
+            return
         for key in ('ams_mapping', 'ams_mapping2'):
             assert json.dumps(sent[0][key]) == json.dumps(ECHO[key][:5])
 
@@ -372,7 +416,10 @@ def test_job_detail_previews_file_rack_positions_and_current_colours(target, rev
     def preview():
         return detail_view(review_db, job, actor)['ams_preview']
     facts = preview()
-    assert facts['rack_mapping'] == [dict(source_slot=n + 1, target_slot=5 - n) for n in range(5)]
+    # Two indistinguishable grey trays are equally good for the remaining file colours.
+    assert facts['rack_mapping'] == [] and 'Choose a mapping' in facts['file_note']
+    assert facts['required'][0]['tool'] == 'standard' and facts['required'][0]['diameter'] == 0.4
+    assert 5 in facts['required'][0]['different_colors'] and 8 not in facts['required'][0]['eligible']
     assert facts['suggested_mapping'] == []
     tray = next(row for row in facts['available'] if row['slot'] == 5)
     assert (tray['material'], tray['color_hex']) == ('PLA', '123456')
@@ -380,6 +427,30 @@ def test_job_detail_previews_file_rack_positions_and_current_colours(target, rev
     review_db.execute(text("UPDATE filament_slots SET color_hex='AABBCC' WHERE printer_id=59 AND slot_number=5"))
     review_db.commit()
     assert next(row['color_hex'] for row in preview()['available'] if row['slot'] == 5) == 'AABBCC'
+
+
+def test_legacy_job_binds_only_the_reviewed_rack_file(target, review_db, token_client):
+    from modules.jobs.routes import jobs_crud
+    path, _ = target
+    review_db.execute(text("UPDATE jobs SET print_file_id=NULL,ams_mapping=NULL WHERE id=53"))
+    review_db.commit()
+    client, issue = token_client
+    client.app.include_router(jobs_crud.router)
+    headers = issue(['read', 'write'])
+    def plan():
+        detail = client.get('/jobs/53', headers=headers).json()
+        assert detail['ams_mapping_editable']
+        return dict(ams_mapping=detail['ams_preview']['rack_mapping'],
+                    ams_file_revision=detail['ams_preview']['ams_file_revision'])
+    choice = plan()
+    path.write_bytes(path.read_bytes())
+    stale = client.patch('/jobs/53', headers=headers, json=choice)
+    assert (stale.status_code, stale.json()['detail']) == (409, 'The file has changed. Review the mapping again.')
+    saved = client.patch('/jobs/53', headers=headers, json=plan())
+    assert saved.status_code == 200, saved.text
+    assert saved.json()['ams_mapping'] == MAPPING
+    assert review_db.execute(text('SELECT print_file_id,plate_index,payload_sha256 FROM jobs WHERE id=53')).one() == (
+        52, 0, hashlib.sha256(path.read_bytes()).hexdigest())
 
 
 def test_unidentified_rack_stays_refused_with_saved_opt_in(target, review_db):
@@ -625,23 +696,23 @@ def test_cli_mapping_is_bound_to_slice(target, review_db, fixture, expected):
     creds, job = dispatch._get_printer_info(59), dispatch._load_job(53)
     job.update(ams_mapping=None, payload_sha256=sha, filaments_json=json.dumps(
         [dict(slot=f.slot, type=f.type, color=f.color) for f in filaments]))
+    # These fixtures remain usable with the setting off when their planned trays are loaded.
+    for f, target_slot in zip(filaments, expected):
+        review_db.execute(text('UPDATE filament_slots SET color_hex=:color WHERE printer_id=59 AND slot_number=:n'),
+                          {'color': f.color, 'n': target_slot + 1})
+    # A duplicated exact colour elsewhere makes automatic selection ambiguous.
+    for n in set(range(9)) - set(expected):
+        review_db.execute(text("UPDATE filament_slots SET filament_type='empty' WHERE printer_id=59 AND slot_number=:n"),
+                          {'n': n + 1})
+    review_db.commit()
     options, reason = dispatch._validated_print_options(job, creds, path, sha)
     assert reason is None and options['ams_mapping'] == expected
-    job['ams_mapping'] = MAPPING[:len(expected)]
-    options, reason = dispatch._validated_print_options(job, creds, path, sha)
-    assert options is None and 'Filament 1' in reason and f'slot {expected[0] + 1}' in reason and 'PLA' in reason
-    job['ams_mapping'] = None
-    if fixture == SLICE:
-        review_db.execute(text("UPDATE filament_slots SET filament_type='empty' "
-                               "WHERE printer_id=59 AND slot_number NOT IN (9,7,2,4,5)"))
-        review_db.commit()
-        options, reason = dispatch._validated_print_options(job, dispatch._get_printer_info(59), path, sha)
-        assert options is None and 'Filament 3 requires slot 3' in reason and 'empty' in reason
+    job['ams_mapping'] = expected
     review_db.execute(text('UPDATE filament_slots SET filament_type=:m WHERE printer_id=59 AND slot_number=:s'),
                       {'m': 'ABS', 's': expected[0]+1})
     review_db.commit()
-    options, reason = dispatch._validated_print_options(job, dispatch._get_printer_info(59), path, sha)
-    assert options is None and 'Filament 1' in reason and f'slot {expected[0] + 1}' in reason and 'ABS' in reason
+    options, reason = dispatch._validated_print_options(job, creds, path, sha)
+    assert options is None and reason == f'Filament 1 needs PLA. Position {expected[0] + 1} holds ABS.'
 
 
 @pytest.mark.parametrize('model', ['H3C', 'P1S'])

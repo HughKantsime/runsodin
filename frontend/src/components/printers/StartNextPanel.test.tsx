@@ -38,14 +38,14 @@ test('an idle S1 starts its next job only after the bed-clear confirmation', asy
 })
 
 test.each(['verify_needed', 'change_needed'])('shows physical slots, load instructions and %s for the next rack job', async filament => {
-  const rack_preview = { required: [{slot: 1, color: '#FFFFFF'}, {slot: 2, color: '#111111'}],
+  const rack_preview = { required: [{slot: 1, material: 'PLA', color: '#FFFFFF'}, {slot: 2, material: 'PLA', color: '#111111'}],
     available: [{slot: 2, material: 'PLA', color_hex: '123456'}, {slot: 1, material: 'PLA', color_hex: 'FEDCBA'}],
     suggested_mapping: [], rack_mapping: [{source_slot: 1, target_slot: 2}, {source_slot: 2, target_slot: 1}] }
   api.suggestion.mockResolvedValue({ ...SUGGESTION, filament, inputs: {rack_preview}, load: [{material: 'ABS', color: 'Blue', slot: 2}] })
   render(<QueryClientProvider client={client()}><StartNextPanel printerId={7} /></QueryClientProvider>)
   const preview = await screen.findByRole('region', {name: 'Rack slot preview'})
-  expect(preview).toHaveTextContent('Filament 1 #FFFFFF → Slot 2 · PLA · #123456')
-  expect(preview).toHaveTextContent('Filament 2 #111111 → Slot 1 · PLA · #FEDCBA')
+  expect(preview).toHaveTextContent('Filament 1 · PLA · #FFFFFFPosition 2 · PLA · #123456')
+  expect(preview).toHaveTextContent('Filament 2 · PLA · #111111Position 1 · PLA · #FEDCBA')
   expect(screen.getByText(/Next: job 12/)).toHaveTextContent(filament.replace('_', ' '))
   expect(screen.getByText('Load ABS Blue in slot 2')).toBeInTheDocument()
   expect(screen.getByRole('button', BUTTON)).toBeDisabled()

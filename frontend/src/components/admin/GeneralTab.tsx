@@ -279,7 +279,7 @@ export default function GeneralTab() {
   }
 
   const saveSettings = useMutation({
-    mutationFn: (data) => configApi.update(data),
+    mutationFn: (data: Parameters<typeof configApi.update>[0]) => configApi.update(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['config'] })
       queryClient.invalidateQueries({ queryKey: ['stats'] })
@@ -487,6 +487,11 @@ export default function GeneralTab() {
             Turn quiet hours off
           </button>
         )}
+        {principal?.role === 'admin' && principal.group_id == null && configData && <label className="my-3 flex items-start gap-2 text-sm">
+          <input type="checkbox" checked={configData.h3c_allow_different_positions === true} disabled={saveSettings.isPending}
+            onChange={e => saveSettings.mutate({ h3c_allow_different_positions: e.target.checked })} />
+          Allow H3C jobs to use compatible positions that differ from the slice (experimental)
+        </label>}
         <MaterialRoutingSetting saved={configData?.scheduler_material_mode as string | undefined} />
       </div>
 

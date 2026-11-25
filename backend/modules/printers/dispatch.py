@@ -160,6 +160,9 @@ def _gate_refusal_message(gate):
         refusal = None
     if refusal is None:
         refusal = GateRefusal("gate_rejected", "Post-upload callback refused print start")
+    from core.h3c_plate import RackMessage
+    if isinstance(refusal.detail, RackMessage):
+        return refusal.detail
     detail = refusal.detail.removeprefix(refusal.code + ": ")
     if refusal.code == 's1_start_unknown':
         return refusal.code + ': ' + detail

@@ -9,8 +9,9 @@ export default function JobAmsMapping({ job }: { job: {
   ams_preview?: ArchiveAmsPreview | null; ams_mapping_editable?: boolean;
 } }) {
   const client = useQueryClient()
-  const selection = useAmsMapping(job.ams_preview, `${job.id}:${job.printer_id}:${JSON.stringify(job.ams_mapping)}`, job.ams_mapping)
-  const save = useMutation({ mutationFn: (mapping: AmsMapping | null) => jobs.update(job.id, { ams_mapping: mapping }),
+  const revision = job.ams_preview?.ams_file_revision
+  const selection = useAmsMapping(job.ams_preview, `${job.id}:${job.printer_id}:${revision ?? ''}:${JSON.stringify(job.ams_mapping)}`, job.ams_mapping)
+  const save = useMutation({ mutationFn: (mapping: AmsMapping | null) => jobs.update(job.id, { ams_mapping: mapping, ...(mapping && revision ? { ams_file_revision: revision } : {}) }),
     onSuccess: () => {
       client.invalidateQueries({ queryKey: ['job', job.id] })
       client.invalidateQueries({ queryKey: ['jobs'] })

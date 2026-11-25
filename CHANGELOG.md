@@ -4,6 +4,10 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- H3C filament mapping shows compatible rack positions and colour differences. Administrators can enable sending from a different position than the slice planned.
+
 ## [2.7.0] - 2026-11-24
 
 

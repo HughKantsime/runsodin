@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Optional, List, Any
 import re
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, StrictBool, field_validator
 
 
 class MaintenanceTaskBase(BaseModel):
@@ -107,6 +107,7 @@ class ConfigUpdate(BaseModel):
     blackout_start: Optional[str] = None
     blackout_end: Optional[str] = None
     blackout_timezone: Optional[str] = None  # IANA name; the quiet-hours clock times are in it
+    h3c_allow_different_positions: Optional[StrictBool] = None
     scheduler_material_mode: Optional[str] = None
     farm_timezone: Optional[str] = None  # IANA name; where the farm's "today" starts. "" clears it
 
