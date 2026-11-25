@@ -34,19 +34,21 @@ export interface ApiError extends Error {
   status?: number
   storageReason?: string
   code?: string
+  reason?: string
   retriable?: boolean
 }
 
 interface ApiErrorBody {
   detail?: unknown
   message?: unknown
-  error?: { storage_reason?: string; code?: string; retriable?: boolean }
+  error?: { storage_reason?: string; code?: string; reason?: string; retriable?: boolean }
 }
 
 function apiError(err: ApiErrorBody, fallback: string, status?: number): ApiError {
   const error: ApiError = new Error(errorDetailMessage(err.detail) || errorDetailMessage(err.message) || fallback)
   if (err.detail !== undefined) error.detail = err.detail
   if (typeof err.error?.code === 'string') error.code = err.error.code
+  if (typeof err.error?.reason === 'string') error.reason = err.error.reason
   if (typeof err.error?.retriable === 'boolean') error.retriable = err.error.retriable
   const detail = err.detail
   const reason = detail && typeof detail === 'object' && 'storage_reason' in detail ? detail.storage_reason : err.error?.storage_reason

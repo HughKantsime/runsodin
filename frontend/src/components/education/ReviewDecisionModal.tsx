@@ -143,7 +143,16 @@ export default function ReviewDecisionModal({ submission, onClose, audience = ''
     },
     onError: (mutationError: ApiError, operation) => {
       const canRetry = mutationError.retriable !== false
-      setSavedApprovals(previous => new Map(previous).set(operation.identity, { body: operation.body, canRetry }))
+      setSavedApprovals(previous => {
+        const next = new Map(previous)
+        // An unconfirmed AMS commit may already have saved this command.
+        if (canRetry || mutationError.reason === 'approval_unconfirmed') {
+          next.set(operation.identity, { body: operation.body, canRetry })
+        } else {
+          next.delete(operation.identity)
+        }
+        return next
+      })
       if (operation.scope === currentSubmissionScope.current) setApprovalError(mutationError.message)
     },
     onSettled: () => { approvalBusy.current = false },
