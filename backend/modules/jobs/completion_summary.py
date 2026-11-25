@@ -202,6 +202,7 @@ def eligible(db, job, printer):
 
 
 def next_suggestion(db, printer, *, visible=None, at=None, actor=None, include_preview=False):
+    from modules.jobs.write_access import can_write_job
     from modules.printers.services import dispatch_unsupported_reason
     unsupported = dispatch_unsupported_reason(printer)
     if unsupported:
@@ -224,6 +225,8 @@ def next_suggestion(db, printer, *, visible=None, at=None, actor=None, include_p
     ranked = []
     for scheduler_index, job in enumerate(candidates):
         if visible is not None and not visible(job):
+            continue
+        if actor is not None and not can_write_job(actor, job):
             continue
         if not eligible(db, job, printer):
             continue

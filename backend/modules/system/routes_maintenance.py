@@ -13,7 +13,7 @@ from core.db import get_db
 from core.errors import ErrorCode, OdinError
 from core.middleware.dry_run import dry_run_preview, is_dry_run
 from core.rbac import (AGENT_READ_SCOPE, AGENT_WRITE_SCOPE, require_any_scope, require_role, require_action,
-                       check_org_access)
+                       check_org_access, require_org_write)
 from core.responses import build_next_actions, next_action
 from modules.printers.models import Printer
 from modules.system.maintenance_status import compute_status, visible_printer_query
@@ -27,10 +27,12 @@ def _visible_printer_query(query, user):
     return visible_printer_query(query, user)
 
 
-def _authorized_printer(db, printer_id, user):
+def _authorized_printer(db, printer_id, user, *, operate):
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer or not (check_org_access(user, printer.org_id) or printer.shared):
         raise OdinError(ErrorCode.printer_not_found, "Printer not found", status=404)
+    if printer.org_id is None:
+        require_org_write(user, printer.org_id, "printer", operate=operate)
     return printer
 
 
@@ -246,7 +248,7 @@ def create_maintenance_log(
 
     Agent-surface (v1.9.0 Phase 2): honors X-Dry-Run, emits next_actions.
     """
-    printer = _authorized_printer(db, data.printer_id, current_user)
+    printer = _authorized_printer(db, data.printer_id, current_user, operate=True)
     if data.task_id is not None and not db.query(MaintenanceTask).filter(MaintenanceTask.id == data.task_id).first():
         raise HTTPException(404, "Task not found")
     # Snapshot the same lifetime odometer used by the status calculation.
@@ -331,7 +333,7 @@ def delete_maintenance_log(log_id: int, current_user: dict = Depends(require_rol
     log_entry = db.query(MaintenanceLog).filter(MaintenanceLog.id == log_id).first()
     if not log_entry:
         raise HTTPException(status_code=404, detail="Log not found")
-    _authorized_printer(db, log_entry.printer_id, current_user)
+    _authorized_printer(db, log_entry.printer_id, current_user, operate=False)
     db.delete(log_entry)
     db.commit()
 

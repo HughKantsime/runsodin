@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import text
 from core.db import get_db
-from core.rbac import require_action, check_org_access
+from core.rbac import require_action, require_org_write
 from modules.models_library.models import Model
 
 router = APIRouter(prefix='/models', tags=['Models'])
@@ -22,8 +22,9 @@ def visible_models(db):
 @router.post('/{model_id}/hide')
 def hide_model(model_id: int, current_user=Depends(require_action('models.edit', scope='write:models')), db=Depends(get_db)):
     model = db.get(Model, model_id)
-    if not model or not check_org_access(current_user, model.org_id):
+    if not model:
         raise HTTPException(404, 'Model not found')
+    require_org_write(current_user, model.org_id, "model")
     db.execute(text('UPDATE models SET hidden_from_library=TRUE WHERE id=:id'), {'id': model_id})
     live = db.execute(text('SELECT 1 FROM education_submissions WHERE model_id=:id AND archived_at IS NULL'), {'id': model_id}).first()
     db.commit()

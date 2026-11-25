@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from core.db import get_db
-from core.rbac import require_role, require_action, check_org_access
+from core.rbac import require_role, require_action, check_org_access, check_org_write
 from modules.inventory.models import Spool
 from modules.printers.models import FilamentSlot, Printer
 from core.interfaces.filament_ownership import ensure_local_filament_management
@@ -26,7 +26,7 @@ def assign_spool_to_slot(
 ):
     """Assign a spool to a printer slot."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
-    if not printer or not (check_org_access(current_user, printer.org_id) or printer.shared):
+    if not printer or not (check_org_write(current_user, printer.org_id, operate=True) or printer.shared):
         raise HTTPException(status_code=404, detail="Printer not found")
     ensure_local_filament_management(printer_id)
     slot = db.query(FilamentSlot).filter(
@@ -56,7 +56,7 @@ def confirm_slot_assignment(
 ):
     """Confirm the spool assignment for a slot."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
-    if not printer or not (check_org_access(current_user, printer.org_id) or printer.shared):
+    if not printer or not (check_org_write(current_user, printer.org_id, operate=True) or printer.shared):
         raise HTTPException(status_code=404, detail="Printer not found")
     ensure_local_filament_management(printer_id)
     slot = db.query(FilamentSlot).filter(
@@ -156,7 +156,7 @@ def confirm_tray_identity(printer_id: int, slot_number: int, body: ConfirmTrayId
     from core.tray_identity import decode
     from modules.inventory.slot_assignments import lock_slot_graph
     printer = db.query(Printer).filter_by(id=printer_id).first()
-    if not printer or not check_org_access(current_user, printer.org_id):
+    if not printer or not check_org_write(current_user, printer.org_id, operate=True):
         raise HTTPException(404, 'Printer not found')
     ensure_local_filament_management(printer_id)
     slot = db.query(FilamentSlot).filter_by(printer_id=printer_id, slot_number=slot_number).first()
@@ -165,7 +165,7 @@ def confirm_tray_identity(printer_id: int, slot_number: int, body: ConfirmTrayId
     lock_slot_graph(db, slot.id, body.spool_id)
     db.refresh(slot)
     db.refresh(printer)
-    if not check_org_access(current_user, printer.org_id):
+    if not check_org_write(current_user, printer.org_id, operate=True):
         raise HTTPException(404, 'Printer not found')
     state = decode(slot.tray_observation)
     if state.get('id') != body.observed_state:
@@ -181,7 +181,7 @@ def confirm_tray_identity(printer_id: int, slot_number: int, body: ConfirmTrayId
     if target is None:
         raise HTTPException(409, 'No bound spool; select a new spool')
     spool = db.query(Spool).filter_by(id=target).first()
-    if not spool or not check_org_access(current_user, spool.org_id) or (spool.org_id is not None and spool.org_id != printer.org_id):
+    if not spool or not check_org_write(current_user, spool.org_id, operate=True) or (spool.org_id is not None and spool.org_id != printer.org_id):
         raise HTTPException(404, 'Spool not found')
     if spool.status.value != 'active':
         raise HTTPException(409, 'Select an active spool')

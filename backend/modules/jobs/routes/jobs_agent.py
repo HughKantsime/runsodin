@@ -40,12 +40,14 @@ from core.rbac import (
     HANDLER_SCOPE,
     AGENT_WRITE_SCOPE,
     check_org_access,
+    unscoped_write_detail,
     require_any_scope,
     require_role,
 )
 from core.responses import build_next_actions, next_action
 from license_manager import require_feature
 from modules.jobs.models import Job
+from modules.jobs.write_access import can_write_job
 from modules.jobs.schemas import JobResponse
 from modules.jobs.scoped_cancel import assert_cancel_allowed
 
@@ -61,14 +63,16 @@ class _RejectJobRequest(PydanticBaseModel):
 
 
 def _get_job_or_raise(db: Session, job_id: int, current_user: dict) -> Job:
-    """Shared lookup + org-access check. Raises OdinError(job_not_found)."""
-    job = db.query(Job).filter(Job.id == job_id).first()
+    """Read current ownership and return agent errors for hidden or read-only jobs."""
+    job = db.query(Job).filter(Job.id == job_id).populate_existing().first()
     if not job or not check_org_access(current_user, job.charged_to_org_id):
         raise OdinError(
             ErrorCode.job_not_found,
             f"Job {job_id} not found",
             status=404,
         )
+    if not can_write_job(current_user, job):
+        raise OdinError(ErrorCode.permission_denied, unscoped_write_detail('job'), status=403)
     return job
 
 
@@ -113,9 +117,7 @@ def cancel_job(
     production_orders = prepare_job_write(db, [job_id])
     # Same job-row exclusion used by dispatch admission; recheck all fences under it.
     db.execute(text('UPDATE jobs SET id=id WHERE id=:id'), {'id':job_id})
-    job = db.query(Job).filter(Job.id == job_id).populate_existing().first()
-    if not job or not check_org_access(current_user, job.charged_to_org_id):
-        raise OdinError(ErrorCode.job_not_found, f"Job {job_id} not found", status=404)
+    job = _get_job_or_raise(db, job_id, current_user)
     assert_cancel_allowed(db, job, current_user)
     from modules.jobs.state_machine import transition_job
     if not transition_job(db, job_id, JobStatus.CANCELLED, "operator",

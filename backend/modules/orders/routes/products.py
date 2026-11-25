@@ -9,7 +9,7 @@ from typing import List
 import logging
 
 from core.db import get_db
-from core.rbac import require_role, get_org_scope, check_org_access
+from core.rbac import require_role, get_org_scope, check_org_access, require_org_write
 from modules.orders.models import Product, ProductComponent
 from modules.orders.product_costing import estimated_product_cogs
 from modules.inventory.models import Consumable, ProductConsumable
@@ -126,8 +126,7 @@ def update_product(product_id: int, data: ProductUpdate, current_user: dict = De
     product = db.query(Product).filter(Product.id == product_id).first()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
-    if not check_org_access(current_user, product.org_id):
-        raise HTTPException(status_code=404, detail="Product not found")
+    require_org_write(current_user, product.org_id, "product")
 
     from modules.orders.finishing import lock
     from modules.orders.square_store import own_product
@@ -148,8 +147,7 @@ def delete_product(product_id: int, current_user: dict = Depends(require_action(
     product = db.query(Product).filter(Product.id == product_id).first()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
-    if not check_org_access(current_user, product.org_id):
-        raise HTTPException(status_code=404, detail="Product not found")
+    require_org_write(current_user, product.org_id, "product")
 
     from modules.orders.square_store import forget_product
     forget_product(db, product)
@@ -165,8 +163,7 @@ def add_product_component(product_id: int, data: ProductComponentCreate, current
     product = db.query(Product).filter(Product.id == product_id).first()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
-    if not check_org_access(current_user, product.org_id):
-        raise HTTPException(status_code=404, detail="Product not found")
+    require_org_write(current_user, product.org_id, "product")
 
     from modules.orders.finishing import lock
     from modules.orders.square_store import own_product
@@ -200,8 +197,7 @@ def remove_product_component(product_id: int, component_id: int, current_user: d
     product = db.query(Product).filter(Product.id == product_id).first()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
-    if not check_org_access(current_user, product.org_id):
-        raise HTTPException(status_code=404, detail="Product not found")
+    require_org_write(current_user, product.org_id, "product")
 
     from modules.orders.finishing import lock
     from modules.orders.square_store import own_product
@@ -228,8 +224,7 @@ def add_product_consumable(product_id: int, data: ProductConsumableCreate,
     product = db.query(Product).filter(Product.id == product_id).first()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
-    if not check_org_access(current_user, product.org_id):
-        raise HTTPException(status_code=404, detail="Product not found")
+    require_org_write(current_user, product.org_id, "product")
 
     from modules.orders.finishing import lock
     from modules.orders.square_store import own_product
@@ -263,8 +258,7 @@ def remove_product_consumable(product_id: int, consumable_link_id: int,
     product = db.query(Product).filter(Product.id == product_id).first()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
-    if not check_org_access(current_user, product.org_id):
-        raise HTTPException(status_code=404, detail="Product not found")
+    require_org_write(current_user, product.org_id, "product")
 
     from modules.orders.finishing import lock
     from modules.orders.square_store import own_product

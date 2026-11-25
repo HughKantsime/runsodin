@@ -2,7 +2,7 @@
 from fastapi import HTTPException
 from sqlalchemy.exc import OperationalError
 from core.interfaces.filament_ownership import ensure_local_filament_management
-from core.rbac import check_org_access
+from core.rbac import check_org_write, require_org_write
 from modules.inventory.models import Spool
 from modules.printers.models import FilamentSlot, Printer
 
@@ -88,14 +88,14 @@ def assign_slot(db, slot, spool_id, current_user=None, *, telemetry_departure=Fa
         if current_user is not None:
             previous = [row for row in spools if row.id == slot.assigned_spool_id]
             for row in displaced + previous + ([target] if target else []):
-                if not check_org_access(current_user, row.org_id):
+                if not check_org_write(current_user, row.org_id, operate=True):
                     raise HTTPException(404, 'Spool not found')
             printer_ids = {row.printer_id for row in affected} | {slot.printer_id}
             if target and target.location_printer_id is not None:
                 printer_ids.add(target.location_printer_id)
             for printer_id in printer_ids:
                 printer = db.query(Printer).filter_by(id=printer_id).populate_existing().first()
-                if not printer or not (check_org_access(current_user, printer.org_id) or printer.shared):
+                if not printer or not (check_org_write(current_user, printer.org_id, operate=True) or printer.shared):
                     raise HTTPException(404, 'Printer not found')
             # A move can also clear the source printer's assignment.
             if not telemetry_departure:
@@ -123,13 +123,14 @@ def assign_slot(db, slot, spool_id, current_user=None, *, telemetry_departure=Fa
 
 def unload_spool_graph(db, spool, current_user=None):
     lock_slot_graph(db, spool_id=spool.id)
-    db.refresh(spool, ['location_printer_id', 'location_slot'])
+    db.refresh(spool, ['location_printer_id', 'location_slot', 'org_id'])
     slots = db.query(FilamentSlot).filter(FilamentSlot.assigned_spool_id == spool.id).populate_existing().all()
     if current_user is not None:
+        require_org_write(current_user, spool.org_id, "spool", operate=True)
         printer_ids = ({slot.printer_id for slot in slots} | {spool.location_printer_id}) - {None}
         for printer_id in printer_ids:
             printer = db.query(Printer).filter_by(id=printer_id).populate_existing().first()
-            if not printer or not (check_org_access(current_user, printer.org_id) or printer.shared):
+            if not printer or not (check_org_write(current_user, printer.org_id, operate=True) or printer.shared):
                 raise HTTPException(404, 'Printer not found')
         for printer_id in printer_ids:
             ensure_local_filament_management(printer_id)

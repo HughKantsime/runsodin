@@ -18,8 +18,9 @@ from core.log_redaction import redact_text
 from modules.jobs.education_order import education_order, waiting_rows, ordered_waiting, head_refusal
 from modules.jobs.pinning import clear_pins_for_deleted_printer
 from modules.jobs.state_machine import Expr, TransitionError, transition_job, transition_result
+from modules.jobs.write_access import require_job_write
 
-__all__ = ["clear_job_links", "deleting_job_links", "rollback_on_integrity_error", "JobLinkConflict", "delete_org_jobs", "education_order", "waiting_rows", "ordered_waiting", "head_refusal", "Expr", "TransitionError", "clear_pins_for_deleted_printer", "transition_job", "transition_result"]
+__all__ = ["require_job_write", "clear_job_links", "deleting_job_links", "rollback_on_integrity_error", "JobLinkConflict", "delete_org_jobs", "education_order", "waiting_rows", "ordered_waiting", "head_refusal", "Expr", "TransitionError", "clear_pins_for_deleted_printer", "transition_job", "transition_result"]
 
 
 def clear_job_links(db, job_ids):

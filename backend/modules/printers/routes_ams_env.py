@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from modules.printers.ams_humidity import humidity_scale, reported_percent, zone_labels
 from core.db import get_db
 from core.db_compat import sql
-from core.rbac import require_role, check_org_access, require_action
+from core.rbac import require_role, check_org_access, check_org_write, require_action, require_org_write
 from modules.printers.models import Printer, FilamentSlot
 from modules.printers.ledger_display import ensure_local_filaments
 
@@ -24,11 +24,14 @@ router = APIRouter()
 
 def _ams_printer(printer_id: int, db: Session, current_user: dict, *, write: bool = False):
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
-    if not printer or not (check_org_access(current_user, printer.org_id) or (not write and printer.shared)):
+    if not printer:
         raise HTTPException(status_code=404, detail="Printer not found")
     if write:
+        require_org_write(current_user, printer.org_id, "printer", operate=True)
         from modules.printers.support_levels import require_control_capable_model
         require_control_capable_model(printer)
+    elif not (check_org_access(current_user, printer.org_id) or printer.shared):
+        raise HTTPException(status_code=404, detail="Printer not found")
     return printer
 
 
@@ -236,7 +239,7 @@ async def configure_ams_slot(
     if spool_id is not None:
         from modules.inventory.models import Spool
         spool = db.query(Spool).filter(Spool.id == spool_id).first()
-        if not spool or not check_org_access(current_user, spool.org_id):
+        if not spool or not check_org_write(current_user, spool.org_id, operate=True):
             raise HTTPException(status_code=404, detail="Spool not found")
         if not slot:
             raise HTTPException(status_code=404, detail="Filament slot not found")

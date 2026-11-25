@@ -21,6 +21,8 @@ from core.rbac import (
     AGENT_WRITE_SCOPE,
     _get_org_filter,
     check_org_access,
+    check_org_write,
+    require_org_write,
     get_org_scope,
     require_any_scope,
     require_role,
@@ -335,8 +337,7 @@ def update_spool(spool_id: int, updates: SpoolUpdate, current_user: dict = Depen
     spool = db.query(Spool).filter(Spool.id == spool_id).first()
     if not spool:
         raise HTTPException(status_code=404, detail="Spool not found")
-    if not check_org_access(current_user, spool.org_id):
-        raise HTTPException(status_code=404, detail="Spool not found")
+    require_org_write(current_user, spool.org_id, "spool")
 
     update_data = updates.model_dump(exclude_unset=True)
     remaining = update_data.pop("remaining_weight_g", None)
@@ -413,8 +414,7 @@ def delete_spool(spool_id: int, current_user: dict = Depends(require_action("spo
     spool = db.query(Spool).filter(Spool.id == spool_id).first()
     if not spool:
         raise HTTPException(status_code=404, detail="Spool not found")
-    if not check_org_access(current_user, spool.org_id):
-        raise HTTPException(status_code=404, detail="Spool not found")
+    require_org_write(current_user, spool.org_id, "spool")
 
     # Archive instead of delete
     spool.status = SpoolStatus.ARCHIVED
@@ -433,11 +433,11 @@ def load_spool(spool_id: int, request: SpoolLoadRequest, current_user: dict = De
     spool = db.query(Spool).filter(Spool.id == spool_id).first()
     if not spool:
         raise HTTPException(status_code=404, detail="Spool not found")
-    if not check_org_access(current_user, spool.org_id):
+    if not check_org_write(current_user, spool.org_id, operate=True):
         raise HTTPException(status_code=404, detail="Spool not found")
 
     printer = db.query(Printer).filter(Printer.id == request.printer_id).first()
-    if not printer or not (check_org_access(current_user, printer.org_id) or printer.shared):
+    if not printer or not (check_org_write(current_user, printer.org_id, operate=True) or printer.shared):
         raise HTTPException(status_code=404, detail="Printer not found")
     ensure_local_filament_management(request.printer_id)
 
@@ -477,7 +477,7 @@ def unload_spool(
     spool = db.query(Spool).filter(Spool.id == spool_id).first()
     if not spool:
         raise HTTPException(status_code=404, detail="Spool not found")
-    if not check_org_access(current_user, spool.org_id):
+    if not check_org_write(current_user, spool.org_id, operate=True):
         raise HTTPException(status_code=404, detail="Spool not found")
 
     unload_spool_graph(db, spool, current_user)
@@ -507,7 +507,7 @@ def use_spool(
     `weight_used_g` (legacy) or `grams` (MCP) — resolved before use.
     """
     spool = db.query(Spool).filter(Spool.id == spool_id).first()
-    if not spool or not check_org_access(current_user, spool.org_id):
+    if not spool or not check_org_write(current_user, spool.org_id, operate=True):
         raise OdinError(
             ErrorCode.spool_not_found,
             f"Spool {spool_id} not found",
@@ -583,7 +583,7 @@ def weigh_spool(spool_id: int, request: SpoolWeighRequest, current_user: dict = 
     spool = db.query(Spool).filter(Spool.id == spool_id).first()
     if not spool:
         raise HTTPException(status_code=404, detail="Spool not found")
-    if not check_org_access(current_user, spool.org_id):
+    if not check_org_write(current_user, spool.org_id, operate=True):
         raise HTTPException(status_code=404, detail="Spool not found")
     if spool.spool_weight_g is None:
         raise HTTPException(status_code=409, detail=(
@@ -633,7 +633,7 @@ def log_drying_session(
     spool = db.query(Spool).filter(Spool.id == spool_id).first()
     if not spool:
         raise HTTPException(status_code=404, detail="Spool not found")
-    if not check_org_access(current_user, spool.org_id):
+    if not check_org_write(current_user, spool.org_id, operate=True):
         raise HTTPException(status_code=404, detail="Spool not found")
 
     drying_log = DryingLog(

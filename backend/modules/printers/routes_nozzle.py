@@ -8,7 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from core.db import get_db
-from core.rbac import require_role, check_org_access, require_action
+from core.rbac import require_role, check_org_access, require_org_write, require_action
 from modules.printers.models import Printer, NozzleLifecycle
 from modules.printers.schemas import NozzleInstall, NozzleLifecycleResponse
 
@@ -18,19 +18,21 @@ router = APIRouter()
 
 
 def _nozzle_printer(printer_id: int, db: Session, current_user: dict, *, write: bool = False) -> Printer:
-    def authorized(printer):
-        return printer is not None and (
-            check_org_access(current_user, printer.org_id) or (not write and printer.shared)
-        )
+    def authorize(printer):
+        if printer is None:
+            raise HTTPException(status_code=404, detail="Printer not found")
+        if write:
+            require_org_write(current_user, printer.org_id, "printer")
+        elif not (check_org_access(current_user, printer.org_id) or printer.shared):
+            raise HTTPException(status_code=404, detail="Printer not found")
+
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
-    if not authorized(printer):
-        raise HTTPException(status_code=404, detail="Printer not found")
+    authorize(printer)
     if write:
         # PostgreSQL parent-row lock and SQLite writer lock, held until commit/rollback.
         db.execute(text("UPDATE printers SET id=id WHERE id=:pid"), {"pid": printer_id})
         printer = db.query(Printer).filter(Printer.id == printer_id).populate_existing().first()
-        if not authorized(printer):
-            raise HTTPException(status_code=404, detail="Printer not found")
+        authorize(printer)
     return printer
 
 

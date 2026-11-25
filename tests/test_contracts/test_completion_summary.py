@@ -290,7 +290,11 @@ def test_printer_routes_auth_scope_and_tenant(queue,creators,review_db):
     url='/api/printers/201/next-suggestion'
     assert client.get(url).status_code==401
     assert client.get(url,headers=token(['read:spools'])).status_code==403
-    response=client.get(url,headers=token(['read:printers']))
+    headers=token(['read:printers'])
+    assert client.get(url,headers=headers).json()['job_id'] is None
+    review_db.execute(text('UPDATE jobs SET submitted_by=3 WHERE id=202'))
+    review_db.commit()
+    response=client.get(url,headers=headers)
     assert response.status_code==200,response.text
     from pathlib import Path
     fixture=json.loads(Path('frontend/src/test-fixtures/job-completion-wire.json').read_text())

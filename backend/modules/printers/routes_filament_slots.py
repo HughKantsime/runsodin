@@ -32,7 +32,7 @@ from core.middleware.dry_run import dry_run_preview, is_dry_run
 from core.rbac import (
     require_action,
     AGENT_WRITE_SCOPE,
-    check_org_access,
+    check_org_write,
     require_any_scope,
     require_role,
 )
@@ -67,7 +67,7 @@ def assign_spool_to_slot(
     (matches FilamentSlot.slot_number). If omitted, defaults to slot 1.
     """
     printer = db.query(Printer).filter(Printer.id == body.printer_id).first()
-    if not printer or not check_org_access(current_user, printer.org_id):
+    if not printer or not check_org_write(current_user, printer.org_id, operate=True):
         raise OdinError(
             ErrorCode.printer_not_found,
             f"Printer {body.printer_id} not found",
@@ -75,7 +75,7 @@ def assign_spool_to_slot(
         )
 
     spool = db.query(Spool).filter(Spool.id == body.spool_id).first()
-    if not spool or not check_org_access(current_user, spool.org_id):
+    if not spool or not check_org_write(current_user, spool.org_id, operate=True):
         raise OdinError(
             ErrorCode.spool_not_found,
             f"Spool {body.spool_id} not found",

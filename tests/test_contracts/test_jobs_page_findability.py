@@ -254,6 +254,6 @@ def test_row_cancel_still_refuses_a_printing_job(farm, review_db):  # noqa: F811
 def test_bulk_cancel_and_row_cancel_reach_the_same_state(farm, review_db):  # noqa: F811
     from modules.jobs.bulk_actions import apply_bulk_action
     with Session(review_db.get_bind()) as db:
-        assert apply_bulk_action(db, OPERATOR, 'cancel', [7303], [7303], 3) == 1
+        assert apply_bulk_action(db, OPERATOR, 'cancel', [7303], priority=3, skipped={}) == 1
         db.commit()
         assert db.execute(text('SELECT status FROM jobs WHERE id=7303')).scalar_one() == 'cancelled'

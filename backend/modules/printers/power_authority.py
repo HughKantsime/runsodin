@@ -26,7 +26,7 @@ class ManualPowerAuthority:
 
     def _current(self, connection=None):
         from core.dependencies import validate_access_token, _principal
-        from core.rbac import check_org_access, _check_token_scope, _is_platform_superadmin
+        from core.rbac import check_org_write, _check_token_scope, _is_platform_superadmin
         from core.rbac_policy import action_roles
         with Session(connection if connection is not None else self.engine) as db:
             # Short admission credential predicates only, never held over I/O.
@@ -56,7 +56,7 @@ class ManualPowerAuthority:
                 return None
             _check_token_scope(principal, 'write:printers')
             printer = db.execute(text('SELECT org_id FROM printers WHERE id=:id'), {'id': self.printer_id}).first()
-            if printer is None or not check_org_access(principal, printer[0]):
+            if printer is None or not check_org_write(principal, printer[0], operate=True):
                 return None
             # Bind account lifetime/permission snapshot and exact selected carrier.
             return _digest([self.credential, self.auth_kind, dict(principal), sorted(roles), printer[0]])

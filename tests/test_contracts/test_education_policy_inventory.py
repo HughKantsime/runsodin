@@ -23,7 +23,20 @@ def test_policy_inventory_is_complete_and_matches_registered_surfaces() -> None:
     assert {entry["surface"] for entry in POLICY_INVENTORY} == set(
         REGISTERED_EXECUTION_SURFACES
     )
-    assert "printers.routes_smart_plug" in REGISTERED_EXECUTION_SURFACES
+    by_surface = {entry["surface"]: entry for entry in POLICY_INVENTORY}
+    for surface in (
+        "jobs.routes.jobs_crud", "jobs.routes.jobs_agent", "jobs.routes.jobs_lifecycle",
+        "jobs.bulk_actions", "models_library.routes.models_crud", "models_library.routes._models_helpers",
+        "models_library.routes.print_file_names", "models_library.routes.print_files",
+    ):
+        assert by_surface[surface]["disposition"] == "guarded"
+        assert by_surface[surface]["focused_test"] == "test_unscoped_jobs_and_models.py"
+    for surface in ("printers.routes_controls", "printers.routes_smart_plug"):
+        assert by_surface[surface]["focused_test"] == "test_printer_controls_org_scope.py"
+    assert by_surface["printers.routes_crud"]["focused_test"] == "test_unscoped_printer_configuration.py"
+    for surface in ("archives.routes.archives_crud", "archives.routes.tags", "orders.routes.orders_crud",
+                    "orders.routes.products", "system.routes_maintenance"):
+        assert by_surface[surface]["focused_test"] == "test_unscoped_stock_orders_archives.py"
 
 
 def test_policy_inventory_gate_fails_for_new_unclassified_surface(

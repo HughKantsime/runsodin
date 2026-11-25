@@ -19,7 +19,7 @@ from contextlib import contextmanager
 from core.db import get_db
 from core.db_compat import execute_insert_returning_id
 from core.dependencies import get_current_user, log_audit
-from core.rbac import require_role, _get_org_filter, get_org_scope, check_org_access
+from core.rbac import require_role, _get_org_filter, get_org_scope, check_org_access, check_org_write, require_org_write
 from core.model_preview_access import accessible_preview_file, is_education_owned_file, delete_generic_file_if_unchanged
 from core.base import FilamentType
 from modules.models_library.models import Model
@@ -130,8 +130,7 @@ def update_model(model_id: int, updates: ModelUpdate, current_user: dict = Depen
     model = db.query(Model).filter(Model.id == model_id).first()
     if not model:
         raise HTTPException(status_code=404, detail="Model not found")
-    if not check_org_access(current_user, model.org_id):
-        raise HTTPException(status_code=404, detail="Model not found")
+    require_org_write(current_user, model.org_id, "model")
 
     update_data = updates.model_dump(exclude_unset=True)
     if 'name' in update_data and update_data['name'] != model.name:
@@ -152,8 +151,7 @@ def delete_model(model_id: int, current_user: dict = Depends(require_action("mod
     model = db.query(Model).filter(Model.id == model_id).first()
     if not model:
         raise HTTPException(status_code=404, detail="Model not found")
-    if not check_org_access(current_user, model.org_id):
-        raise HTTPException(status_code=404, detail="Model not found")
+    require_org_write(current_user, model.org_id, "model")
 
     from modules.models_library.education_retention import assert_model_deletable
     assert_model_deletable(db, model.id)
@@ -251,8 +249,7 @@ def schedule_from_model(
     model = db.query(Model).filter(Model.id == model_id).first()
     if not model:
         raise HTTPException(status_code=404, detail="Model not found")
-    if not check_org_access(current_user, model.org_id):
-        raise HTTPException(status_code=404, detail="Model not found")
+    require_org_write(current_user, model.org_id, "model", operate=True)
 
     from core.interfaces.education_policy import assert_generic_model_reference_allowed
     from modules.printers.models import Printer
@@ -265,7 +262,7 @@ def schedule_from_model(
     printer = None
     if printer_id is not None:
         printer = db.query(Printer).filter(Printer.id == printer_id).first()
-        if not printer or not (check_org_access(current_user, printer.org_id) or printer.shared):
+        if not printer or not (check_org_write(current_user, printer.org_id, operate=True) or printer.shared):
             raise HTTPException(404, "Printer not found")
     file = _schedule_file(db, model, current_user)
     from core.ams_mapping import validate_for_printer
@@ -459,8 +456,9 @@ async def create_model_revision(
     if changelog_form is not None:
         changelog = changelog_form
     model = db.query(Model).filter(Model.id == model_id).first()
-    if not model or not check_org_access(current_user, model.org_id):
+    if not model:
         raise HTTPException(status_code=404, detail="Model not found")
+    require_org_write(current_user, model.org_id, "model")
     from contextlib import asynccontextmanager
     from modules.models_library.upload_stream import staged_upload
     import shutil
@@ -494,8 +492,9 @@ async def revert_model_revision(
 ):
     """Create a new revision from a verified payload or a deliberate fileless revision."""
     model = db.query(Model).filter(Model.id == model_id).first()
-    if not model or not check_org_access(current_user, model.org_id):
+    if not model:
         raise HTTPException(status_code=404, detail="Model not found")
+    require_org_write(current_user, model.org_id, "model")
     with _revision_transaction(db, model_id) as state:
         _locked_revision_model(db, model_id, current_user)
         target = db.execute(text("SELECT * FROM model_revisions WHERE model_id=:mid AND revision_number=:rev"),
@@ -588,6 +587,8 @@ def delete_model_variant(model_id: int, variant_id: int, current_user: dict = De
     if is_education_owned_file(db, variant_id, v.stored_path):
         raise HTTPException(status_code=404, detail="Variant not found")
 
+    require_org_write(current_user, model.org_id, "model")
+    require_org_write(current_user, v.org_id, "file")
     from modules.models_library.file_management import file_has_job_references
     if file_has_job_references(db, variant_id):
         db.rollback()

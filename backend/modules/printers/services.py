@@ -324,6 +324,25 @@ def create_printer_record(db, **fields):
     return printer
 
 
+def printer_write_targets(printers, requested_count, current_user):
+    """Reject missing or foreign targets. Report visible printers the caller cannot change."""
+    from fastapi import HTTPException
+    from core.rbac import check_org_access, check_org_write, unscoped_write_detail
+
+    if len(printers) != requested_count:
+        raise HTTPException(404, "Printer not found")
+    writable = []
+    skipped = []
+    for printer in printers:
+        if check_org_write(current_user, printer.org_id):
+            writable.append(printer)
+        elif check_org_access(current_user, printer.org_id):
+            skipped.append({"printer_id": printer.id, "detail": unscoped_write_detail("printer")})
+        else:
+            raise HTTPException(404, "Printer not found")
+    return writable, skipped
+
+
 def apply_printer_updates(printer, update_data):
     """Apply prepared values and return the names of fields changed for the audit."""
     from core import crypto

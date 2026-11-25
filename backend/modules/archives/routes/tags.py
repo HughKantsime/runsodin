@@ -1,6 +1,6 @@
 """O.D.I.N. — Tag Management (global tag operations across archives)."""
 
-from core.rbac import should_filter_org
+from core.rbac import should_filter_org, check_org_write, unscoped_write_detail
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel as PydanticBaseModel
@@ -66,38 +66,7 @@ def rename_tag(
     old_tag = body.old.strip()
     new_tag = body.new.strip()
 
-    org = get_org_scope(user)
-    predicate, bindings = archive_visibility(user)
-    if should_filter_org(user, org):
-        rows = db.execute(
-            text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- trusted-plugin SQL from EducationPolicyProvider.archive_audience_sql() (constant per its interface contract) plus module-constant fragments; principal values are bound
-                "SELECT a.id, a.tags FROM print_archives a "
-                "LEFT JOIN printers p ON a.printer_id = p.id "
-                "WHERE a.tags IS NOT NULL AND a.tags != '' "
-                f"AND {predicate}"
-            ),
-            bindings,
-        ).fetchall()
-    else:
-        rows = db.execute(
-            text("SELECT id, tags FROM print_archives WHERE tags IS NOT NULL AND tags != ''")
-        ).fetchall()
-
-    updated = 0
-    for r in rows:
-        tags = [t.strip() for t in r[1].split(",") if t.strip()]
-        if old_tag in tags:
-            tags = [new_tag if t == old_tag else t for t in tags]
-            # Deduplicate after rename
-            tags = list(dict.fromkeys(tags))
-            db.execute(
-                text("UPDATE print_archives SET tags = :tags WHERE id = :id"),
-                {"tags": ", ".join(tags), "id": r[0]},
-            )
-            updated += 1
-
-    db.commit()
-    return {"updated": updated}
+    return _change_tag(db, user, old_tag, new_tag)
 
 
 @router.delete("/tags/{tag}", tags=["Archives"])
@@ -111,33 +80,32 @@ def delete_tag(
     if not tag:
         raise HTTPException(status_code=400, detail="Tag name cannot be empty")
 
-    org = get_org_scope(user)
-    predicate, bindings = archive_visibility(user)
-    if should_filter_org(user, org):
-        rows = db.execute(
-            text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- trusted-plugin SQL from EducationPolicyProvider.archive_audience_sql() (constant per its interface contract) plus module-constant fragments; principal values are bound
-                "SELECT a.id, a.tags FROM print_archives a "
-                "LEFT JOIN printers p ON a.printer_id = p.id "
-                "WHERE a.tags IS NOT NULL AND a.tags != '' "
-                f"AND {predicate}"
-            ),
-            bindings,
-        ).fetchall()
-    else:
-        rows = db.execute(
-            text("SELECT id, tags FROM print_archives WHERE tags IS NOT NULL AND tags != ''")
-        ).fetchall()
+    return _change_tag(db, user, tag)
 
+
+def _change_tag(db, user, old_tag, new_tag=None):
+    predicate, bindings = "1=1", {}
+    if should_filter_org(user, get_org_scope(user)):
+        predicate, bindings = archive_visibility(user)
+    rows = db.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- archive visibility supplies the predicate and bound parameters
+        "SELECT a.id, a.org_id, a.tags FROM print_archives a "
+        f"WHERE a.tags IS NOT NULL AND a.tags != '' AND {predicate} ORDER BY a.id"
+    ), bindings).all()
     updated = 0
-    for r in rows:
-        tags = [t.strip() for t in r[1].split(",") if t.strip()]
-        if tag in tags:
-            tags = [t for t in tags if t != tag]
-            db.execute(
-                text("UPDATE print_archives SET tags = :tags WHERE id = :id"),
-                {"tags": ", ".join(tags), "id": r[0]},
-            )
-            updated += 1
-
+    skipped = []
+    for row in rows:
+        tags = [t.strip() for t in row.tags.split(",") if t.strip()]
+        if old_tag not in tags:
+            continue
+        if not check_org_write(user, row.org_id):
+            skipped.append({"archive_id": row.id, "detail": unscoped_write_detail("archive")})
+            continue
+        if new_tag is None:
+            tags = [t for t in tags if t != old_tag]
+        else:
+            tags = list(dict.fromkeys(new_tag if t == old_tag else t for t in tags))
+        db.execute(text("UPDATE print_archives SET tags = :tags WHERE id = :id"),
+                   {"tags": ", ".join(tags), "id": row.id})
+        updated += 1
     db.commit()
-    return {"updated": updated}
+    return {"updated": updated, **({"skipped": skipped} if skipped else {})}

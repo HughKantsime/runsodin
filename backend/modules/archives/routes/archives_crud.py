@@ -28,7 +28,7 @@ from modules.jobs.services import annotate_print_failures
 from core.audit import audit_download, export_filters
 from core.db import get_db
 from core.dependencies import get_current_user, log_audit
-from core.rbac import check_org_access, get_org_scope, require_action, require_role, require_superadmin
+from core.rbac import check_org_access, check_org_write, require_org_write, get_org_scope, require_action, require_role, require_superadmin
 
 log = logging.getLogger("odin.api")
 router = APIRouter()
@@ -408,12 +408,8 @@ def update_archive(
     db: Session = Depends(get_db),
 ):
     """Update archive notes."""
-    existing = db.execute(
-        text("SELECT id, printer_id FROM print_archives WHERE id = :id"), {"id": archive_id}
-    ).fetchone()
-    if not existing:
-        raise HTTPException(status_code=404, detail="Archive not found")
-    _check_archive_org_access(db, existing.id, user)
+    org_id = assert_archive_access(db, archive_id, user)
+    require_org_write(user, org_id, "archive")
 
     db.execute(
         text("UPDATE print_archives SET notes = :notes WHERE id = :id"),
@@ -430,12 +426,8 @@ def delete_archive(
     db: Session = Depends(get_db),
 ):
     """Delete a print archive. Admin only."""
-    existing = db.execute(
-        text("SELECT id, printer_id FROM print_archives WHERE id = :id"), {"id": archive_id}
-    ).fetchone()
-    if not existing:
-        raise HTTPException(status_code=404, detail="Archive not found")
-    _check_archive_org_access(db, existing.id, user)
+    org_id = assert_archive_access(db, archive_id, user)
+    require_org_write(user, org_id, "archive")
 
     db.execute(text("DELETE FROM print_archives WHERE id = :id"), {"id": archive_id})
     db.commit()
@@ -454,12 +446,8 @@ def update_archive_tags(
     db: Session = Depends(get_db),
 ):
     """Set tags on an archive entry."""
-    existing = db.execute(
-        text("SELECT id, printer_id FROM print_archives WHERE id = :id"), {"id": archive_id}
-    ).fetchone()
-    if not existing:
-        raise HTTPException(status_code=404, detail="Archive not found")
-    _check_archive_org_access(db, existing.id, user)
+    org_id = assert_archive_access(db, archive_id, user)
+    require_org_write(user, org_id, "archive")
 
     # Store as comma-separated, trimmed, deduplicated
     clean = list(dict.fromkeys(t.strip() for t in body.tags if t.strip()))
@@ -571,7 +559,8 @@ def reprint_archive(
         raise HTTPException(status_code=404, detail="Archive not found")
 
     ad = dict(archive._mapping)
-    _check_archive_org_access(db, ad["id"], user)
+    org_id = assert_archive_access(db, archive_id, user)
+    require_org_write(user, org_id, "archive", operate=True)
 
     from modules.printers.models import Printer, FilamentSlot
     from modules.models_library.models import Model
@@ -580,13 +569,13 @@ def reprint_archive(
     from core.registry import registry
 
     printer = db.query(Printer).filter(Printer.id == body.printer_id).first()
-    if not printer or not (check_org_access(user, printer.org_id) or printer.shared):
+    if not printer or not (check_org_write(user, printer.org_id, operate=True) or printer.shared):
         raise HTTPException(404, "Printer not found")
     file = db.execute(text("SELECT * FROM print_files WHERE id=:id"),
                       {"id": ad.get("print_file_id")}).mappings().first()
     model = db.query(Model).filter(Model.id == file["model_id"]).first() if file else None
-    if (not file or not model or not check_org_access(user, model.org_id)
-            or (file["org_id"] is not None and not check_org_access(user, file["org_id"]))):
+    if (not file or not model or not check_org_write(user, model.org_id, operate=True)
+            or not check_org_write(user, file["org_id"], operate=True)):
         raise HTTPException(400, "Original print file or model not available for reprint")
     policy = registry.get_provider("EducationPolicyProvider")
     if policy is None:

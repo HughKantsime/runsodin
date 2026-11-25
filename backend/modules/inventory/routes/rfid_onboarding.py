@@ -10,7 +10,7 @@ from core.audit import log_audit
 from core.base import SpoolStatus
 from core.db import get_db
 from core.models import AuditLog
-from core.rbac import require_role, require_action, check_org_access, get_org_scope, should_filter_org, _get_org_filter
+from core.rbac import require_role, require_action, check_org_access, require_org_write, get_org_scope, should_filter_org, _get_org_filter
 from core.material_identity import canonical_reported_material
 from modules.inventory.models import Spool
 from modules.inventory import rfid_identity as rfid
@@ -161,6 +161,8 @@ def _merge(db, user, source_id, target_id):
     source, target = db.get(Spool, source_id), db.get(Spool, target_id)
     if not source or not target or not all(check_org_access(user, s.org_id) for s in (source, target)):
         raise HTTPException(404, 'Spool not found')
+    for spool in (source, target):
+        require_org_write(user, spool.org_id, "spool")
     before = (_involved_graph(db, spool_id=source_id), _involved_graph(db, spool_id=target_id))
     printer_ids = sorted({p for graph in before for p in graph[0]})
     slot_ids = sorted({s[0] for graph in before for s in graph[1]})
@@ -169,7 +171,9 @@ def _merge(db, user, source_id, target_id):
         db.query(model).filter(model.id.in_(ids)).order_by(model.id).populate_existing().with_for_update(nowait=True).all()
     if before != (_involved_graph(db, spool_id=source_id), _involved_graph(db, spool_id=target_id)):
         raise HTTPException(409, 'Spool assignments changed; retry')
-    if source.org_id != target.org_id or not all(check_org_access(user, s.org_id) for s in (source, target)):
+    for spool in (source, target):
+        require_org_write(user, spool.org_id, "spool")
+    if source.org_id != target.org_id:
         raise HTTPException(409, 'Spools must belong to the same organization')
     for printer in db.query(Printer).filter(Printer.id.in_(printer_ids)).all():
         if printer.org_id != source.org_id or not check_org_access(user, printer.org_id):

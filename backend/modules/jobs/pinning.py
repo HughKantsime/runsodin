@@ -184,7 +184,7 @@ def _target_printer_id(db, current_user, printer_id, target_type, target_filter=
     numeric target_filter with target_type 'specific'.
     """
     from fastapi import HTTPException
-    from core.rbac import check_org_access
+    from core.rbac import check_org_write
     from modules.printers.models import Printer
     if (target_type or "specific") != "specific":
         return None
@@ -195,7 +195,7 @@ def _target_printer_id(db, current_user, printer_id, target_type, target_filter=
     if printer_id is None:
         return None
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
-    if not printer or not (check_org_access(current_user, printer.org_id) or printer.shared):
+    if not printer or not (check_org_write(current_user, printer.org_id, operate=True) or printer.shared):
         raise HTTPException(status_code=404, detail="Printer not found")
     return printer.id
 
@@ -209,12 +209,12 @@ def _target_columns(job, pinned):
 def _pin_checked_changes(db, current_user, job, updates):
     """PATCH /jobs/{id}: the JobUpdate changes with printer access checked and the pin reconciled."""
     from fastapi import HTTPException
-    from core.rbac import check_org_access
+    from core.rbac import check_org_write
     from modules.printers.models import Printer
     for candidate in (updates.printer_id, updates.pinned_printer_id):
         if candidate is not None:
             printer = db.query(Printer).filter(Printer.id == candidate).first()
-            if not printer or not (check_org_access(current_user, printer.org_id) or printer.shared):
+            if not printer or not (check_org_write(current_user, printer.org_id, operate=True) or printer.shared):
                 raise HTTPException(status_code=404, detail="Printer not found")
     changes = updates.model_dump(exclude_unset=True)
     from core.print_file_binding import job_file_id, target_printer, require_bound_target

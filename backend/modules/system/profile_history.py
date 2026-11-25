@@ -3,7 +3,7 @@ import difflib
 import logging
 from fastapi import HTTPException
 from sqlalchemy import text
-from core.rbac import check_org_access
+from core.rbac import check_org_access, require_org_write
 from core.db_compat import execute_insert_returning_id
 from core.dependencies import log_audit
 
@@ -24,6 +24,8 @@ def accessible_profile(db, profile_id, actor, *, mutate=False):
     row = db.execute(text('SELECT * FROM printer_profiles WHERE id=:id'), {'id': profile_id}).first()
     if not row or not check_org_access(actor, row.org_id):
         raise HTTPException(404, 'Profile not found')
+    if mutate:
+        require_org_write(actor, row.org_id, "profile")
     if mutate and actor.get('role') != 'admin' and row.created_by != actor.get('id'):
         raise HTTPException(403, 'Can only edit your own profiles')
     return row

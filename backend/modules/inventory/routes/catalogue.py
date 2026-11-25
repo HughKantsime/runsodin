@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from fastapi.concurrency import run_in_threadpool
 from core.db import get_db
 from core.dependencies import log_audit
-from core.rbac import require_superadmin, require_action, check_org_access
+from core.rbac import require_superadmin, require_action, check_org_access, check_org_write, require_org_write
 from modules.inventory.catalogue import MAX_BYTES, parse_catalogue, import_catalogue
 
 catalogue_admin = require_superadmin(scope='write:spools')
@@ -59,7 +59,7 @@ def choose_slot_catalogue(printer_id: int, slot_number: int, body: CatalogueChoi
     current_user: dict = Depends(require_action('spools.edit', scope='write:spools')),
     db: Session = Depends(get_db)):
     printer = db.query(Printer).filter_by(id=printer_id).first()
-    if not printer or not check_org_access(current_user, printer.org_id):
+    if not printer or not check_org_write(current_user, printer.org_id, operate=True):
         raise HTTPException(404, 'Printer not found')
     ensure_local_filament_management(printer_id)
     slot = db.query(FilamentSlot).filter_by(printer_id=printer_id, slot_number=slot_number).first()
@@ -70,9 +70,11 @@ def choose_slot_catalogue(printer_id: int, slot_number: int, body: CatalogueChoi
     wanted = db.query(Spool).filter_by(id=body.spool_id).first()
     if wanted is None or not check_org_access(current_user, wanted.org_id):
         raise HTTPException(404, 'Spool not found')
+    if wanted.filament_id != body.filament_id:
+        require_org_write(current_user, wanted.org_id, "spool")
     guard_catalogue_slots(db, body.spool_id, slot)
     db.refresh(printer)
-    if not check_org_access(current_user, printer.org_id):
+    if not check_org_write(current_user, printer.org_id, operate=True):
         raise HTTPException(404, 'Printer not found')
     material, color = reported_slot(slot)
     if body.filament_id not in {f.id for f in matching_entries(db, material, color)}:

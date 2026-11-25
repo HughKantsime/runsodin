@@ -344,3 +344,49 @@ def test_busy_stock_rolls_back_and_gives_retry(settlement_case, monkeypatch):
     response = post(case, no_deduction='nothing_extruded')
     assert response.status_code == 409 and response.json()['detail']['code'] == 'busy' and 'Refresh and try again' in response.json()['detail']['message']
     assert query(case, 'SELECT accounting_reason FROM print_archives')[0][0] != 'temporary'
+
+
+@pytest.mark.parametrize('role,group,has_orgs', [
+    ('operator', 1, True), ('operator', None, True), ('admin', None, True),
+    ('operator', None, False), ('admin', None, False),
+])
+@pytest.mark.parametrize('spool_org', [None, 2])
+def test_spool_settlement_write_scope(settlement_case, role, group, has_orgs, spool_org):
+    case = settlement_case
+    if not has_orgs:
+        write(case, 'UPDATE groups SET is_org=FALSE')
+    case[3].update(role=role, group_id=group)
+    # A known, unscoped archive is readable to all three actors.
+    write(case, "UPDATE print_archives SET org_id=NULL,ownership_state='known' WHERE id=:id", {'id': case[2]})
+    write(case, 'UPDATE spools SET org_id=:org WHERE id=7099', {'org': spool_org})
+    response = preview(case)
+    assert response.status_code == 200, response.text
+    suggested = [entry['spool_id'] for entry in response.json()['suggested']]
+    assert (7099 in suggested) == (spool_org is None or role == 'admin')
+    response = post(case, entries=[dict(spool_id=7099, grams=40)])
+    if spool_org:
+        # Even a platform admin may settle only against a spool available to this print.
+        assert response.status_code == 404
+    else:
+        assert response.status_code == 200, response.text
+    assert query(case, 'SELECT remaining_weight_g FROM spools WHERE id=7099') == [
+        (960 if response.status_code == 200 else 1000,)]
+
+
+def test_ordinary_group_operator_settles_unscoped_spool(settlement_case, monkeypatch):
+    from core.dependencies import get_current_user
+    from tests.test_contracts.test_cert_A_harness import bearer
+
+    case = settlement_case
+    client = case[0]
+    monkeypatch.delitem(client.app.dependency_overrides, get_current_user)
+    write(case, "INSERT INTO groups(id,name,is_org) VALUES(3,'Print crew',FALSE)")
+    write(case, "UPDATE users SET role='operator',group_id=3 WHERE username='outsider'")
+    write(case, "UPDATE print_archives SET org_id=NULL,ownership_state='known' WHERE id=:id", {'id': case[2]})
+    write(case, 'UPDATE spools SET org_id=NULL WHERE id=7099')
+
+    response = client.post(f'/archives/{case[2]}/settle-filament',
+                           headers=bearer('outsider', 'operator', 3),
+                           json={'entries': [dict(spool_id=7099, grams=40)]})
+    assert response.status_code == 200, response.text
+    assert query(case, 'SELECT remaining_weight_g FROM spools WHERE id=7099') == [(960,)]

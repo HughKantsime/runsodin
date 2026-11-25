@@ -18,7 +18,8 @@ from core.base import FilamentType
 from core.audit import audit_download
 from core.db import get_db
 from core.dependencies import log_audit
-from core.rbac import require_role, check_org_access, get_org_scope, should_filter_org, require_action
+from core.rbac import (check_org_access, check_org_write, get_org_scope, require_action, require_role,
+                       should_filter_org, unscoped_write_detail)
 from modules.inventory.models import Spool
 from modules.printers.models import FilamentSlot, Printer
 from core.interfaces.filament_ownership import ensure_local_filament_management
@@ -170,7 +171,7 @@ def scan_assign_spool(
     """
     # Find spool by QR code
     spool = db.query(Spool).filter(Spool.qr_code == data.qr_code).first()
-    if not spool or not check_org_access(current_user, spool.org_id):
+    if not spool or not check_org_write(current_user, spool.org_id, operate=True):
         return ScanAssignResponse(
             success=False,
             message=f"Spool not found: {data.qr_code}",
@@ -178,7 +179,7 @@ def scan_assign_spool(
 
     # Find printer
     printer = db.query(Printer).filter(Printer.id == data.printer_id).first()
-    if not printer or not (check_org_access(current_user, printer.org_id) or printer.shared):
+    if not printer or not (check_org_write(current_user, printer.org_id, operate=True) or printer.shared):
         return ScanAssignResponse(
             success=False,
             message=f"Printer not found: {data.printer_id}",
@@ -251,25 +252,32 @@ async def bulk_update_spools(body: dict, current_user: dict = Depends(require_ac
     # archive accounting lock spools the same way), so concurrent writers never
     # wait on each other in opposite orders.
     spool_ids = sorted(set(spool_ids))
-    selected = db.query(Spool).filter(Spool.id.in_(spool_ids)).all()
+    selected = db.query(Spool).filter(Spool.id.in_(spool_ids)).order_by(Spool.id).all()
     if (len(selected) != len(spool_ids)
             or any(not check_org_access(current_user, spool.org_id) for spool in selected)):
         raise HTTPException(status_code=404, detail="Spool not found")
+    skipped = []
+    writable_ids = []
+    for spool in selected:
+        if check_org_write(current_user, spool.org_id):
+            writable_ids.append(spool.id)
+        else:
+            skipped.append({"spool_id": spool.id, "detail": unscoped_write_detail("spool")})
     action = body.get("action", "")
     count = 0
 
     if action == "archive":
-        for sid in spool_ids:
+        for sid in writable_ids:
             result = db.execute(text("UPDATE spools SET status = 'archived' WHERE id = :id AND status != 'archived'"),
                        {"id": sid})
             count += result.rowcount
     elif action == "activate":
-        for sid in spool_ids:
+        for sid in writable_ids:
             result = db.execute(text("UPDATE spools SET status = 'active' WHERE id = :id"),
                        {"id": sid})
             count += result.rowcount
     elif action == "delete":
-        for sid in spool_ids:
+        for sid in writable_ids:
             result = db.execute(text("DELETE FROM spools WHERE id = :id AND status IN ('archived', 'empty')"),
                        {"id": sid})
             count += result.rowcount
@@ -278,7 +286,10 @@ async def bulk_update_spools(body: dict, current_user: dict = Depends(require_ac
 
     log_audit(db, f"bulk_{action}", "spools", details=f"{count} spools")
     db.commit()
-    return {"status": "ok", "affected": count}
+    result = {"status": "ok", "affected": count}
+    if skipped:
+        result["skipped"] = skipped
+    return result
 
 
 @router.get("/{spool_id}/qr", tags=["Spools"])

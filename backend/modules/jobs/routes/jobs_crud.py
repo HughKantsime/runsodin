@@ -21,6 +21,7 @@ from core.rbac import (
     AGENT_WRITE_SCOPE,
     _get_org_filter,
     check_org_access,
+    check_org_write,
     get_org_scope,
     require_any_scope,
     require_role,
@@ -29,6 +30,7 @@ from core.responses import build_next_actions, next_action
 from core.quota import charge_job_quota
 from core.base import JobStatus, AlertType, AlertSeverity
 from modules.jobs.models import Job
+from modules.jobs.write_access import bulk_job_writable, require_job_write
 from modules.jobs.services import deleting_job_links, JobLinkConflict, rollback_on_integrity_error
 from modules.printers.models import Printer
 from modules.models_library.models import Model
@@ -176,13 +178,13 @@ def create_jobs_batch(
         raise HTTPException(status_code=400, detail="printer_ids must be unique")
     if body.model_id is not None:
         model = db.query(Model).filter(Model.id == body.model_id).first()
-        if model is None or not check_org_access(current_user, model.org_id):
+        if model is None or not check_org_write(current_user, model.org_id, operate=True):
             raise HTTPException(status_code=404, detail="Model not found")
     assert_generic_model_reference_allowed(db, body.model_id)
 
     # Validate all printers exist and are accessible
     printers = db.query(Printer).filter(Printer.id.in_(body.printer_ids)).all()
-    accessible = [p for p in printers if check_org_access(current_user, p.org_id) or p.shared]
+    accessible = [p for p in printers if check_org_write(current_user, p.org_id, operate=True) or p.shared]
     found_ids = {p.id for p in accessible}
     missing = set(body.printer_ids) - found_ids
     if missing:
@@ -224,26 +226,33 @@ def create_jobs_batch(
     return [{"id": j.id, "printer_id": j.printer_id, "status": j.status.value if hasattr(j.status, 'value') else str(j.status)} for j in created]
 
 
-# Static route registered before /jobs/{job_id} to prevent FastAPI from
-# treating "reorder" as a job_id integer.
+def _writable_job_ids(db, actor, job_ids, skipped):
+    for position, job_id in enumerate(job_ids):
+        job = db.get(Job, job_id)
+        if job and check_org_access(actor, job.charged_to_org_id):
+            assert_generic_job_mutation_allowed(db, job_id)
+            if bulk_job_writable(actor, job, skipped):
+                yield position, job_id
+
+
 @router.patch("/reorder", tags=["Jobs"])
 async def reorder_jobs_static(req: JobReorderRequest, current_user: dict = Depends(require_action("jobs.edit", scope="write:jobs")), db: Session = Depends(get_db)):
     """Reorder job queue. Sets queue_position on each job based on array index."""
     from core.controlled_request import authorize_references
     authorize_references(db, current_user, req.model_dump())
+    skipped = {}
     reordered = 0
-    for position, job_id in enumerate(req.job_ids):
-        job = db.query(Job).filter(Job.id == job_id).first()
-        if not job or not check_org_access(current_user, job.charged_to_org_id):
-            continue
-        assert_generic_job_mutation_allowed(db, job_id)
+    for position, job_id in _writable_job_ids(db, current_user, req.job_ids, skipped):
         db.execute(
             text("UPDATE jobs SET queue_position = :pos WHERE id = :id AND status IN ('pending', 'scheduled')"),
             {"pos": position, "id": job_id}
         )
         reordered += 1
     db.commit()
-    return {"reordered": reordered}
+    result = {"reordered": reordered}
+    if skipped:
+        result["skipped"] = list(skipped.values())
+    return result
 
 
 @router.post("/bulk-update", tags=["Jobs"])
@@ -267,13 +276,8 @@ async def bulk_update_jobs(body: dict, current_user: dict = Depends(require_acti
     priority = body.get('priority', 3)
     if action == 'set_priority' and (type(priority) is not int or not 1 <= priority <= 5):
         raise HTTPException(400, 'Priority must be an integer from 1 to 5')
-    count = 0
-    authorized_ids = []
-    for identifier in set(job_ids):
-        candidate = db.query(Job).filter(Job.id == identifier).first()
-        if candidate and check_org_access(current_user, candidate.charged_to_org_id):
-            assert_generic_job_mutation_allowed(db, identifier)
-            authorized_ids.append(identifier)
+    skipped = {}
+    authorized_ids = [jid for _, jid in _writable_job_ids(db, current_user, job_ids, skipped)]
     if action == "delete":
         from core.controlled_deletion import assert_jobs_deletable
         assert_jobs_deletable(db, authorized_ids)
@@ -283,12 +287,12 @@ async def bulk_update_jobs(body: dict, current_user: dict = Depends(require_acti
     if action == "delete":
         from modules.jobs.bulk_deletion import delete_bulk_jobs
         try:
-            count = delete_bulk_jobs(db, current_user, job_ids, check=assert_generic_job_mutation_allowed)
+            count = delete_bulk_jobs(db, current_user, authorized_ids, skipped, check=assert_generic_job_mutation_allowed)
         except JobLinkConflict as exc:
             return exc.response(db, "bulk")
     else:
         from modules.jobs.bulk_actions import apply_bulk_action
-        count = apply_bulk_action(db, current_user, action, job_ids, authorized_ids, priority)
+        count = apply_bulk_action(db, current_user, action, authorized_ids, priority, skipped)
 
     log_audit(db, f"bulk_{action}", "jobs", details=f"{count} jobs")
     reconcile_job_write(db, production_orders)
@@ -298,6 +302,8 @@ async def bulk_update_jobs(body: dict, current_user: dict = Depends(require_acti
     else:
         db.commit()
     result = {"status": "ok", "affected": count}
+    if skipped:
+        result["skipped_items" if action == "reschedule" else "skipped"] = list(skipped.values())
     if action == 'reschedule':
         result['skipped'] = len(job_ids) - count
     return result
@@ -562,10 +568,7 @@ async def update_job(job_id: int, updates: JobUpdate, request: Request, current_
             "approve, reject or resubmit endpoints",
         )
     job = db.query(Job).filter(Job.id == job_id).first()
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-    if not check_org_access(current_user, job.charged_to_org_id):
-        raise HTTPException(status_code=404, detail="Job not found")
+    require_job_write(current_user, job)
     if correction and not allowed_correction(job):
         raise HTTPException(403, 'Only your own rejected submission can be corrected')
     assert_generic_job_mutation_allowed(db, job_id)
@@ -582,8 +585,7 @@ async def update_job(job_id: int, updates: JobUpdate, request: Request, current_
     from modules.jobs.ams_mapping import lock_mapping_edit, checked_changes, mapping_audit_details
     lock_mapping_edit(db, job_id, updates)
     job = db.query(Job).filter(Job.id == job_id).populate_existing().first()
-    if not job or not check_org_access(current_user, job.charged_to_org_id):
-        raise HTTPException(status_code=404, detail="Job not found")
+    require_job_write(current_user, job)
     if correction:
         if not allowed_correction(job):
             db.rollback()
@@ -614,10 +616,7 @@ async def update_job(job_id: int, updates: JobUpdate, request: Request, current_
 def delete_job(job_id: int, current_user: dict = Depends(require_action("jobs.delete", scope="write:jobs")), db: Session = Depends(get_db)):
     """Delete a job."""
     job = db.query(Job).filter(Job.id == job_id).first()
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-    if not check_org_access(current_user, job.charged_to_org_id):
-        raise HTTPException(status_code=404, detail="Job not found")
+    require_job_write(current_user, job)
     assert_generic_job_mutation_allowed(db, job_id)
     from modules.orders.services import assert_job_history_deletable
     production_orders = prepare_job_write(db, [job_id])
@@ -625,8 +624,7 @@ def delete_job(job_id: int, current_user: dict = Depends(require_action("jobs.de
     assert_job_history_deletable(db, job_id)
     prepare_job_deletion(db, job_id)
     job = db.query(Job).filter(Job.id == job_id).populate_existing().first()
-    if not job or not check_org_access(current_user, job.charged_to_org_id):
-        raise HTTPException(status_code=404, detail="Job not found")
+    require_job_write(current_user, job)
 
     from core.quota import clear_print_consumption_markers, sqlalchemy_runner as _sar
     clear_print_consumption_markers(_sar(db), job_id)
@@ -662,15 +660,15 @@ async def repeat_job(job_id: int, current_user: dict = Depends(require_action("j
     if original.print_file_id is not None:
         from core.model_preview_access import is_education_owned_file
         target = db.query(Printer).filter(Printer.id == original.printer_id).first()
-        if not target or not (check_org_access(current_user, target.org_id) or target.shared):
+        if not target or not (check_org_write(current_user, target.org_id, operate=True) or target.shared):
             raise HTTPException(404, "Printer not found")
         payload = db.execute(text("SELECT pf.model_id,pf.stored_path,pf.blob_state,pf.org_id,m.org_id AS model_org "
                                   "FROM print_files pf JOIN models m ON m.id=pf.model_id WHERE pf.id=:id"),
                              {"id": original.print_file_id}).first()
         if is_education_owned_file(db, original.print_file_id, payload.stored_path if payload else None):
             raise HTTPException(409, "Education files require their approval workflow")
-        if payload and (not check_org_access(current_user, payload.org_id)
-                        or not check_org_access(current_user, payload.model_org)):
+        if payload and (not check_org_write(current_user, payload.org_id, operate=True)
+                        or not check_org_write(current_user, payload.model_org, operate=True)):
             raise HTTPException(404, "Original print file not found")
         if not payload or payload.model_id != original.model_id:
             raise HTTPException(400, "Original print file not available for repeat")

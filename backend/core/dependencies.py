@@ -165,6 +165,14 @@ from core.credential_write_guard import install_credential_write_guard, mark_non
 install_credential_write_guard()
 
 
+# Ordinary groups predate organizations and can also be assigned to users.
+# Resolve membership from the database in the same read as the authenticated account.
+_AUTH_USER_SELECT = (
+    "SELECT users.*, EXISTS (SELECT 1 FROM groups WHERE groups.id = users.group_id "
+    "AND groups.is_org IS NOT TRUE) AS _ordinary_group FROM users "
+)
+
+
 def _principal(
     row,
     auth_kind: str,
@@ -243,7 +251,7 @@ def validate_access_token(token: str, db: Session, request=None) -> Optional[dic
         if blacklisted:
             return None
     user = db.execute(
-        text("SELECT * FROM users WHERE username = :username"),
+        text(_AUTH_USER_SELECT + "WHERE username = :username"),
         {"username": token_data.username},
     ).fetchone()
     if token_predates_account(payload, user):
@@ -351,7 +359,7 @@ def resolve_user_api_token(api_key: str, db: Session, request=None) -> Optional[
         )
     # Fetch the user
     user = db.execute(
-        text("SELECT * FROM users WHERE id = :id"),
+        text(_AUTH_USER_SELECT + "WHERE id = :id"),
         {"id": candidate.user_id},
     ).fetchone()
     scopes = parse_token_scopes(candidate.scopes)
@@ -384,7 +392,7 @@ def resolve_legacy_api_key(api_key: str, db: Session, request=None) -> Optional[
     if not api_key or not configured_key or not hmac.compare_digest(api_key, configured_key):
         return None
     admin = db.execute(
-        text("SELECT * FROM users WHERE role = 'admin' AND is_active IS TRUE ORDER BY id LIMIT 1")
+        text(_AUTH_USER_SELECT + "WHERE role = 'admin' AND is_active IS TRUE ORDER BY id LIMIT 1")
     ).fetchone()
     return _principal(admin, "legacy_global_api_key", db, request)
 
@@ -443,7 +451,7 @@ def resolve_current_user_sync(
                     db.rollback()
                     log.warning("Session last_seen update failed; continuing authentication")
             user = db.execute(
-                text("SELECT * FROM users WHERE username = :username"),
+                text(_AUTH_USER_SELECT + "WHERE username = :username"),
                 {"username": token_data.username},
             ).fetchone()
         except Exception:

@@ -1818,7 +1818,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 230,
+      "line": 231,
       "path": "backend/modules/inventory/slot_assignments.py",
       "pattern": "qmark-parameter",
       "reason": "SQLite BEGIN IMMEDIATE establishes the assignment writer boundary; PostgreSQL uses sorted NOWAIT row locks and a graph recheck.",
@@ -1826,7 +1826,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 238,
+      "line": 239,
       "path": "backend/modules/inventory/slot_assignments.py",
       "pattern": "qmark-parameter",
       "reason": "SQLite BEGIN IMMEDIATE establishes the assignment writer boundary; PostgreSQL uses sorted NOWAIT row locks and a graph recheck.",
@@ -1834,7 +1834,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 241,
+      "line": 242,
       "path": "backend/modules/inventory/slot_assignments.py",
       "pattern": "qmark-parameter",
       "reason": "SQLite BEGIN IMMEDIATE establishes the assignment writer boundary; PostgreSQL uses sorted NOWAIT row locks and a graph recheck.",
@@ -1842,7 +1842,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 250,
+      "line": 251,
       "path": "backend/modules/inventory/slot_assignments.py",
       "pattern": "qmark-parameter",
       "reason": "SQLite BEGIN IMMEDIATE establishes the assignment writer boundary; PostgreSQL uses sorted NOWAIT row locks and a graph recheck.",
@@ -1850,7 +1850,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 254,
+      "line": 255,
       "path": "backend/modules/inventory/slot_assignments.py",
       "pattern": "qmark-parameter",
       "reason": "SQLite BEGIN IMMEDIATE establishes the assignment writer boundary; PostgreSQL uses sorted NOWAIT row locks and a graph recheck.",
@@ -1858,7 +1858,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 255,
+      "line": 256,
       "path": "backend/modules/inventory/slot_assignments.py",
       "pattern": "qmark-parameter",
       "reason": "SQLite BEGIN IMMEDIATE establishes the assignment writer boundary; PostgreSQL uses sorted NOWAIT row locks and a graph recheck.",
@@ -1866,7 +1866,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 259,
+      "line": 260,
       "path": "backend/modules/inventory/slot_assignments.py",
       "pattern": "qmark-parameter",
       "reason": "SQLite BEGIN IMMEDIATE establishes the assignment writer boundary; PostgreSQL uses sorted NOWAIT row locks and a graph recheck.",
@@ -1874,7 +1874,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 262,
+      "line": 263,
       "path": "backend/modules/inventory/slot_assignments.py",
       "pattern": "qmark-parameter",
       "reason": "SQLite BEGIN IMMEDIATE establishes the assignment writer boundary; PostgreSQL uses sorted NOWAIT row locks and a graph recheck.",

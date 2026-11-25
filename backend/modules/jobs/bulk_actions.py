@@ -8,12 +8,12 @@ from fastapi import HTTPException
 from sqlalchemy import text
 
 from core.base import JobStatus
-from core.rbac import check_org_access
+from modules.jobs.write_access import bulk_job_writable
 from modules.jobs.education_guard import assert_generic_job_mutation_allowed
 from modules.jobs.models import Job
 
 
-def apply_bulk_action(db, current_user, action, job_ids, authorized_ids, priority) -> int:
+def apply_bulk_action(db, current_user, action, authorized_ids, priority, skipped) -> int:
     """Apply reschedule, cancel, set_priority, hold or unhold; return the affected count.
     Parents were locked and access-checked by the route (authorized_ids)."""
     count = 0
@@ -25,7 +25,7 @@ def apply_bulk_action(db, current_user, action, job_ids, authorized_ids, priorit
             if locked is None:
                 continue
             job = db.query(Job).filter(Job.id == jid).populate_existing().first()
-            if not job or not check_org_access(current_user, job.charged_to_org_id):
+            if not bulk_job_writable(current_user, job, skipped):
                 continue
             assert_generic_job_mutation_allowed(db, jid)
             if job.status not in (JobStatus.PENDING, JobStatus.SCHEDULED):
@@ -43,26 +43,26 @@ def apply_bulk_action(db, current_user, action, job_ids, authorized_ids, priorit
                 where="NOT EXISTS(SELECT 1 FROM printer_dispatch_claims WHERE job_id=:claim_job)",
                 params={"claim_job": jid}))
     elif action == "cancel":
-        for jid in job_ids:
+        for jid in authorized_ids:
             job = db.query(Job).filter(Job.id == jid).first()
-            if not job or not check_org_access(current_user, job.charged_to_org_id):
+            if not bulk_job_writable(current_user, job, skipped):
                 continue
             assert_generic_job_mutation_allowed(db, jid)
             from modules.jobs.state_machine import transition_job
             count += int(transition_job(db, jid, JobStatus.CANCELLED, "operator",
                                         from_states=(JobStatus.PENDING, JobStatus.SUBMITTED)))
     elif action == "set_priority":
-        for jid in job_ids:
+        for jid in authorized_ids:
             job = db.query(Job).filter(Job.id == jid).first()
-            if not job or not check_org_access(current_user, job.charged_to_org_id):
+            if not bulk_job_writable(current_user, job, skipped):
                 continue
             assert_generic_job_mutation_allowed(db, jid)
             changed = db.execute(text("UPDATE jobs SET priority = :p WHERE id = :id AND (priority IS NULL OR priority != :p)"), {"p": priority, "id": jid})
             count += changed.rowcount
     elif action == "hold":
-        for jid in job_ids:
+        for jid in authorized_ids:
             job = db.query(Job).filter(Job.id == jid).first()
-            if not job or not check_org_access(current_user, job.charged_to_org_id):
+            if not bulk_job_writable(current_user, job, skipped):
                 continue
             assert_generic_job_mutation_allowed(db, jid)
             changed = db.execute(text("UPDATE jobs SET hold = TRUE WHERE id = :id AND hold IS NOT TRUE"), {"id": jid})
@@ -75,12 +75,12 @@ def apply_bulk_action(db, current_user, action, job_ids, authorized_ids, priorit
                          'UPDATE jobs SET id=id WHERE id=:id')
             db.execute(text(statement), {'id': jid})
             job = db.query(Job).filter(Job.id == jid).populate_existing().first()
-            if job and check_org_access(current_user, job.charged_to_org_id):
+            if bulk_job_writable(current_user, job, skipped):
                 assert_generic_job_mutation_allowed(db, jid)
                 assert_release_ready(db, current_user, job)
         for jid in sorted(authorized_ids):
             job = db.query(Job).filter(Job.id == jid).first()
-            if not job or not check_org_access(current_user, job.charged_to_org_id):
+            if not bulk_job_writable(current_user, job, skipped):
                 continue
             assert_generic_job_mutation_allowed(db, jid)
             changed = db.execute(text("UPDATE jobs SET hold = FALSE WHERE id = :id AND hold IS NOT FALSE"), {"id": jid})

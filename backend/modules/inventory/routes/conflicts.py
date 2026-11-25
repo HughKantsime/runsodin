@@ -4,7 +4,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from core.db import get_db
-from core.rbac import require_role, check_org_access
+from core.rbac import require_role, check_org_access, check_org_write
 from sqlalchemy import text
 from modules.inventory.models import Spool
 from modules.printers.models import FilamentSlot, Printer
@@ -53,7 +53,7 @@ def resolve(body: Resolution, current_user=Depends(require_role('admin', scope='
         unload_spool_graph(db, spool, current_user)
     else:
         slot = db.get(FilamentSlot, body.slot_id)
-        if not slot or not check_org_access(current_user, db.get(Printer, slot.printer_id).org_id):
+        if not slot or not check_org_write(current_user, db.get(Printer, slot.printer_id).org_id, operate=True):
             raise HTTPException(404, 'Slot not found')
         printer = db.get(Printer, slot.printer_id)
         if printer.org_id is not None and spool.org_id is not None and printer.org_id != spool.org_id:

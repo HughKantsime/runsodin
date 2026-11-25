@@ -91,14 +91,20 @@ def test_bulk_requires_admin_even_with_write_scope(tag_client,review_db,role):
 
 
 @pytest.mark.parametrize('global_admin',[False,True])
-def test_null_org_and_global_admin_bulk_positive(tag_client,review_db,global_admin):
+def test_bulk_skips_unscoped_printer_only_for_member(tag_client,review_db,global_admin):
     client,issue=tag_client
     if global_admin:review_db.execute(text('UPDATE users SET group_id=NULL WHERE id=3'))
-    else:review_db.execute(text('UPDATE printers SET org_id=NULL WHERE id=400'))
+    review_db.execute(text('UPDATE printers SET org_id=NULL WHERE id=400'))
     review_db.commit()
     response=client.post('/printers/bulk-update',headers=issue(['write:printers']),json={'printer_ids':[399,400],'action':'disable'})
-    assert response.status_code==200 and response.json()['affected']==2
-    assert all(stored(review_db,pid)[1] is False for pid in (399,400))
+    assert response.status_code == 200
+    expected = {'status': 'ok', 'affected': 2 if global_admin else 1}
+    if not global_admin:
+        expected['skipped'] = [{'printer_id': 400, 'detail':
+            'This printer belongs to no organization. Ask a platform administrator to change it.'}]
+    assert response.json() == expected
+    assert stored(review_db,399)[1] is False
+    assert stored(review_db,400)[1] is (not global_admin)
 
 
 @pytest.mark.parametrize('bad_json',['{}','[1]','broken'])
