@@ -114,9 +114,10 @@ it.each([
   const approval = within(screen.getByRole('region', { name: 'Approve to a printer' }))
   const alert = await approval.findByRole('alert')
   expect(alert.textContent).toBe(detail)
-  expect(alert.previousElementSibling).toBe(approval.getByRole('button', { name: retriable ? 'Retry approval' : 'Approve and queue' }))
+  const approvalButton = approval.getByRole('button', { name: locked ? 'Retry approval' : 'Approve and queue' })
+  expect(alert.previousElementSibling).toBe(approvalButton)
   expect(screen.getAllByText(detail)).toHaveLength(1)
-  if (retriable) {
+  if (locked) {
     expect(approval.getByText(/Retry uses the same approval request/)).toBeVisible()
   } else {
     expect(screen.queryByText(/Retry uses the same approval request/)).not.toBeInTheDocument()
@@ -132,7 +133,7 @@ it.each([
     if (locked) expect(control).toBeDisabled()
     else expect(control).toBeEnabled()
   }
-  fireEvent.click(approval.getByRole('button', { name: retriable ? 'Retry approval' : 'Approve and queue' }))
+  fireEvent.click(approvalButton)
   await waitFor(() => expect(api.approveSubmission).toHaveBeenCalledTimes(2))
   const [first, second] = api.approveSubmission.mock.calls
   if (locked) expect(second).toEqual(first)

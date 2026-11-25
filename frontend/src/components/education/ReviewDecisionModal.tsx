@@ -25,7 +25,7 @@ export default function ReviewDecisionModal({ submission, onClose, audience = ''
   const [tray, setTray] = useState('')
   const [amsReport, setAMSReport] = useState<EducationAMSReport | null>(null)
   const [reportFresh, setReportFresh] = useState(false)
-  const [savedApprovals, setSavedApprovals] = useState(() => new Map<string, { body: EducationApprovalRequest; canRetry: boolean }>())
+  const [savedApprovals, setSavedApprovals] = useState(() => new Map<string, EducationApprovalRequest>())
   const readBusy = useRef(false)
   const approvalBusy = useRef(false)
   const identity = `${submission?.id}:${submission?.lifecycle_revision}`
@@ -64,9 +64,9 @@ export default function ReviewDecisionModal({ submission, onClose, audience = ''
     setTray('')
     setAMSReport(null)
     if (savedApproval) {
-      setPrinterId(String(savedApproval.body.printer_id))
-      setFilamentSupply(savedApproval.body.ams_mapping ? 'ams' : 'default')
-      setTray(String(savedApproval.body.ams_mapping?.[0].target_slot || ''))
+      setPrinterId(String(savedApproval.printer_id))
+      setFilamentSupply(savedApproval.ams_mapping ? 'ams' : 'default')
+      setTray(String(savedApproval.ams_mapping?.[0].target_slot || ''))
     }
   }, [submission?.id, submission?.lifecycle_revision])
 
@@ -142,23 +142,20 @@ export default function ReviewDecisionModal({ submission, onClose, audience = ''
       await finish('Submission approved and queued', operation.scope)
     },
     onError: (mutationError: ApiError, operation) => {
-      const canRetry = mutationError.retriable !== false
-      setSavedApprovals(previous => {
-        const next = new Map(previous)
-        // An unconfirmed AMS commit may already have saved this command.
-        if (canRetry || mutationError.reason === 'approval_unconfirmed') {
-          next.set(operation.identity, { body: operation.body, canRetry })
-        } else {
+      // An unconfirmed AMS commit may already have saved this command.
+      if (mutationError.retriable === false && mutationError.reason !== 'approval_unconfirmed') {
+        setSavedApprovals(previous => {
+          const next = new Map(previous)
           next.delete(operation.identity)
-        }
-        return next
-      })
+          return next
+        })
+      }
       if (operation.scope === currentSubmissionScope.current) setApprovalError(mutationError.message)
     },
     onSettled: () => { approvalBusy.current = false },
   })
 
-  const showApprovalRetry = savedApproval?.canRetry && !approve.isPending
+  const showApprovalRetry = approvalAttempted && !approve.isPending
 
   const reject = useMutation({
     mutationFn: (operation: { id: number; revision: number; reason: string; scope: string }) =>
@@ -291,7 +288,7 @@ export default function ReviewDecisionModal({ submission, onClose, audience = ''
                 if (approvalBusy.current) return
                 approvalBusy.current = true
                 setApprovalError('')
-                const body = savedApproval?.body ?? {
+                const body = savedApproval ?? {
                   revision: submission.lifecycle_revision, printer_id: Number(printerId),
                   command_id: crypto.randomUUID(),
                   ...(usesAMS ? {
@@ -300,7 +297,7 @@ export default function ReviewDecisionModal({ submission, onClose, audience = ''
                   } : {}),
                 }
                 if (!savedApproval) {
-                  setSavedApprovals(previous => new Map(previous).set(identity, { body, canRetry: true }))
+                  setSavedApprovals(previous => new Map(previous).set(identity, body))
                 }
                 approve.mutate({ id: submission.id, body, scope: submissionScope, identity })
               }}
