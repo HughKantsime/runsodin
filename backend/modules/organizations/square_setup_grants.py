@@ -43,9 +43,10 @@ def set_scopes(db, row, scopes, enabled, actor, reason=None):
                                                "uid": row.user_id, "previous": row.scopes})
         if changed.rowcount != 1:
             raise HTTPException(409, "Token changed. Reload the token list before continuing.")
-    details = {"administrator_id": actor["id"], "token_id": row.id, "token_name": row.name,
-               "token_owner_user_id": row.user_id, "auth_kind": actor.get("_auth_kind"),
-               "scopes_before": scopes, "scopes_after": updated}
+    details = {"token_id": row.id}
+    if reason != "owner_erased":
+        details.update(administrator_id=actor["id"], token_name=row.name, token_owner_user_id=row.user_id,
+                       auth_kind=actor.get("_auth_kind"), scopes_before=scopes, scopes_after=updated)
     if reason:
         details["reason"] = reason
     log_audit(db, "api_token.square_setup_granted" if enabled else "api_token.square_setup_revoked",

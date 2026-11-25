@@ -1,7 +1,31 @@
-"""Sign-in history scrubbing within the caller's account erasure transaction."""
-from sqlalchemy import select, text, update
+"""Audit history scrubbing within the caller's account erasure transaction."""
+import json
+from sqlalchemy import and_, or_, select, text, update
 from sqlalchemy.orm import Session
 from core.audit_erasure import record_erasure
+
+
+def erase_token_names(db: Session, user_id: int):
+    """Target token ownership, since different users may choose the same token name."""
+    from core.audit_erasure import rewrite
+    from core.models import AuditLog
+    issued = and_(AuditLog.entity_type == 'api_token', AuditLog.action == 'api_token_created',
+                  AuditLog.entity_id.in_(text('SELECT id FROM api_tokens WHERE user_id=:uid')))
+    attributed = and_(AuditLog.action.in_(('api_token.square_setup_granted', 'api_token.square_setup_revoked',
+                                           'square.product_mapped', 'square.stock_baseline')),
+                      AuditLog.details['token_owner_user_id'].as_integer() == user_id)
+    rows = db.execute(select(AuditLog.id, AuditLog.action, AuditLog.details).where(or_(issued, attributed)),
+                      {'uid': user_id})
+    for row in rows:
+        if (row.action == 'api_token_created' and isinstance(row.details, str)
+                and row.details.startswith("Token '") and row.details.endswith("' created")):
+            details = "Token '[deleted]' created"
+        elif isinstance(row.details, dict) and 'token_name' in row.details:
+            details = {**row.details, 'token_name': '[deleted]'}
+        else:
+            continue
+        if details != row.details:
+            rewrite(db, 'UPDATE audit_logs SET details=:d WHERE id=:id', {'d': json.dumps(details), 'id': row.id})
 
 
 def erase_sso_login_history(db: Session, user_id: int):

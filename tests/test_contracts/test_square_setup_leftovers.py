@@ -10,6 +10,7 @@ from sqlalchemy import select, text
 from core.api_token_policy import SQUARE_SETUP_SCOPE
 from core.models import AuditLog, SystemConfig
 from tests.test_contracts.test_api_token_delegation_behavior import interactive_headers
+# Pytest registers review_db (used by shop) and the autouse setup_policy fixture from these imports.
 from tests.test_contracts.test_education_review_workflow import review_db
 from tests.test_contracts.test_square_readonly_workflow import connect, mapped, shop
 from tests.test_contracts.test_square_setup_delegation import authenticate, path, payload, setup_policy
@@ -103,9 +104,33 @@ def test_owner_change_removes_each_grant(shop, change):
     assert scopes == ([] if change in ('delete', 'erase') else [['write'], ['write'], ['read']])
     rows = audit_details(db, 'api_token.square_setup_revoked')
     assert sorted(row['token_id'] for row in rows) == [first, second]
-    assert all(row['scopes_before'] == ['write', SQUARE_SETUP_SCOPE] and row['scopes_after'] == ['write']
-               and row['token_owner_user_id'] == 5 and row['administrator_id'] == 3 for row in rows)
+    if change == 'erase':
+        assert all(row == {'token_id': row['token_id'], 'reason': 'owner_erased'} for row in rows)
+    else:
+        assert all(row['scopes_before'] == ['write', SQUARE_SETUP_SCOPE] and row['scopes_after'] == ['write']
+                   and row['token_owner_user_id'] == 5 and row['administrator_id'] == 3 for row in rows)
     assert SQUARE_SETUP_SCOPE in json.loads(db.execute(text('SELECT scopes FROM api_tokens WHERE user_id=3')).scalar_one())
+
+
+def test_erasure_removes_personal_token_name_from_audit_history(shop):
+    client, _, _, db, *_ = shop
+    status, _ = connect(client)
+    authenticate(shop)
+    headers = interactive_headers()
+    name = "Jane's phone"
+    created = client.post('/tokens', headers=headers, json={'name': name, 'scopes': ['read']})
+    assert created.status_code == 200
+    token = created.json()['id']
+    assert client.put(f'/tokens/{token}/square-setup', headers=headers, json={'enabled': True}).status_code == 200
+    delegated = {'X-API-Key': created.json()['token']}
+    assert client.put(path(), headers=delegated, json=payload(status['revision'])).status_code == 200
+    assert name in audit_details(db, 'api_token_created')[0]
+    assert audit_details(db, 'api_token.square_setup_granted')[0]['token_name'] == name
+    assert audit_details(db, 'square.product_mapped')[0]['token_name'] == name
+    assert client.delete('/users/3/erase', headers=headers).status_code == 200
+    assert all(name not in value for row in db.execute(text('SELECT * FROM audit_logs'))
+               for value in row if isinstance(value, str))
+    assert {'token_id': token, 'reason': 'owner_erased'} in audit_details(db, 'api_token.square_setup_revoked')
 
 
 def test_audit_failure_rolls_back_demotion_and_grants(shop, monkeypatch):
@@ -244,6 +269,41 @@ def test_runtime_guard_only_admits_exact_square_scope_subtraction():
                 'scopes': after, 'id': 1, 'uid': 3, 'previous': before}
             assert guarded_write_target(without_account_check, params) == 'api_tokens'
             assert guarded_write_target(sql, params) == (None if updated == ['read'] else 'api_tokens')
+
+
+@pytest.mark.parametrize('dialect_name', ['sqlite', 'postgresql'])
+def test_runtime_guard_rejects_malformed_subtraction(dialect_name):
+    from core.api_token_policy import REMOVE_INELIGIBLE_SETUP_SQL
+    from core.credential_write_guard import guarded_write_target
+    from sqlalchemy.dialects import postgresql, sqlite
+
+    dialect = sqlite.dialect() if dialect_name == 'sqlite' else postgresql.dialect()
+    sql = str(text(REMOVE_INELIGIBLE_SETUP_SQL).compile(dialect=dialect))
+
+    def bindings(before, after):
+        named = {'scopes': json.dumps(after), 'id': 1, 'uid': 3, 'previous': json.dumps(before)}
+        return tuple(named.values()) if dialect_name == 'sqlite' else named
+
+    for before, after in [
+        (['read:cameras', SQUARE_SETUP_SCOPE], ['read:cameras']),
+        (['read'], ['read']),
+        (['read', SQUARE_SETUP_SCOPE], ['read', 'write']),
+        (['read', 'write', SQUARE_SETUP_SCOPE], ['read']),
+    ]:
+        assert guarded_write_target(sql, bindings(before, after)) == 'api_tokens'
+
+    valid = bindings(['read', SQUARE_SETUP_SCOPE], ['read'])
+    assert guarded_write_target(sql + ' ', valid) == 'api_tokens'
+    if dialect_name == 'sqlite':
+        wrong_order = (valid[1], valid[0], valid[2], valid[3])
+        malformed = (wrong_order, (valid[0], None, valid[2], valid[3]), valid[:-1], (*valid, 4))
+    else:
+        malformed = ({**valid, 'id': valid['scopes'], 'scopes': valid['id']},
+                     {**valid, 'uid': None},
+                     {key: value for key, value in valid.items() if key != 'id'},
+                     {**valid, 'extra': 4})
+    for params in malformed:
+        assert guarded_write_target(sql, params) == 'api_tokens'
 
 
 def test_family_license_gate_is_audited_on_the_mounted_route(shop, tier_license):

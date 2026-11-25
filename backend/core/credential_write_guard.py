@@ -199,12 +199,18 @@ _POSTGRES_SCOPE_CAS = re.sub(r":(\w+)", r"%(\1)s", REMOVE_INELIGIBLE_SETUP_SQL)
 def _only_removes_square_setup(statement, parameters):
     """Allow account demotion to withdraw this one grant, including on token-authenticated PATCH."""
     if statement == _SQLITE_SCOPE_CAS and isinstance(parameters, (list, tuple)) and len(parameters) == 4:
-        after, _, _, before = parameters
+        after, token_id, owner_id, before = parameters
     elif statement in (_POSTGRES_SCOPE_CAS, REMOVE_INELIGIBLE_SETUP_SQL) and isinstance(parameters, dict):
-        before, after = parameters.get("previous"), parameters.get("scopes")
+        if parameters.keys() != {"scopes", "id", "uid", "previous"}:
+            return False
+        after, before = parameters["scopes"], parameters["previous"]
+        token_id, owner_id = parameters["id"], parameters["uid"]
     else:
         return False
+    if type(token_id) is not int or type(owner_id) is not int:
+        return False
     scopes = parse_token_scopes(before)
+    # Subtracting setup from a rejected mixed camera token could make it a valid camera-only relay credential.
     if not scopes or SQUARE_SETUP_SCOPE not in scopes or "read:cameras" in scopes:
         return False
     return after == json.dumps([scope for scope in scopes if scope != SQUARE_SETUP_SCOPE])

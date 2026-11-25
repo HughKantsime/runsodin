@@ -4,7 +4,7 @@ import logging
 from fastapi import HTTPException
 from sqlalchemy import inspect, text
 from core.dependencies import log_audit
-from modules.organizations.erasure_audit import erase_password_login_history, erase_sso_login_history
+from modules.organizations.erasure_audit import erase_password_login_history, erase_sso_login_history, erase_token_names
 from modules.organizations.routes_users import _is_superadmin, _check_org_admin_access
 
 log = logging.getLogger('odin.api')
@@ -89,6 +89,7 @@ def erase_user_data_sync(user_id, current_user, db):
     db.execute(text("DELETE FROM mfa_enrollments WHERE user_id = :uid"), {"uid": user_id})
     db.execute(text("DELETE FROM active_sessions WHERE user_id = :uid"), {"uid": user_id})
     from modules.organizations.square_setup_grants import revoke_owner_grants
+    erase_token_names(db, user_id)
     revoke_owner_grants(db, user_id, current_user, "owner_erased")
     db.execute(text("DELETE FROM api_tokens WHERE user_id = :uid"), {"uid": user_id})
     db.execute(text("DELETE FROM alert_preferences WHERE user_id = :uid"), {"uid": user_id})
