@@ -1,7 +1,40 @@
-"""Sign-in history scrubbing within the caller's account erasure transaction."""
-from sqlalchemy import select, text, update
+"""Audit history scrubbing within the caller's account erasure transaction."""
+import json
+from sqlalchemy import and_, column, or_, select, table, text, update
 from sqlalchemy.orm import Session
 from core.audit_erasure import record_erasure
+
+
+_TOKEN_VERBS = {'api_token_created': 'created', 'api_token_revoked': 'revoked'}
+_TOKEN_NAME_ACTIONS = ('api_token.square_setup_granted', 'api_token.square_setup_revoked',
+                       'square.product_mapped', 'square.stock_baseline')
+
+
+def erase_token_names(db: Session, user_id: int):
+    """Target token ownership, since different users may choose the same token name."""
+    from core.audit_erasure import rewrite
+    from core.models import AuditLog
+    tokens = table('api_tokens', column('id'), column('user_id'))
+    # Token IDs are never automatically reused. Creation history also covers deleted tokens.
+    # A deleted token with no actor_user_id on its creation row cannot be attributed by name.
+    owned_ids = select(tokens.c.id).where(tokens.c.user_id == user_id).union(
+        select(AuditLog.entity_id).where(AuditLog.entity_type == 'api_token',
+                                         AuditLog.action == 'api_token_created',
+                                         column('actor_user_id') == user_id))
+    lifecycle = and_(AuditLog.entity_type == 'api_token', AuditLog.action.in_(_TOKEN_VERBS),
+                     AuditLog.entity_id.in_(owned_ids))
+    attributed = and_(AuditLog.action.in_(_TOKEN_NAME_ACTIONS),
+                      AuditLog.details['token_owner_user_id'].as_integer() == user_id)
+    rows = db.execute(select(AuditLog.id, AuditLog.action, AuditLog.details).where(or_(lifecycle, attributed)))
+    for row in rows:
+        if row.action in _TOKEN_VERBS and isinstance(row.details, str):
+            details = f"Token '[deleted]' {_TOKEN_VERBS[row.action]}"
+        elif isinstance(row.details, dict) and 'token_name' in row.details:
+            details = {**row.details, 'token_name': '[deleted]'}
+        else:
+            continue
+        if details != row.details:
+            rewrite(db, 'UPDATE audit_logs SET details=:d WHERE id=:id', {'d': json.dumps(details), 'id': row.id})
 
 
 def erase_sso_login_history(db: Session, user_id: int):

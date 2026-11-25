@@ -21,7 +21,8 @@ from tests.test_contracts.test_api_token_delegation_behavior import interactive_
 def saved(shop):
     with Session(shop[3].get_bind()) as db:
         return (db.execute(select(SystemConfig.value).where(SystemConfig.key == store.key(1))).scalar_one(),
-                db.execute(select(AuditLog.id, AuditLog.details).order_by(AuditLog.id)).all())
+                db.execute(select(AuditLog.id, AuditLog.details).where(
+                    AuditLog.action != 'square.setup_refused').order_by(AuditLog.id)).all())
 
 
 def test_square_ruling_ids_are_safe_for_gate_output(request):
@@ -46,7 +47,7 @@ def test_token_same_mapping_is_a_no_change(shop):
     status = mapped(shop)
     result = shop[0].put(path(True), json=payload(status['revision'], True))
     status = result.json()['connection']
-    authenticate(shop)
+    authenticate(shop, ['read', 'write:square_setup'])
     before = saved(shop)
     shop[2].clear()
     result = shop[0].put(path(), json=payload(status['revision']))

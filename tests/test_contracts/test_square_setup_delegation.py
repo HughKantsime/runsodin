@@ -316,7 +316,7 @@ def test_existing_addition_barriers_preserved_for_tokens(batch, state):
     if state == 'unknown':
         batch[3].execute(update(batches.additions).values(state='unknown', attempts=1)); batch[3].commit()
     status = batch[0].get('/products/square').json()
-    authenticate(batch)
+    authenticate(batch, ['read', SQUARE_SETUP_SCOPE])
     result = batch[0].put(path(True), json=payload(status['revision'], True))
     assert result.status_code == (200 if state == 'prepared' else 409)
     if state == 'prepared':

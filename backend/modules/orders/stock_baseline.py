@@ -11,7 +11,7 @@ from core.dependencies import log_audit
 from core.models import AuditLog
 from core.rbac import is_interactive_session
 from modules.orders import square_store as store
-from modules.orders.square_setup_auth import assert_square_setup, setup_audit, fresh_setup_actor
+from modules.orders.square_setup_auth import assert_square_setup, setup_audit, fresh_setup_actor, setup_result, limited_setup_reply
 
 
 def admin(user):
@@ -108,7 +108,8 @@ def set_baseline(db, user, product_id, data):
                 raise HTTPException(409, 'Reconcile unknown additions before setting this baseline')
             pending.append(row['id'])
     if attribution:
-        attribution = setup_audit(fresh_setup_actor(db, user), data.approval_note)
+        user = fresh_setup_actor(db, user)
+        attribution = setup_audit(user, data.approval_note)
         validate_baseline_time(at)
     baseline = {'version': str(uuid.uuid4()), 'at': at.isoformat(),
                 'quantity': data.quantity, 'attested_by': user['id']}
@@ -119,7 +120,10 @@ def set_baseline(db, user, product_id, data):
               {'owner': owner, **baseline, 'pending_additions': pending,
                'previous_baseline': previous_baseline, **attribution})
     db.commit()
-    return {'connection': store.public(db, owner, doc), 'pending_additions': pending}
+    result = {'connection': setup_result(db, user, owner, doc, product_id, tracked=True, include_baseline=True)}
+    if not limited_setup_reply(user):
+        result['pending_additions'] = pending
+    return result
 
 
 def validate_baseline_time(at):

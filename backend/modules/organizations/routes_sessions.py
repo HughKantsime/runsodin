@@ -16,6 +16,7 @@ from core.dependencies import get_current_user, log_audit
 from core.errors import ErrorCode, OdinError
 from core.rbac import require_role
 from core.auth import hash_password
+from modules.organizations.square_setup_grants import check_grant_expiry, lock_accounts, set_scopes
 from modules.organizations.password_reset import current_session_jti
 from core.quota import _get_quota_usage
 from core.rate_limit import limiter
@@ -151,7 +152,7 @@ async def admin_revoke_session(session_id: int, current_user: dict = Depends(req
 
 # ============== Scoped API Tokens ==============
 
-from core.api_token_policy import VALID_SCOPES, parse_token_scopes, SQUARE_SETUP_SCOPE, require_square_setup_available
+from core.api_token_policy import VALID_SCOPES, can_manage_square, parse_token_scopes, SQUARE_SETUP_SCOPE, require_square_setup_available
 from pydantic import BaseModel, ConfigDict, StrictBool
 
 
@@ -245,20 +246,32 @@ async def create_api_token(request: Request, body: dict, current_user: dict = De
     }
 
 
-# Lists only the caller's own token metadata (never the secrets), so any
-# valid scoped token may list its owner's tokens.
+SESSION_KINDS = ('jwt', 'session_jwt', 'bearer_jwt')
+
+
+# Any valid scoped token may list its owner's token metadata.
 @router.get("/tokens", tags=["API Tokens"], dependencies=[Depends(handler_enforces_token_scope())])
-async def list_api_tokens(current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
-    """List all API tokens for the current user."""
+async def list_api_tokens(current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db),
+                          managed_square_setup: bool = False):
+    """Optionally include revocable Square grants in a signed-in admin's list."""
     rows = db.execute(text(
         "SELECT id, name, token_prefix, scopes, expires_at, last_used_at, created_at "
         "FROM api_tokens WHERE user_id = :uid ORDER BY created_at DESC"),
         {"uid": current_user["id"]}).fetchall()
-    return [{
+    tokens = [{
         "id": r.id, "name": r.name, "prefix": r.token_prefix,
         "scopes": parse_token_scopes(r.scopes) or [],
         "expires_at": r.expires_at, "last_used_at": r.last_used_at, "created_at": r.created_at,
     } for r in rows]
+    if managed_square_setup and current_user.get("role") == "admin" and current_user.get("_auth_kind") in SESSION_KINDS:
+        rows = db.execute(text(
+            "SELECT t.id, t.name, t.scopes, u.username FROM api_tokens t JOIN users u ON u.id=t.user_id "
+            "WHERE t.user_id<>:uid AND (:platform OR u.group_id=:gid) AND t.scopes LIKE :pattern ORDER BY t.id"),
+            {"uid": current_user["id"], "gid": current_user.get("group_id"), "platform": _is_superadmin(current_user),
+             "pattern": "%" + SQUARE_SETUP_SCOPE + "%"}).all()
+        tokens.extend({"id": r.id, "name": r.name, "owner_username": r.username, "scopes": [SQUARE_SETUP_SCOPE]}
+                      for r in rows if SQUARE_SETUP_SCOPE in (parse_token_scopes(r.scopes) or []))
+    return tokens
 
 
 class SquareSetupGrant(BaseModel):
@@ -271,33 +284,34 @@ async def set_square_setup_grant(token_id: int, body: SquareSetupGrant,
                                  current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """An administrator may delegate only their own named token; scopes stay in api_tokens."""
     # Unlike the legacy credential guard, this grant requires known session provenance.
-    if current_user.get('_auth_kind') not in ('jwt', 'session_jwt', 'bearer_jwt'):
+    if current_user.get('_auth_kind') not in SESSION_KINDS:
         raise HTTPException(403, "Sign in to change Square setup permission")
-    if body.enabled:
-        require_square_setup_available(db)
-    row = db.execute(text("SELECT id, name, scopes FROM api_tokens WHERE id=:id AND user_id=:uid"),
-                     {"id": token_id, "uid": current_user['id']}).fetchone()
+    owner_id = db.execute(text("SELECT user_id FROM api_tokens WHERE id=:id"), {"id": token_id}).scalar()
+    if owner_id is None or (body.enabled and owner_id != current_user["id"]):
+        raise HTTPException(404, "Token not found")
+    # Serialize grants with account changes, including deletion and demotion.
+    accounts = lock_accounts(db, current_user["id"], owner_id)
+    actor, account = accounts.get(current_user["id"]), accounts.get(owner_id)
+    if not actor or not actor["is_active"] or actor["role"] != "admin":
+        raise HTTPException(403, "Sign in as an administrator to change Square setup access.")
+    if account is None or not _check_org_admin_access(actor, account["group_id"]):
+        raise HTTPException(403, "Cannot change tokens outside your group")
+    row = db.execute(text("SELECT id, name, user_id, scopes, expires_at FROM api_tokens WHERE id=:id AND user_id=:uid"),
+                     {"id": token_id, "uid": owner_id}).first()
     if row is None:
         raise HTTPException(404, "Token not found")
+    if body.enabled:
+        require_square_setup_available(db)
+        if not can_manage_square(db, actor):
+            raise HTTPException(403, "You need the Manage Square permission to grant Square setup access.")
+        check_grant_expiry(row.expires_at)
     scopes = parse_token_scopes(row.scopes)
     if not scopes or 'read:cameras' in scopes:
         raise HTTPException(409, "Create a valid token for Square setup; camera tokens cannot have other permissions")
-    if (SQUARE_SETUP_SCOPE in scopes) == body.enabled:
-        return {"id": token_id, "scopes": scopes}
-    updated = [scope for scope in scopes if scope != SQUARE_SETUP_SCOPE]
-    if body.enabled:
-        updated.append(SQUARE_SETUP_SCOPE)
-    changed = db.execute(text("UPDATE api_tokens SET scopes=:scopes WHERE id=:id AND user_id=:uid AND scopes=:previous"),
-                         {"scopes": json.dumps(updated), "id": token_id, "uid": current_user['id'], "previous": row.scopes})
-    if changed.rowcount != 1:
-        raise HTTPException(409, "Token changed. Reload the token list before continuing.")
-    log_audit(db, "api_token.square_setup_granted" if body.enabled else "api_token.square_setup_revoked",
-              "api_token", token_id,
-              {"administrator_id": current_user['id'], "token_id": token_id, "token_name": row.name,
-               "token_owner_user_id": current_user['id'], "auth_kind": current_user['_auth_kind'],
-               "scopes_before": scopes, "scopes_after": updated})
-    db.commit()
-    return {"id": token_id, "scopes": updated}
+    if (SQUARE_SETUP_SCOPE in scopes) != body.enabled:
+        scopes = set_scopes(db, row, scopes, body.enabled, current_user)
+        db.commit()
+    return {"id": token_id, "scopes": scopes if owner_id == current_user["id"] else []}
 
 
 @router.delete("/tokens/{token_id}", tags=["API Tokens"], dependencies=[Depends(require_interactive_session())])

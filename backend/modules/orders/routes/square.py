@@ -19,11 +19,18 @@ from core.models import SystemConfig
 from core.rbac import require_role, require_interactive_session
 from modules.orders import square_store as store
 from modules.orders.square_client import SquareReader, identifier
-from modules.orders.square_setup_auth import ApprovalNote, require_square_setup, setup_audit, setup_rate_key, setup_rate_cost, fresh_setup_actor, same_mapping
+from modules.orders.square_setup_refusals import audit_setup_attempt
+from modules.orders.square_setup_auth import ApprovalNote, require_square_setup, setup_audit, setup_rate_key, setup_rate_cost, fresh_setup_actor, same_mapping, setup_result
 # Capture the deployment key while application routes load at process startup.
 from modules.orders import square_delivery_client  # noqa: F401
 
 class SafeSquareRoute(APIRoute):
+    def __init__(self, *args, dependencies=None, **kwargs):
+        # include_router prepends family gates (including the Products license).
+        # On the two delegated routes the audit must also see those refusals.
+        ordered = sorted(dependencies or (), key=lambda dep: dep.dependency is not audit_setup_attempt)
+        super().__init__(*args, dependencies=ordered, **kwargs)
+
     def get_route_handler(self):
         original = super().get_route_handler()
         async def safe(request):
@@ -140,7 +147,7 @@ def catalog(revision: str = Query(max_length=64), cursor: str | None = Query(def
     return {'revision': revision, **result}
 
 
-@router.put('/{product_id}/square')
+@router.put('/{product_id}/square', dependencies=[Depends(audit_setup_attempt)])
 @limiter.limit('30/minute', key_func=setup_rate_key, cost=setup_rate_cost)
 def map_product_route(request: Request, product_id: int, data: Mapping, user=Depends(require_square_setup()), db: Session = Depends(get_db)):
     return map_product(product_id, data, user, db)
@@ -157,9 +164,9 @@ def map_product(product_id: int, data: Mapping, user, db: Session):
         store.lock_owner(db, owner, user)
         store.own_product(db, owner, product_id, lock=True)
         latest, _, _ = connected(db, owner, data.revision)
-        fresh_setup_actor(db, user)
+        user = fresh_setup_actor(db, user)
         same_mapping(latest, product_id, location, variation)
-        result = store.public(db, owner, latest)
+        result = setup_result(db, user, owner, latest, product_id, tracked=None)
         db.rollback()
         return result
     if not any(v['id'] == location for v in reader.locations(doc['merchant_id'])):
@@ -172,9 +179,10 @@ def map_product(product_id: int, data: Mapping, user, db: Session):
     store.own_product(db, owner, product_id, lock=True)
     latest, previous, _ = connected(db, owner, data.revision)
     if attribution:
-        attribution = setup_audit(fresh_setup_actor(db, user), data.approval_note)
+        user = fresh_setup_actor(db, user)
+        attribution = setup_audit(user, data.approval_note)
         if same_mapping(latest, product_id, location, variation):
-            result = store.public(db, owner, latest)
+            result = setup_result(db, user, owner, latest, product_id, tracked=True)
             db.rollback()
             return result
     for pid, value in latest['mappings'].items():
@@ -194,7 +202,7 @@ def map_product(product_id: int, data: Mapping, user, db: Session):
               {'description': description, **latest['mappings'][str(product_id)],
                'previous': None, **attribution} if attribution else description)
     db.commit()
-    return store.public(db, owner, doc)
+    return setup_result(db, user, owner, doc, product_id, tracked=True)
 
 
 @router.delete('/{product_id}/square', dependencies=[interactive, Depends(require_action('products.square_manage', scope='write'))])
@@ -265,7 +273,7 @@ class BaselineReview(BaseModel):
     answers: dict[str, Literal['counted', 'not_counted']]
 
 
-@router.put('/{product_id}/square/baseline')
+@router.put('/{product_id}/square/baseline', dependencies=[Depends(audit_setup_attempt)])
 @limiter.limit('30/minute', key_func=setup_rate_key, cost=setup_rate_cost)
 def baseline(request: Request, product_id: int, data: BaselineInput, user=Depends(require_square_setup()), db: Session = Depends(get_db)):
     from modules.orders.stock_baseline import set_baseline
