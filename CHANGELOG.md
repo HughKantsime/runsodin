@@ -10,6 +10,10 @@ All notable changes to O.D.I.N. are documented here.
 - Erasing an account now removes its API token names from the audit log, including names of tokens already revoked by the owner or an administrator.
 - Square setup access on an API token: other administrators can now see and revoke it, it is removed when its owner stops being an administrator, refused attempts are recorded in the audit log, and granting it asks for confirmation.
 - Education submissions now count toward the student's print quota when approved. If the student has reached a limit, the submission stays in review.
+- If a poor connection interrupts a mobile session renewal, the app can recover without asking for your password when it retries within ten minutes. After a longer pause, you still need your password.
+### Security
+- When ODIN restarts after a change to the sign-in key, everyone with a saved phone sign-in must sign in again.
+- A mobile sign-in token that was just replaced can recover its replacement from the same device up to five times within ten minutes. Once the replacement is used, the server refuses the earlier token and records the attempt in the audit log.
 
 ## [2.7.0] - 2026-11-24
 

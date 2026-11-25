@@ -1,5 +1,6 @@
 """Application discovery and periodic database maintenance."""
 import asyncio
+import hmac
 import importlib
 import logging
 import pathlib
@@ -280,5 +281,36 @@ def _revoke_legacy_biometric_tokens(engine) -> None:
         )
         if deleted:
             log.warning("Revoked %d pre-2.0 biometric refresh token(s); affected devices must re-enrol.", deleted)
+
+
+def _check_signing_secret(engine) -> None:
+    """Claim a signing-key change before revoking saved sign-ins in the same transaction."""
+    from sqlalchemy import JSON, bindparam
+    from sqlalchemy.orm import Session
+    from core.audit import log_audit
+    from core.auth import SECRET_KEY
+
+    fingerprint = hmac.digest(SECRET_KEY.encode(), b"odin-signing-secret-fingerprint-v1", "sha256").hex()
+    params = {"key": "signing_secret_fingerprint", "value": fingerprint}
+    value = bindparam("value", type_=JSON)
+    # Share the startup engine's pool and guards, but keep values out of SQL echo.
+    private_engine = engine.execution_options()
+    private_engine.hide_parameters = True
+    with Session(private_engine) as db, db.begin():
+        inserted = db.execute(text(
+            "INSERT INTO system_config (key, value) VALUES (:key, :value) ON CONFLICT (key) DO NOTHING"
+        ).bindparams(value), params)
+        if inserted.rowcount == 1:
+            return
+        # Compare against the old value in the database. Even debug result logging
+        # never sees it, and a worker that loses the comparison cannot delete rows.
+        changed = db.execute(text(
+            "UPDATE system_config SET value = :value WHERE key = :key AND CAST(value AS TEXT) = "
+            "(SELECT CAST(value AS TEXT) FROM system_config "
+            "WHERE key = :key AND CAST(value AS TEXT) <> CAST(:value AS TEXT))"
+        ).bindparams(value), params)
+        if changed.rowcount == 1:
+            removed = db.execute(text("DELETE FROM biometric_tokens")).rowcount
+            log_audit(db, "auth.signing_secret_changed", "system", details={"saved_sign_ins_removed": removed})
 
 

@@ -401,11 +401,17 @@ def test_biometric_mint_refresh_and_revoke(auth_client, policy_db):
     mint = auth_client.post('/api/v1/auth/biometric-token?device_id=test-device', headers=headers)
     assert mint.status_code == 200, mint.text
     raw = mint.json()['refresh_token']
+    def renew(token):
+        return auth_client.post('/api/v1/auth/biometric-refresh', json={'refresh_token': token, 'device_id': 'test-device'})
+    first = renew(raw)
+    assert first.status_code == 200
     pick(policy_db, [5], recovery=5)
     assert auth_client.post('/api/v1/auth/biometric-token?device_id=other', headers=headers).status_code == 403
-    refresh = auth_client.post('/api/v1/auth/biometric-refresh', json={'refresh_token': raw, 'device_id': 'test-device'})
-    assert refresh.status_code == 403, refresh.text
-    assert 'access_token' not in refresh.json()
+    for token_value in (first.json()['refresh_token'], raw):
+        refresh = renew(token_value)
+        assert refresh.status_code == 403
+        assert 'access_token' not in refresh.json()
+    assert policy_db.execute(text('SELECT count(*) FROM active_sessions')).scalar_one() == 1
     assert auth_client.delete('/api/v1/auth/biometric-token?device_id=test-device', headers=headers).status_code == 204
 
 

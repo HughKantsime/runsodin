@@ -68,6 +68,7 @@ def bundle_client(monkeypatch):
                     config.execute('CREATE TABLE system_config(key, value)')
                     config.executemany('INSERT INTO system_config VALUES (?, ?)', [
                         ('dispatch_recovery_keys:23', '{}'), ('language', 'en'), ('printer.live_values.1', '{}'),
+                        ('signing_secret_fingerprint', 'synthetic fingerprint'),
                     ])
                     rows = config.execute(str(statement), *args).fetchall()
                 return SimpleNamespace(fetchall=lambda: rows)
@@ -95,6 +96,7 @@ def test_support_bundle_http_download_has_six_parseable_members(bundle_client):
         assert settings.get('language') == 'en'
         assert 'dispatch_recovery_keys:23' not in settings
         assert 'printer.live_values.1' not in settings
+        assert 'signing_secret_fingerprint' not in settings
         logs = archive.read('recent_errors.txt').decode()
         assert '192.0.2.12' not in logs and 'synthetic-test-value' not in logs
         assert '[REDACTED]' in logs

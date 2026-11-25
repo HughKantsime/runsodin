@@ -1,6 +1,7 @@
 """Owned PostgreSQL biometric rotation: actual HTTP, contention and COMMIT."""
 import os
 import stat
+import secrets
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from fastapi import FastAPI
@@ -42,7 +43,7 @@ def database():
 app.dependency_overrides[get_db] = database
 
 def seed(device):
-    raw = 'owned-fixture-' + device
+    raw = secrets.token_hex(32)
     with Session(engine) as db:
         db.add(BiometricToken(user_id=8001, device_id=device, token_hash=biometric._hash_token(raw), expires_at=(datetime.now(timezone.utc)+timedelta(days=1)).replace(microsecond=0)))
         db.commit()
@@ -55,11 +56,12 @@ def refresh(raw, device):
 raw = seed('sequence')
 first = refresh(raw, 'sequence')
 assert first.status_code == 200
-assert refresh(raw, 'sequence').status_code == 401
+retry = refresh(raw, 'sequence')
+assert retry.status_code == 200 and retry.json()['refresh_token'] == first.json()['refresh_token']
 second = refresh(first.json()['refresh_token'], 'sequence')
 assert second.status_code == 200
 with engine.connect() as connection:
-    assert connection.execute(text('SELECT COUNT(*) FROM active_sessions WHERE user_id=8001')).scalar_one() == 2
+    assert connection.execute(text('SELECT COUNT(*) FROM active_sessions WHERE user_id=8001')).scalar_one() == 3
 print('biometric-native-sequential-rotation-session-pass', flush=True)
 
 raw = seed('locked')
@@ -74,23 +76,28 @@ print('biometric-native-parent-nowait-release-pass', flush=True)
 
 raw = seed('race')
 from concurrent.futures import ThreadPoolExecutor
-from threading import Barrier
+from threading import Barrier, local
+worker = local()
 barrier = Barrier(2)
 original_execute = Session.execute
 def synchronized_parent(self, statement, *args, **kwargs):
-    if str(statement).startswith('SELECT * FROM users WHERE id='):
+    if str(statement).startswith('SELECT * FROM users WHERE id=') and not getattr(worker, 'arrived', False):
+        worker.arrived = True
         barrier.wait(timeout=10)
     return original_execute(self, statement, *args, **kwargs)
 Session.execute = synchronized_parent
 try:
     with ThreadPoolExecutor(max_workers=2) as pool:
         responses = list(pool.map(lambda _: refresh(raw, 'race'), range(2)))
-    assert sorted(r.status_code for r in responses) in ([200, 401], [200, 503])
+    assert sorted(r.status_code for r in responses) in ([200, 200], [200, 503])
 finally:
     Session.execute = original_execute
+completed = [refresh(raw, 'race') if r.status_code == 503 else r for r in responses]
+assert all(r.status_code == 200 for r in completed)
+assert completed[0].json()['refresh_token'] == completed[1].json()['refresh_token']
 with engine.connect() as connection:
-    assert connection.execute(text('SELECT COUNT(*) FROM active_sessions WHERE user_id=8001')).scalar_one() == 4
-print('biometric-native-simultaneous-replay-single-issuance-pass', flush=True)
+    assert connection.execute(text('SELECT COUNT(*) FROM active_sessions WHERE user_id=8001')).scalar_one() == 6
+print('biometric-native-simultaneous-retry-pass', flush=True)
 
 raw = seed('commit-fault')
 with engine.begin() as connection:
@@ -100,7 +107,7 @@ response = refresh(raw, 'commit-fault')
 assert response.status_code == 503 and 'access_token' not in response.json()
 with engine.connect() as connection:
     assert connection.execute(text("SELECT token_hash FROM biometric_tokens WHERE user_id=8001 AND device_id='commit-fault'")).scalar_one() == biometric._hash_token(raw)
-    assert connection.execute(text('SELECT COUNT(*) FROM active_sessions WHERE user_id=8001')).scalar_one() == 4
+    assert connection.execute(text('SELECT COUNT(*) FROM active_sessions WHERE user_id=8001')).scalar_one() == 6
 with engine.begin() as connection:
     connection.exec_driver_sql('DROP TRIGGER owned_bio_commit_fault ON active_sessions')
     connection.exec_driver_sql('DROP FUNCTION owned_bio_commit_fault()')
