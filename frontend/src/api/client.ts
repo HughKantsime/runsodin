@@ -29,9 +29,25 @@ export function dataFolderLockMessage(error: unknown): string | null {
   return error instanceof Error && 'storageReason' in error && typeof error.storageReason === 'string' ? error.message : null
 }
 
-function apiError(err: { detail?: unknown; message?: unknown; error?: { storage_reason?: string } }, fallback: string, status?: number): Error {
-  const error = new Error(errorDetailMessage(err.detail) || errorDetailMessage(err.message) || fallback) as Error & { detail?: unknown; status?: number; storageReason?: string }
+export interface ApiError extends Error {
+  detail?: unknown
+  status?: number
+  storageReason?: string
+  code?: string
+  retriable?: boolean
+}
+
+interface ApiErrorBody {
+  detail?: unknown
+  message?: unknown
+  error?: { storage_reason?: string; code?: string; retriable?: boolean }
+}
+
+function apiError(err: ApiErrorBody, fallback: string, status?: number): ApiError {
+  const error: ApiError = new Error(errorDetailMessage(err.detail) || errorDetailMessage(err.message) || fallback)
   if (err.detail !== undefined) error.detail = err.detail
+  if (typeof err.error?.code === 'string') error.code = err.error.code
+  if (typeof err.error?.retriable === 'boolean') error.retriable = err.error.retriable
   const detail = err.detail
   const reason = detail && typeof detail === 'object' && 'storage_reason' in detail ? detail.storage_reason : err.error?.storage_reason
   if (typeof reason === 'string') error.storageReason = reason

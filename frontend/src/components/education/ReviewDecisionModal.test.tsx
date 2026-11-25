@@ -1,6 +1,6 @@
 import React from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import ReviewDecisionModal from './ReviewDecisionModal'
 import { education } from '../../api/education'
@@ -73,6 +73,7 @@ it('replays the same command after an uncertain approval response', async () => 
   await screen.findByText(/Tray 1: PETG/)
   fireEvent.click(screen.getByRole('button', { name: 'Approve and queue' }))
   await screen.findByText('Approval result unconfirmed')
+  expect(screen.getByText(/Retry uses the same approval request/)).toBeVisible()
   expect(screen.getByLabelText('Authorized printer')).toBeDisabled()
   expect(screen.getByRole('button', { name: 'Read selected tray' })).toBeDisabled()
   fireEvent.click(screen.getByRole('button', { name: 'Retry approval' }))
@@ -88,11 +89,13 @@ it('preserves ordinary non-Bambu approval without AMS fields', async () => {
   expect(api.approveSubmission.mock.calls[0][1]).not.toHaveProperty('ams_mapping')
 })
 
-it("shows the student's quota refusal in the teacher's review dialog", async () => {
-  const detail = 'This student has used up their print quota for this period.'
+it.each([
+  { status: 429, code: 'quota_exceeded', retriable: false, detail: 'This student has used up their print quota for this period.' },
+  { status: 503, code: 'upstream_unavailable', retriable: true, detail: 'Printer temporarily unavailable.' },
+])('shows the approval refusal under the button and respects retriable=$retriable', async ({ status, code, retriable, detail }) => {
   const fetch = vi.fn(async (url: string) => {
     if (url === '/api/education/submissions/5/approve') {
-      return Response.json({ detail, error: { code: 'quota_exceeded', detail, retriable: false } }, { status: 429 })
+      return Response.json({ detail, error: { code, detail, retriable } }, { status })
     }
     if (url.startsWith('/api/education/submissions/5/slice-info')) {
       return Response.json({ plates: [], selected_plate_index: 0, slots: [], freshness: '' })
@@ -106,8 +109,32 @@ it("shows the student's quota refusal in the teacher's review dialog", async () 
   fireEvent.change(screen.getByLabelText('Authorized printer'), { target: { value: '10' } })
   await screen.findByText('File and printer are compatible')
   fireEvent.click(screen.getByRole('button', { name: 'Approve and queue' }))
-  expect(await screen.findByRole('alert')).toHaveTextContent(detail)
+  const approval = within(screen.getByRole('region', { name: 'Approve to a printer' }))
+  const alert = await approval.findByRole('alert')
+  expect(alert.textContent).toBe(detail)
+  expect(alert.previousElementSibling).toBe(approval.getByRole('button', { name: retriable ? 'Retry approval' : 'Approve and queue' }))
+  expect(screen.getAllByText(detail)).toHaveLength(1)
+  if (retriable) {
+    expect(approval.getByText(/Retry uses the same approval request/)).toBeVisible()
+  } else {
+    expect(screen.queryByText(/Retry uses the same approval request/)).not.toBeInTheDocument()
+  }
   expect(fetch).toHaveBeenCalledWith('/api/education/submissions/5/approve', expect.objectContaining({ method: 'POST' }))
+  expect(close).not.toHaveBeenCalled()
+})
+
+it('shows a rejection error only under Reject submission', async () => {
+  const detail = 'This submission has already been reviewed.'
+  api.rejectSubmission.mockRejectedValueOnce(new Error(detail))
+  const close = mount()
+  const rejection = within(screen.getByRole('region', { name: 'Return to student' }))
+  fireEvent.change(rejection.getByLabelText('Reason'), { target: { value: 'Please check the dimensions.' } })
+  const button = rejection.getByRole('button', { name: 'Reject submission' })
+  fireEvent.click(button)
+  const alert = await rejection.findByRole('alert')
+  expect(alert.textContent).toBe(detail)
+  expect(alert.previousElementSibling).toBe(button)
+  expect(screen.getAllByText(detail)).toHaveLength(1)
   expect(close).not.toHaveBeenCalled()
 })
 

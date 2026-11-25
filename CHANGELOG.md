@@ -6,6 +6,7 @@ All notable changes to O.D.I.N. are documented here.
 
 ### Fixed
 
+- In Education reviews, approval and rejection errors appear below the button you used. Retry guidance appears only when the approval can be retried or its outcome is unknown.
 - Education submissions now count toward the student's print quota when approved. If the student has reached a limit, the submission stays in review.
 
 ## [2.7.0] - 2026-11-24

@@ -5,6 +5,7 @@ import { CheckCircle2, Printer, XCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import SubmissionSliceInfo from './SubmissionSliceInfo'
 import { education } from '../../api'
+import type { ApiError } from '../../api/client'
 import type { EducationSubmission, EducationAMSReport, EducationApprovalRequest } from '../../types'
 import { Button, Modal, Select, Textarea } from '../ui'
 
@@ -18,13 +19,13 @@ export default function ReviewDecisionModal({ submission, onClose, audience = ''
   const queryClient = useQueryClient()
   const [printerId, setPrinterId] = useState('')
   const [reason, setReason] = useState('')
-  const [error, setError] = useState('')
+  const [approvalError, setApprovalError] = useState('')
+  const [rejectError, setRejectError] = useState('')
   const [filamentSupply, setFilamentSupply] = useState('')
   const [tray, setTray] = useState('')
   const [amsReport, setAMSReport] = useState<EducationAMSReport | null>(null)
   const [reportFresh, setReportFresh] = useState(false)
-  const approvalRequest = useRef<EducationApprovalRequest | null>(null)
-  const savedApprovals = useRef(new Map<string, EducationApprovalRequest>())
+  const [savedApprovals, setSavedApprovals] = useState(() => new Map<string, { body: EducationApprovalRequest; canRetry: boolean }>())
   const readBusy = useRef(false)
   const approvalBusy = useRef(false)
   const identity = `${submission?.id}:${submission?.lifecycle_revision}`
@@ -36,7 +37,8 @@ export default function ReviewDecisionModal({ submission, onClose, audience = ''
   const currentSubmissionScope = useRef(submissionScope)
   currentSubmissionScope.current = submissionScope
   useEffect(() => () => { currentSubmissionScope.current = ''; currentReadScope.current = '' }, [])
-  const [approvalAttempted, setApprovalAttempted] = useState(false)
+  const savedApproval = savedApprovals.get(identity)
+  const approvalAttempted = !!savedApproval
 
   useEffect(() => {
     if (!amsReport) { setReportFresh(false); return }
@@ -56,16 +58,15 @@ export default function ReviewDecisionModal({ submission, onClose, audience = ''
   useEffect(() => {
     setPrinterId('')
     setReason('')
-    setError('')
+    setRejectError('')
+    setApprovalError('')
     setFilamentSupply('')
     setTray('')
     setAMSReport(null)
-    approvalRequest.current = savedApprovals.current.get(identity) || null
-    setApprovalAttempted(!!approvalRequest.current)
-    if (approvalRequest.current) {
-      setPrinterId(String(approvalRequest.current.printer_id))
-      setFilamentSupply(approvalRequest.current.ams_mapping ? 'ams' : 'default')
-      setTray(String(approvalRequest.current.ams_mapping?.[0].target_slot || ''))
+    if (savedApproval) {
+      setPrinterId(String(savedApproval.body.printer_id))
+      setFilamentSupply(savedApproval.body.ams_mapping ? 'ams' : 'default')
+      setTray(String(savedApproval.body.ams_mapping?.[0].target_slot || ''))
     }
   }, [submission?.id, submission?.lifecycle_revision])
 
@@ -111,17 +112,17 @@ export default function ReviewDecisionModal({ submission, onClose, audience = ''
     },
     onSuccess: (report, selection) => {
       if (selection.scope !== currentReadScope.current) return
-      setAMSReport(report); setError('')
+      setAMSReport(report); setApprovalError('')
     },
     onError: (mutationError: Error, selection) => {
       if (selection.scope !== currentReadScope.current) return
-      setAMSReport(null); setError(mutationError.message)
+      setAMSReport(null); setApprovalError(mutationError.message)
     },
     onSettled: () => { readBusy.current = false },
   })
 
   const approve = useMutation({
-    mutationFn: async (operation: { id: number; body: EducationApprovalRequest; scope: string }) => {
+    mutationFn: async (operation: { id: number; body: EducationApprovalRequest; scope: string; identity: string }) => {
       const result = await education.approveSubmission(operation.id, operation.body)
       const expected = operation.body
       if (!result || result.id !== operation.id || result.approved_printer_id !== expected.printer_id
@@ -140,11 +141,15 @@ export default function ReviewDecisionModal({ submission, onClose, audience = ''
       if (operation.scope !== currentSubmissionScope.current) return
       await finish('Submission approved and queued', operation.scope)
     },
-    onError: (mutationError: Error, operation) => {
-      if (operation.scope === currentSubmissionScope.current) setError(mutationError.message)
+    onError: (mutationError: ApiError, operation) => {
+      const canRetry = mutationError.retriable !== false
+      setSavedApprovals(previous => new Map(previous).set(operation.identity, { body: operation.body, canRetry }))
+      if (operation.scope === currentSubmissionScope.current) setApprovalError(mutationError.message)
     },
     onSettled: () => { approvalBusy.current = false },
   })
+
+  const showApprovalRetry = savedApproval?.canRetry && !approve.isPending
 
   const reject = useMutation({
     mutationFn: (operation: { id: number; revision: number; reason: string; scope: string }) =>
@@ -153,14 +158,14 @@ export default function ReviewDecisionModal({ submission, onClose, audience = ''
       }),
     onSuccess: (_, operation) => finish('Submission returned to the student', operation.scope),
     onError: (mutationError: Error, operation) => {
-      if (operation.scope === currentSubmissionScope.current) setError(mutationError.message)
+      if (operation.scope === currentSubmissionScope.current) setRejectError(mutationError.message)
     },
   })
 
   return (
     <Modal isOpen={!!submission} onClose={onClose} title="Review submission" size="lg">
       {submission && (
-        <div className="space-y-5">
+        <div className="space-y-5 break-words">
           <div className="rounded-md bg-[var(--brand-surface)] p-4">
             <p className="font-medium text-[var(--brand-text-primary)]">{submission.item_name}</p>
             <p className="mt-1 text-xs text-[var(--brand-text-secondary)]">
@@ -168,13 +173,13 @@ export default function ReviewDecisionModal({ submission, onClose, audience = ''
             </p>
           </div>
 
-          <div className="space-y-3">
+          <section aria-labelledby="review-approve-title" className="space-y-3">
             <div className="flex items-center gap-2">
               <Printer size={16} className="text-[var(--brand-primary)]" />
-              <h3 className="text-sm font-semibold text-[var(--brand-text-primary)]">Approve to a printer</h3>
+              <h3 id="review-approve-title" className="text-sm font-semibold text-[var(--brand-text-primary)]">Approve to a printer</h3>
             </div>
             <SubmissionSliceInfo audience={audience} id={submission.id} revision={submission.lifecycle_revision} printerId={printerId ? Number(printerId) : undefined} />
-        <Select
+            <Select
               label="Authorized printer"
               value={printerId}
               onChange={(event) => {
@@ -182,7 +187,7 @@ export default function ReviewDecisionModal({ submission, onClose, audience = ''
                 setFilamentSupply('')
                 setTray('')
                 setAMSReport(null)
-                setError('')
+                setApprovalError('')
               }}
               disabled={printerQuery.isLoading || readAMS.isPending || approvalAttempted}
             >
@@ -230,7 +235,7 @@ export default function ReviewDecisionModal({ submission, onClose, audience = ''
                   onChange={(event) => {
                     setFilamentSupply(event.target.value)
                     setAMSReport(null)
-                    setError('')
+                    setApprovalError('')
                   }}>
                   <option value="">Select filament supply</option>
                   <option value="default">Printer default (no explicit AMS selection)</option>
@@ -250,13 +255,13 @@ export default function ReviewDecisionModal({ submission, onClose, audience = ''
                     </p>
                     <Select label="Physical AMS tray" value={tray}
                       disabled={readAMS.isPending || approvalAttempted}
-                      onChange={(event) => { setTray(event.target.value); setAMSReport(null); setError('') }}>
+                      onChange={(event) => { setTray(event.target.value); setAMSReport(null); setApprovalError('') }}>
                       <option value="">Select tray number</option>
                       {Array.from({ length: 16 }, (_, index) => (
                         <option key={index + 1} value={index + 1}>Tray {index + 1}</option>
                       ))}
                     </Select>
-                    <Button onClick={() => { if (readBusy.current) return; readBusy.current = true; setAMSReport(null); setError(''); readAMS.mutate({ id: submission.id, revision: submission.lifecycle_revision, printer: Number(printerId), tray: Number(tray), scope: readScope }) }}
+                    <Button onClick={() => { if (readBusy.current) return; readBusy.current = true; setAMSReport(null); setApprovalError(''); readAMS.mutate({ id: submission.id, revision: submission.lifecycle_revision, printer: Number(printerId), tray: Number(tray), scope: readScope }) }}
                       loading={readAMS.isPending} disabled={!tray || approvalAttempted || reject.isPending}>
                       Read selected tray
                     </Button>
@@ -271,31 +276,24 @@ export default function ReviewDecisionModal({ submission, onClose, audience = ''
                 )}
               </div>
             )}
-            {approvalAttempted && error && (
-              <p className="text-xs text-[var(--brand-text-secondary)]">
-                Retry uses the same approval request. If it was saved, the server returns that result.
-                Close and refresh the queue before making a different decision.
-              </p>
-            )}
             <Button
               className="w-full sm:w-auto"
               onClick={() => {
                 if (approvalBusy.current) return
                 approvalBusy.current = true
-                setError('')
-                if (!approvalRequest.current) {
-                  approvalRequest.current = {
-                    revision: submission.lifecycle_revision, printer_id: Number(printerId),
-                    command_id: crypto.randomUUID(),
-                    ...(usesAMS ? {
-                      ams_mapping: [{ source_slot: 0, target_slot: Number(tray) }],
-                      ams_generation_id: amsReport!.generation_id, plate_index: 0,
-                    } : {}),
-                  }
-                  savedApprovals.current.set(identity, approvalRequest.current)
+                setApprovalError('')
+                const body = savedApproval?.body ?? {
+                  revision: submission.lifecycle_revision, printer_id: Number(printerId),
+                  command_id: crypto.randomUUID(),
+                  ...(usesAMS ? {
+                    ams_mapping: [{ source_slot: 0, target_slot: Number(tray) }],
+                    ams_generation_id: amsReport!.generation_id, plate_index: 0,
+                  } : {}),
                 }
-                setApprovalAttempted(true)
-                approve.mutate({ id: submission.id, body: approvalRequest.current, scope: submissionScope })
+                if (!savedApproval) {
+                  setSavedApprovals(previous => new Map(previous).set(identity, { body, canRetry: true }))
+                }
+                approve.mutate({ id: submission.id, body, scope: submissionScope, identity })
               }}
               loading={approve.isPending}
               disabled={
@@ -309,14 +307,21 @@ export default function ReviewDecisionModal({ submission, onClose, audience = ''
               }
               icon={CheckCircle2}
             >
-              {approvalAttempted ? 'Retry approval' : 'Approve and queue'}
+              {showApprovalRetry ? 'Retry approval' : 'Approve and queue'}
             </Button>
-          </div>
+            {approvalError && <p role="alert" className="text-sm text-[var(--status-failed)]">{approvalError}</p>}
+            {showApprovalRetry && approvalError && (
+              <p className="text-xs text-[var(--brand-text-secondary)]">
+                Retry uses the same approval request. If it was saved, the server returns that result.
+                Close and refresh the queue before making a different decision.
+              </p>
+            )}
+          </section>
 
-          <div className="border-t border-[var(--brand-card-border)] pt-4">
+          <section aria-labelledby="review-reject-title" className="border-t border-[var(--brand-card-border)] pt-4">
             <div className="mb-3 flex items-center gap-2">
               <XCircle size={16} className="text-[var(--status-failed)]" />
-              <h3 className="text-sm font-semibold text-[var(--brand-text-primary)]">Return to student</h3>
+              <h3 id="review-reject-title" className="text-sm font-semibold text-[var(--brand-text-primary)]">Return to student</h3>
             </div>
             <Textarea
               label="Reason"
@@ -325,7 +330,7 @@ export default function ReviewDecisionModal({ submission, onClose, audience = ''
               rows={3}
               onChange={(event) => {
                 setReason(event.target.value)
-                setError('')
+                setRejectError('')
               }}
               placeholder="Explain what needs to change before resubmission."
             />
@@ -333,7 +338,7 @@ export default function ReviewDecisionModal({ submission, onClose, audience = ''
               variant="danger"
               className="mt-3 w-full sm:w-auto"
               onClick={() => {
-                setError('')
+                setRejectError('')
                 reject.mutate({ id: submission.id, revision: submission.lifecycle_revision, reason, scope: submissionScope })
               }}
               loading={reject.isPending}
@@ -341,9 +346,8 @@ export default function ReviewDecisionModal({ submission, onClose, audience = ''
             >
               Reject submission
             </Button>
-          </div>
-
-          {error && <p role="alert" className="text-sm text-[var(--status-failed)]">{error}</p>}
+            {rejectError && <p role="alert" className="mt-3 text-sm text-[var(--status-failed)]">{rejectError}</p>}
+          </section>
         </div>
       )}
     </Modal>
