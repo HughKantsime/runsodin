@@ -3,7 +3,6 @@ import json
 from sqlalchemy import and_, column, or_, select, table, text, update
 from sqlalchemy.orm import Session
 from core.audit_erasure import record_erasure
-from core.identity_scrub import scrub_json_text
 
 
 _TOKEN_VERBS = {'api_token_created': 'created', 'api_token_revoked': 'revoked'}
@@ -17,6 +16,7 @@ def erase_token_names(db: Session, user_id: int):
     from core.models import AuditLog
     tokens = table('api_tokens', column('id'), column('user_id'))
     # Token IDs are never automatically reused. Creation history also covers deleted tokens.
+    # A deleted token with no actor_user_id on its creation row cannot be attributed by name.
     owned_ids = select(tokens.c.id).where(tokens.c.user_id == user_id).union(
         select(AuditLog.entity_id).where(AuditLog.entity_type == 'api_token',
                                          AuditLog.action == 'api_token_created',
@@ -35,15 +35,6 @@ def erase_token_names(db: Session, user_id: int):
             continue
         if details != row.details:
             rewrite(db, 'UPDATE audit_logs SET details=:d WHERE id=:id', {'d': json.dumps(details), 'id': row.id})
-
-
-def scrub_remaining_audit_details(row, identifiers):
-    # Token names have already been handled by owner. Other fields, such as an
-    # approval note on someone else's token, can still mention the erased user.
-    if row.entity_type == 'api_token' and row.action in _TOKEN_VERBS:
-        return None
-    keep = ('token_name',) if row.action in _TOKEN_NAME_ACTIONS else ()
-    return scrub_json_text(row.details, identifiers, keep_fields=keep)
 
 
 def erase_sso_login_history(db: Session, user_id: int):

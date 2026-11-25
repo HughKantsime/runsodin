@@ -113,12 +113,15 @@ def test_owner_change_removes_each_grant(shop, change):
     assert SQUARE_SETUP_SCOPE in json.loads(db.execute(text('SELECT scopes FROM api_tokens WHERE user_id=3')).scalar_one())
 
 
-def test_erasure_removes_personal_token_name_from_audit_history(shop):
+@pytest.mark.parametrize(('name', 'after_manager_erasure'), [
+    ("manager's phone", "[deleted-user]'s phone"),
+    ("shop phone", "shop phone"),
+])
+def test_erasure_removes_personal_token_name_from_audit_history(shop, name, after_manager_erasure):
     client, _, _, db, *_ = shop
     status, _ = connect(client)
     authenticate(shop)
     headers = interactive_headers()
-    name = "manager's phone"
     created = client.post('/tokens', headers=headers, json={'name': name, 'scopes': ['read']})
     assert created.status_code == 200
     token = created.json()['id']
@@ -130,12 +133,16 @@ def test_erasure_removes_personal_token_name_from_audit_history(shop):
     assert client.put(f'/tokens/{token}/square-setup', headers=headers, json={'enabled': False}).status_code == 200
     assert client.put(f'/tokens/{token}/square-setup', headers=headers, json={'enabled': True}).status_code == 200
     assert client.delete('/users/2/erase', headers=headers).status_code == 200
-    assert audit_details(db, 'api_token_created') == [f"Token '{name}' created"]
-    for action in ('api_token.square_setup_granted', 'api_token.square_setup_revoked',
-                   'square.product_mapped', 'square.stock_baseline'):
-        assert {row['token_name'] for row in audit_details(db, action)} == {name}
+    assert audit_details(db, 'api_token_created') == [f"Token '{after_manager_erasure}' created"]
+    actions = ('api_token.square_setup_granted', 'api_token.square_setup_revoked',
+               'square.product_mapped', 'square.stock_baseline')
+    for action in actions:
+        assert {row['token_name'] for row in audit_details(db, action)} == {after_manager_erasure}
     assert audit_details(db, 'square.product_mapped')[0]['approval_note'] == 'approved by [deleted-user]'
     assert client.delete('/users/3/erase', headers=headers).status_code == 200
+    assert audit_details(db, 'api_token_created') == ["Token '[deleted]' created"]
+    for action in actions:
+        assert {row['token_name'] for row in audit_details(db, action) if 'token_name' in row} == {'[deleted]'}
     assert all(name not in value for row in db.execute(text('SELECT * FROM audit_logs'))
                for value in row if isinstance(value, str))
     assert {'token_id': token, 'reason': 'owner_erased'} in audit_details(db, 'api_token.square_setup_revoked')
@@ -148,17 +155,24 @@ def test_erasure_uses_live_owner_for_legacy_creation_without_actor(review_db):
 
     token = add_token(review_db, 1, 'Old phone', ['read'])
     log_audit(review_db, 'api_token_created', 'api_token', token, "Token 'Old phone' created")
+    gone = add_token(review_db, 2, 'Old phone', ['read'])
+    log_audit(review_db, 'api_token_created', 'api_token', gone, "Token 'Old phone' created")
+    review_db.execute(text('DELETE FROM api_tokens WHERE id=:id'), {'id': gone})
     review_db.commit()
-    assert review_db.execute(text("SELECT actor_user_id FROM audit_logs WHERE action='api_token_created'")).one() == (None,)
+    assert review_db.scalars(text("SELECT actor_user_id FROM audit_logs WHERE action='api_token_created'")).all() == [None, None]
     erase_token_names(review_db, 1)
-    assert audit_details(review_db, 'api_token_created') == ["Token '[deleted]' created"]
+    assert audit_details(review_db, 'api_token_created') == ["Token '[deleted]' created", "Token 'Old phone' created"]
     review_db.rollback()
-    assert audit_details(review_db, 'api_token_created') == ["Token 'Old phone' created"]
+    assert audit_details(review_db, 'api_token_created') == ["Token 'Old phone' created"] * 2
     assert verify(review_db.connection())['ok']
 
 
-@pytest.mark.parametrize('admin_revokes', [False, True], ids=['owner-revokes', 'admin-revokes'])
-def test_erasure_scrubs_revoked_tokens_by_creator(shop, admin_revokes):
+@pytest.mark.parametrize(('admin_revokes', 'name', 'other_name'), [
+    (False, "student's ' created and ' revoked phone", "[deleted-user]'s ' created and ' revoked phone"),
+    (True, "student's ' created and ' revoked phone", "[deleted-user]'s ' created and ' revoked phone"),
+    (False, "shop phone", "shop phone"),
+], ids=['owner-revokes', 'admin-revokes', 'same-unrelated-name'])
+def test_erasure_scrubs_revoked_tokens_by_creator(shop, admin_revokes, name, other_name):
     from core.auth import create_access_token
 
     client, _, _, db, *_ = shop
@@ -166,7 +180,6 @@ def test_erasure_scrubs_revoked_tokens_by_creator(shop, admin_revokes):
     authenticate(shop)
     owner = {'Authorization': 'Bearer ' + create_access_token({'sub': 'student', 'role': 'viewer'})}
     admin = interactive_headers()
-    name = "student's ' created and ' revoked phone"
     body = {'name': name, 'scopes': ['read']}
     created = client.post('/tokens', headers=owner, json=body)
     assert created.status_code == 200
@@ -186,7 +199,8 @@ def test_erasure_scrubs_revoked_tokens_by_creator(shop, admin_revokes):
     assert client.delete('/users/2/erase', headers=admin).status_code == 200  # No token history.
     assert db.scalars(lifecycle).all() == original * 2
     assert client.delete('/users/1/erase', headers=admin).status_code == 200
-    assert db.scalars(lifecycle).all() == ["Token '[deleted]' created", "Token '[deleted]' revoked", *original]
+    assert db.scalars(lifecycle).all() == ["Token '[deleted]' created", "Token '[deleted]' revoked",
+                                          f"Token '{other_name}' created", f"Token '{other_name}' revoked"]
     assert verify(db.connection())['ok']
 
 

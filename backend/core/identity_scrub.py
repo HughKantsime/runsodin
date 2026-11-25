@@ -69,13 +69,10 @@ def _is_identifier(value, idents_cased, idents_lower):
     return isinstance(value, str) and (value in idents_cased or value.lower() in idents_lower)
 
 
-def _scrub_value(value, key, pats, idents_cased, idents_lower, keep_fields=()):
+def _scrub_value(value, key, pats, idents_cased, idents_lower):
     if isinstance(value, dict):
         out = {}
         for k, v in value.items():
-            if k in keep_fields:
-                out[k] = v
-                continue
             # Rename a key that is itself an erased identifier, unless it is a
             # structural field name (so an erased username equal to "username"
             # does not rename that field everywhere).
@@ -92,8 +89,8 @@ def _scrub_value(value, key, pats, idents_cased, idents_lower, keep_fields=()):
     return value
 
 
-def scrub_json_text(raw, identifiers, *, keep_fields=()):
-    """Scrub JSON except the specified top-level fields. Return None if unchanged or invalid."""
+def scrub_json_text(raw, identifiers):
+    """Return scrubbed JSON text, or None when nothing changed (or not JSON)."""
     pats = _patterns(identifiers)
     if pats == (None, None) or raw is None:
         return None
@@ -103,7 +100,7 @@ def scrub_json_text(raw, identifiers, *, keep_fields=()):
         return None
     idents_cased = {i for i in identifiers if isinstance(i, str) and i and "@" not in i}
     idents_lower = {i.lower() for i in identifiers if isinstance(i, str) and i and "@" in i}
-    scrubbed = _scrub_value(decoded, None, pats, idents_cased, idents_lower, keep_fields)
+    scrubbed = _scrub_value(decoded, None, pats, idents_cased, idents_lower)
     if scrubbed == decoded:
         return None
     return json.dumps(scrubbed)
