@@ -20,6 +20,17 @@ async function open() {
   openForm()
   await waitFor(() => expect(screen.getByRole('button', { name: 'Confirm settlement' })).toBeEnabled())
 }
+function waitForSuggestedPreview() {
+  return waitFor(() => {
+    expect(screen.getByLabelText('Grams 1')).toHaveValue('40.0')
+    expect(screen.queryByText('Refreshing filament details…')).not.toBeInTheDocument()
+  })
+}
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>(done => { resolve = done })
+  return { promise, resolve }
+}
 beforeEach(() => {
   permissions.allowed = true; vi.clearAllMocks()
   data = { archive_id: 1, job_id: 2, accounting_state: 'unresolved', accounting_reason: 'no_bound_spool', cause, settleable: true, not_settleable: null,
@@ -39,6 +50,7 @@ test.each([
   openForm()
   await screen.findByText(new RegExp(message))
   fireEvent.change(screen.getByLabelText('Deduction'), { target: { value: '' } })
+  await waitForSuggestedPreview()
   expect(screen.getByRole('button', { name: 'Confirm settlement' })).toBeDisabled()
   fireEvent.click(screen.getByRole('checkbox', { name: 'Deduct anyway from spool 17' }))
   await waitFor(() => expect(screen.getByRole('button', { name: 'Confirm settlement' })).toBeEnabled())
@@ -49,8 +61,8 @@ test('cause is readable and settlement button respects permission', () => {
   permissions.allowed = false; mount(); expect(screen.getByText(cause.title)).toBeInTheDocument(); expect(screen.queryByRole('button', { name: 'Settle filament' })).not.toBeInTheDocument()
 })
 test('Confirm stays disabled until the suggested spool has its own preview', async () => {
-  const pending = new Promise<SettlementPreview>(() => {})
-  vi.mocked(archives.settlementPreview).mockImplementation(async (_id, ids) => ids?.length ? pending : data)
+  const preview = deferred<SettlementPreview>()
+  vi.mocked(archives.settlementPreview).mockImplementation(async (_id, ids) => ids?.length ? preview.promise : data)
   const enabledStates: boolean[] = []
   mount(<Profiler id="settlement" onRender={() => {
     const confirm = screen.queryByRole<HTMLButtonElement>('button', { name: 'Confirm settlement' })
@@ -59,7 +71,10 @@ test('Confirm stays disabled until the suggested spool has its own preview', asy
   fireEvent.click(screen.getByRole('button', { name: 'Settle filament' }))
   await screen.findByText('Refreshing filament details…')
   expect(screen.getByRole('button', { name: 'Confirm settlement' })).toBeDisabled()
+  expect(enabledStates.length).toBeGreaterThan(0)
   expect(enabledStates).not.toContain(true)
+  preview.resolve(data)
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Confirm settlement' })).toBeEnabled())
 })
 test('prefills and settles a spool, then shows who settled it', async () => {
   await open(); expect(screen.getByLabelText('Grams 1')).toHaveValue('40.0')
@@ -71,7 +86,8 @@ test('prefills and settles a spool, then shows who settled it', async () => {
 test('every manual row must be reviewed and counted use is submitted', async () => {
   data.manual_usage = [{ usage_id: 9, spool_id: 17, grams: 10, used_at: '2026-11-16T11:00:00Z', notes: 'Manual use' }]
   openForm()
-  const yes = await screen.findByRole('radio', { name: 'Yes' })
+  await waitForSuggestedPreview()
+  const yes = screen.getByRole('radio', { name: 'Yes' })
   const confirm = screen.getByRole('button', { name: 'Confirm settlement' })
   expect(confirm).toBeDisabled()
   fireEvent.click(yes)
@@ -82,7 +98,7 @@ test('every manual row must be reviewed and counted use is submitted', async () 
 test('no further deduction plus counted use explains how to enter a zero-net settlement', async () => {
   data.manual_usage = [{ usage_id: 9, spool_id: 17, grams: 40, used_at: '2026-11-16T11:00:00Z', notes: '' }]
   openForm()
-  await screen.findByLabelText('Grams 1')
+  await waitForSuggestedPreview()
   fireEvent.change(screen.getByLabelText('Deduction'), { target: { value: 'recorded_by_hand' } }); fireEvent.click(screen.getByLabelText('Yes'))
   expect(screen.getByText(/only the difference is deducted/)).toBeInTheDocument(); expect(screen.getByRole('button', { name: 'Confirm settlement' })).toBeDisabled()
 })
@@ -140,6 +156,7 @@ test('mixed later balances never default to discarding the other spool', async (
   data.balance_set_after_print = [{ spool_id: 17, at: '2026-11-16T12:00:00Z', how: 'weighed' }]
   vi.mocked(spools.list).mockResolvedValue([{ id: 17 }, { id: 18 }] as any)
   openForm()
+  await waitForSuggestedPreview()
   await waitFor(() => expect(screen.getByLabelText('Spool 2')).toHaveValue('18'))
   expect(screen.getByLabelText('Deduction')).toHaveValue('')
   expect(screen.getByRole('button', { name: 'Confirm settlement' })).toBeDisabled()
@@ -148,14 +165,21 @@ test('mixed later balances never default to discarding the other spool', async (
   fireEvent.click(screen.getByRole('button', { name: 'Confirm settlement' }))
   await waitFor(() => expect(archives.settleFilament).toHaveBeenCalledWith(1, expect.objectContaining({ entries: [{ spool_id: 17, grams: 40 }, { spool_id: 18, grams: 20 }] })))
 })
-test.each(['loading', 'failure', 'missing'])('cannot submit a hidden spool while options are %s', async state => {
-  if (state === 'loading') vi.mocked(spools.list).mockReturnValue(new Promise(() => {}))
+test.each([
+  ['loading', 'Loading spools…'],
+  ['failure', 'The spool list could not be loaded. Retry before confirming.'],
+  ['missing', 'Choose an available spool for every entry.'],
+])('cannot submit a hidden spool while options are %s', async (state, message) => {
+  const loadingOptions = state === 'loading' ? deferred<Awaited<ReturnType<typeof spools.list>>>() : null
+  if (loadingOptions) vi.mocked(spools.list).mockReturnValue(loadingOptions.promise)
   if (state === 'failure') vi.mocked(spools.list).mockRejectedValue(new Error('Unavailable'))
   if (state === 'missing') vi.mocked(spools.list).mockResolvedValue([])
   openForm()
-  expect(await screen.findByRole('button', { name: 'Confirm settlement' })).toBeDisabled()
-  await screen.findByText(/spool.*load|available spool|Loading spools/i)
+  await waitForSuggestedPreview()
+  await screen.findByText(message)
+  expect(screen.getByRole('button', { name: 'Confirm settlement' })).toBeDisabled()
   expect(archives.settleFilament).not.toHaveBeenCalled()
+  loadingOptions?.resolve([])
 })
 test('prior usage accepts a truthful Yes for additional manual use', async () => {
   data.prior_usage = 'marker'
