@@ -4,6 +4,10 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- If the IP allowlist locks you out, you can now check it and turn it off from the Docker host. ODIN records the change in the audit log.
+
 ## [2.7.0] - 2026-11-24
 
 

@@ -221,6 +221,24 @@ for go2rtc, internal relay traffic and health checks. `/internal/camera-source`
 refuses forwarded tailnet requests, including HTTPS requests missing XFF.
 Loopback processes and the resolved sidecar addresses are inside the proxy trust boundary.
 
+### Locked out by the IP allowlist
+
+From the Docker host, check the saved allowlist. The stock Compose file names the container `odin`.
+
+```sh
+docker exec -u odin -w /app/backend odin python -m modules.system.allowlist_recovery
+```
+
+To turn the allowlist off, run the following command.
+
+```sh
+docker exec -u odin -w /app/backend odin python -m modules.system.allowlist_recovery --disable
+```
+
+ODIN records the change in the audit log and keeps your networks and mode. If the saved list
+cannot be read, ODIN replaces it with an empty, disabled list. Once you can sign in, correct the
+networks in Settings before turning the allowlist back on.
+
 ## Proxmox LXC and kernel mode
 
 Use userspace mode when `/dev/net/tun` is absent. Nothing on the Proxmox host needs
