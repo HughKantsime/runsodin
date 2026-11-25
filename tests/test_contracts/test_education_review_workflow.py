@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sys
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -42,32 +43,39 @@ def _file_facts():
 
 @pytest.fixture()
 def review_db(tmp_path: Path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'review.db'}")
+    try:
+        with review_session(engine) as db:
+            yield db
+    finally:
+        engine.dispose()
+
+
+@contextmanager
+def review_session(engine):
     from core.schema import bootstrap_database
 
-    engine = create_engine(f"sqlite:///{tmp_path / 'review.db'}")
-
-    # Production SQLite engines (core.database_config) enforce foreign keys on
-    # every connection; without this only connections that happened to run the
-    # pragma enforced them, so results depended on pool checkout order.
-    @event.listens_for(engine, "connect")
-    def _enforce_foreign_keys(dbapi_connection, _record):
-        cursor = dbapi_connection.cursor()
-        cursor.execute("PRAGMA foreign_keys=ON")
-        cursor.close()
+    if engine.dialect.name == "sqlite":
+        # Match production on every pooled connection.
+        @event.listens_for(engine, "connect")
+        def _enforce_foreign_keys(dbapi_connection, _record):
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.close()
 
     bootstrap_database(engine, BACKEND)
     with engine.begin() as connection:
         connection.execute(
-            text("INSERT INTO groups (id,name,is_org) VALUES (1,'school',1),(2,'other',1)")
+            text("INSERT INTO groups (id,name,is_org) VALUES (1,'school',TRUE),(2,'other',TRUE)")
         )
         connection.execute(
             text(
                 "INSERT INTO users (id,username,email,password_hash,role,is_active,group_id) VALUES "
-                "(1,'student','student@example.test','fixture','viewer',1,1),"
-                "(2,'manager','manager@example.test','fixture','viewer',1,1),"
-                "(3,'admin','admin@example.test','fixture','admin',1,1),"
-                "(4,'outsider','outsider@example.test','fixture','viewer',1,1),"
-                "(5,'foreign','foreign@example.test','fixture','admin',1,2)"
+                "(1,'student','student@example.test','fixture','viewer',TRUE,1),"
+                "(2,'manager','manager@example.test','fixture','viewer',TRUE,1),"
+                "(3,'admin','admin@example.test','fixture','admin',TRUE,1),"
+                "(4,'outsider','outsider@example.test','fixture','viewer',TRUE,1),"
+                "(5,'foreign','foreign@example.test','fixture','admin',TRUE,2)"
             )
         )
         connection.execute(
@@ -89,8 +97,8 @@ def review_db(tmp_path: Path):
                 "INSERT INTO printers "
                 "(id,name,model,machine_type,is_active,api_type,bed_x_mm,bed_y_mm,"
                 "nozzle_diameter,org_id) VALUES "
-                "(9,'P1S-09','Bambu Lab P1S','P1S',1,'bambu',256,256,0.4,1),"
-                "(10,'P1S-10','Bambu Lab P1S','P1S',1,'bambu',256,256,0.6,1)"
+                "(9,'P1S-09','Bambu Lab P1S','P1S',TRUE,'bambu',256,256,0.4,1),"
+                "(10,'P1S-10','Bambu Lab P1S','P1S',TRUE,'bambu',256,256,0.6,1)"
             )
         )
         connection.execute(
@@ -146,12 +154,8 @@ def review_db(tmp_path: Path):
                 "VALUES (14,1,'upload-1',13,11,12,7,1,'submitted',1)"
             )
         )
-    db = Session(engine)
-    try:
+    with Session(engine) as db:
         yield db
-    finally:
-        db.close()
-        engine.dispose()
 
 
 def _principal(user_id, role="viewer", org_id=1):

@@ -10,7 +10,7 @@
     "frontend/src/components/admin/NotificationsTab.tsx": "ac3ebcb4545f08858cec01eadeddf2c78d6870ac716315fc7c8d89d9cdfe6089",
     "frontend/src/components/admin/OIDCSettings.tsx": "09a67b79f742a872e9ae4a2b2a83bfd2ed5148c1f3e4d89c2e3be9d5c41faf77",
     "frontend/src/components/admin/OrgManager.tsx": "5c658cb1f33858a46374fa59e20d33498c39c65d7510396f77958ebd0c5c489e",
-    "frontend/src/components/admin/QuotaManager.tsx": "85effd2f4b75c5fffc120ec8c1ee4e8a2818bc8d481dfc3eddb611b3787e2c62",
+    "frontend/src/components/admin/QuotaManager.tsx": "151f29570f8d44a4609c284bd44f93ee903e4cbcf6bb016459d7b403c00547ae",
     "frontend/src/components/admin/SystemNoticesBanner.tsx": "2991c92c1656c480841ed9160b152220b3dc6a2ada121610669415ef88e0c792",
     "frontend/src/components/admin/SystemTab.tsx": "d2d4ba5a9199ab845c8642c24e474d3c484c788a24381515a32359f391ec535a",
     "frontend/src/components/admin/WebhookSettings.tsx": "6ce6e1f438b01eac430903d3cc5b2487ad7fc7b4ce483a49b77f7e121825a63c",

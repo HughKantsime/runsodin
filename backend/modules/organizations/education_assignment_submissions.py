@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timezone
 from fastapi import HTTPException
 from sqlalchemy import text
-from core.errors import OdinError
+from core.errors import ErrorCode, OdinError
 from license_manager import require_feature
 from modules.organizations.education_classes_service import assignment_access, audit, refused
 
@@ -117,6 +117,8 @@ def try_auto_approve(db, student, assignment_id, submission_id):
         return 'manual_review'
     for printer in printers:
         result = _try_printer(db, student, assignment_id, submission_id, printer)
+        if result == 'quota_exceeded':
+            return 'manual_review'
         if result != 'manual_review':
             return result
     return 'manual_review'
@@ -171,8 +173,10 @@ def _try_printer(db, student, assignment_id, submission_id, printer):
         audit(db, teacher, 'assignment.auto_approve', 'submission', submission_id, cls['cost_center_id'], automatic=True)
         approve_submission(db, submission_id=submission_id, body=body, principal={**teacher, '_automatic_class_approval': True})
         return 'approved'
-    except (HTTPException, OdinError):
+    except (HTTPException, OdinError) as error:
         db.rollback()
+        if isinstance(error, OdinError) and error.code == ErrorCode.quota_exceeded:
+            return 'quota_exceeded'
         return 'manual_review'
     except Exception:
         # The link is durable even if review storage becomes unavailable. Do not leak DB/path details.

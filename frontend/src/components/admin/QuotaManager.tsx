@@ -61,7 +61,10 @@ export default function QuotaManager() {
         <Gauge size={20} className="text-[var(--brand-primary)]" />
         <h3 className="text-lg font-semibold">Print Quotas</h3>
       </div>
-      <p className="text-sm text-[var(--brand-text-secondary)] mb-4">Set per-user limits on jobs, filament, or print hours per period.</p>
+      <p className="text-sm text-[var(--brand-text-secondary)] mb-4">
+        Set per-user limits on jobs, filament, or print hours per period.
+        {' '}Education class submissions count toward a student's quota when a teacher approves them.
+      </p>
 
       {error && (
         <div className="mb-4 p-3 bg-red-900/30 border border-red-700 rounded-md flex items-center gap-2 text-sm text-red-400">
