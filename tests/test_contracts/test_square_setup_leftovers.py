@@ -8,6 +8,7 @@ import pytest
 from sqlalchemy import select, text
 
 from core.api_token_policy import SQUARE_SETUP_SCOPE
+from core.audit_integrity import verify
 from core.models import AuditLog, SystemConfig
 from tests.test_contracts.test_api_token_delegation_behavior import interactive_headers
 # Pytest registers review_db (used by shop) and the autouse setup_policy fixture from these imports.
@@ -117,20 +118,76 @@ def test_erasure_removes_personal_token_name_from_audit_history(shop):
     status, _ = connect(client)
     authenticate(shop)
     headers = interactive_headers()
-    name = "Jane's phone"
+    name = "manager's phone"
     created = client.post('/tokens', headers=headers, json={'name': name, 'scopes': ['read']})
     assert created.status_code == 200
     token = created.json()['id']
     assert client.put(f'/tokens/{token}/square-setup', headers=headers, json={'enabled': True}).status_code == 200
     delegated = {'X-API-Key': created.json()['token']}
-    assert client.put(path(), headers=delegated, json=payload(status['revision'])).status_code == 200
-    assert name in audit_details(db, 'api_token_created')[0]
-    assert audit_details(db, 'api_token.square_setup_granted')[0]['token_name'] == name
-    assert audit_details(db, 'square.product_mapped')[0]['token_name'] == name
+    mapping = client.put(path(), headers=delegated, json=payload(status['revision'], approval_note='approved by manager'))
+    assert mapping.status_code == 200
+    assert client.put(path(True), headers=delegated, json=payload(mapping.json()['revision'], True)).status_code == 200
+    assert client.put(f'/tokens/{token}/square-setup', headers=headers, json={'enabled': False}).status_code == 200
+    assert client.put(f'/tokens/{token}/square-setup', headers=headers, json={'enabled': True}).status_code == 200
+    assert client.delete('/users/2/erase', headers=headers).status_code == 200
+    assert audit_details(db, 'api_token_created') == [f"Token '{name}' created"]
+    for action in ('api_token.square_setup_granted', 'api_token.square_setup_revoked',
+                   'square.product_mapped', 'square.stock_baseline'):
+        assert {row['token_name'] for row in audit_details(db, action)} == {name}
+    assert audit_details(db, 'square.product_mapped')[0]['approval_note'] == 'approved by [deleted-user]'
     assert client.delete('/users/3/erase', headers=headers).status_code == 200
     assert all(name not in value for row in db.execute(text('SELECT * FROM audit_logs'))
                for value in row if isinstance(value, str))
     assert {'token_id': token, 'reason': 'owner_erased'} in audit_details(db, 'api_token.square_setup_revoked')
+    assert verify(db.connection())['ok']
+
+
+def test_erasure_uses_live_owner_for_legacy_creation_without_actor(review_db):
+    from core.audit import log_audit
+    from modules.organizations.erasure_audit import erase_token_names
+
+    token = add_token(review_db, 1, 'Old phone', ['read'])
+    log_audit(review_db, 'api_token_created', 'api_token', token, "Token 'Old phone' created")
+    review_db.commit()
+    assert review_db.execute(text("SELECT actor_user_id FROM audit_logs WHERE action='api_token_created'")).one() == (None,)
+    erase_token_names(review_db, 1)
+    assert audit_details(review_db, 'api_token_created') == ["Token '[deleted]' created"]
+    review_db.rollback()
+    assert audit_details(review_db, 'api_token_created') == ["Token 'Old phone' created"]
+    assert verify(review_db.connection())['ok']
+
+
+@pytest.mark.parametrize('admin_revokes', [False, True], ids=['owner-revokes', 'admin-revokes'])
+def test_erasure_scrubs_revoked_tokens_by_creator(shop, admin_revokes):
+    from core.auth import create_access_token
+
+    client, _, _, db, *_ = shop
+    connect(client)
+    authenticate(shop)
+    owner = {'Authorization': 'Bearer ' + create_access_token({'sub': 'student', 'role': 'viewer'})}
+    admin = interactive_headers()
+    name = "student's ' created and ' revoked phone"
+    body = {'name': name, 'scopes': ['read']}
+    created = client.post('/tokens', headers=owner, json=body)
+    assert created.status_code == 200
+    token = created.json()['id']
+    assert client.delete(f'/tokens/{token}', headers=admin if admin_revokes else owner).status_code == 200
+
+    other = client.post('/tokens', headers=admin, json=body)
+    assert other.status_code == 200
+    # SQLite AUTOINCREMENT and PostgreSQL sequences advance even after deleting the highest ID.
+    other_id = other.json()['id']
+    assert other_id > token
+    assert client.delete(f'/tokens/{other_id}', headers=admin).status_code == 200
+
+    lifecycle = select(AuditLog.details).where(AuditLog.entity_type == 'api_token').order_by(AuditLog.id)
+    original = [f"Token '{name}' created", f"Token '{name}' revoked"]
+    assert db.scalars(lifecycle).all() == original * 2
+    assert client.delete('/users/2/erase', headers=admin).status_code == 200  # No token history.
+    assert db.scalars(lifecycle).all() == original * 2
+    assert client.delete('/users/1/erase', headers=admin).status_code == 200
+    assert db.scalars(lifecycle).all() == ["Token '[deleted]' created", "Token '[deleted]' revoked", *original]
+    assert verify(db.connection())['ok']
 
 
 def test_audit_failure_rolls_back_demotion_and_grants(shop, monkeypatch):

@@ -4,7 +4,9 @@ import logging
 from fastapi import HTTPException
 from sqlalchemy import inspect, text
 from core.dependencies import log_audit
-from modules.organizations.erasure_audit import erase_password_login_history, erase_sso_login_history, erase_token_names
+from modules.organizations.erasure_audit import (
+    erase_password_login_history, erase_sso_login_history, erase_token_names, scrub_remaining_audit_details,
+)
 from modules.organizations.routes_users import _is_superadmin, _check_org_admin_access
 
 log = logging.getLogger('odin.api')
@@ -73,6 +75,8 @@ def erase_user_data_sync(user_id, current_user, db):
         db.execute(text(f"UPDATE {controlled_table} SET changed_by=NULL,reason='[erased]' WHERE changed_by=:uid"), {'uid': user_id})  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- closed tuple of controlled policy tables; user id is bound
     from core.controlled_privacy import erase_mark_history
     erase_mark_history(db, user_id)
+    # Deleted tokens can still be identified by their creator until actor history is cleared.
+    erase_token_names(db, user_id)
     erase_actor_history(db, user_id)
     erase_sso_login_history(db, user_id)
 
@@ -89,7 +93,6 @@ def erase_user_data_sync(user_id, current_user, db):
     db.execute(text("DELETE FROM mfa_enrollments WHERE user_id = :uid"), {"uid": user_id})
     db.execute(text("DELETE FROM active_sessions WHERE user_id = :uid"), {"uid": user_id})
     from modules.organizations.square_setup_grants import revoke_owner_grants
-    erase_token_names(db, user_id)
     revoke_owner_grants(db, user_id, current_user, "owner_erased")
     db.execute(text("DELETE FROM api_tokens WHERE user_id = :uid"), {"uid": user_id})
     db.execute(text("DELETE FROM alert_preferences WHERE user_id = :uid"), {"uid": user_id})
@@ -103,7 +106,7 @@ def erase_user_data_sync(user_id, current_user, db):
     # only alerts owned by this user would leave their former username or
     # email in other users' inboxes. Scrub the known account identifiers while
     # retaining the operational alert and job reference.
-    from core.identity_scrub import like_patterns, scrub_text, scrub_json_text
+    from core.identity_scrub import like_patterns, scrub_text
 
     like = "ILIKE" if db.get_bind().dialect.name == "postgresql" else "LIKE"
 
@@ -221,10 +224,13 @@ def erase_user_data_sync(user_id, current_user, db):
             for audit_id in audit_ids[start:start + CHUNK]:
                 # Password history was handled by exact identity above. A broad
                 # free-text scrub could otherwise change a different login name.
-                raw = db.execute(text("SELECT CAST(details AS TEXT) FROM audit_logs WHERE id = :id "
+                row = db.execute(text("SELECT action, entity_type, CAST(details AS TEXT) AS details "
+                                      "FROM audit_logs WHERE id = :id "
                                       "AND action!='audit.erasure' AND NOT (COALESCE(entity_type,'')='user' AND action IN "
-                                      "('login_success','login_failed','auth.login_failed'))"), {"id": audit_id}).scalar()
-                scrubbed = scrub_json_text(raw, identifiers)
+                                      "('login_success','login_failed','auth.login_failed'))"), {"id": audit_id}).first()
+                if row is None:
+                    continue
+                scrubbed = scrub_remaining_audit_details(row, identifiers)
                 if scrubbed is not None:
                     db.execute(text("UPDATE audit_logs SET details = :details WHERE id = :id"),
                                {"details": scrubbed, "id": audit_id})
