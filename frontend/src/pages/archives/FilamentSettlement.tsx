@@ -156,7 +156,7 @@ function SettlementForm({ id, onCancel, onSaved, onRefresh, onBusy }: { onBusy: 
     {error && <p role="alert">{error}</p>}
     {uncertain && <Button onClick={async () => { try { onSaved(await archives.get(id)) } catch { setError('The updated archive could not be loaded. Try again.') } }}>Reload this print</Button>}
     <div className="flex gap-2"><Button variant="secondary" disabled={saving} onClick={onCancel}>Back</Button>
-      {data?.settleable && <Button disabled={saving || uncertain || result.isFetching || result.isError || !!validation} onClick={save}>{saving ? 'Saving…' : data.prior_usage ? 'Keep the existing deduction' : 'Confirm settlement'}</Button>}
+      {data?.settleable && <Button disabled={!initialized || saving || uncertain || result.isFetching || result.isError || !!validation} onClick={save}>{saving ? 'Saving…' : data.prior_usage ? 'Keep the existing deduction' : 'Confirm settlement'}</Button>}
     </div>
   </section>
 }

@@ -4,6 +4,10 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- When settling filament for an archived print, Confirm settlement stays disabled until the suggested spools and amounts are ready.
+
 ## [2.7.0] - 2026-11-24
 
 

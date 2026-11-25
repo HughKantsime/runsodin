@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { Profiler } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import FilamentAccounting from './FilamentSettlement'
@@ -10,8 +11,15 @@ vi.mock('../../api', () => ({ archives: { settlementPreview: vi.fn(), settleFila
 const cause = { code: 'no_bound_spool', title: 'No spool was bound to the slot this print used', next_step: 'Bind spools on the Printers page; settle this print' }
 const item = { id: 1, accounting_state: 'unresolved', settleable: true, accounting_cause: cause } as Archive
 let data: SettlementPreview
-function mount() { return render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}><FilamentAccounting archive={item} /></QueryClientProvider>) }
-async function open() { mount(); fireEvent.click(screen.getByRole('button', { name: 'Settle filament' })); await screen.findByRole('button', { name: 'Confirm settlement' }); if (!data.manual_usage.length) await waitFor(() => expect(screen.getByRole('button', { name: 'Confirm settlement' })).toBeEnabled()) }
+function mount(content = <FilamentAccounting archive={item} />) { return render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}>{content}</QueryClientProvider>) }
+function openForm() {
+  mount()
+  fireEvent.click(screen.getByRole('button', { name: 'Settle filament' }))
+}
+async function open() {
+  openForm()
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Confirm settlement' })).toBeEnabled())
+}
 beforeEach(() => {
   permissions.allowed = true; vi.clearAllMocks()
   data = { archive_id: 1, job_id: 2, accounting_state: 'unresolved', accounting_reason: 'no_bound_spool', cause, settleable: true, not_settleable: null,
@@ -28,7 +36,7 @@ test.each([
   ['edited', 'Its balance was set during or after this print and may already include this use'],
 ])('explains %s balance evidence and requires an override to deduct', async (how, message) => {
   data.balance_set_after_print = [{ spool_id: 17, at: how === 'added' ? '2026-11-16T12:00:00Z' : null, how }]
-  mount(); fireEvent.click(screen.getByRole('button', { name: 'Settle filament' }))
+  openForm()
   await screen.findByText(new RegExp(message))
   fireEvent.change(screen.getByLabelText('Deduction'), { target: { value: '' } })
   expect(screen.getByRole('button', { name: 'Confirm settlement' })).toBeDisabled()
@@ -40,6 +48,19 @@ test.each([
 test('cause is readable and settlement button respects permission', () => {
   permissions.allowed = false; mount(); expect(screen.getByText(cause.title)).toBeInTheDocument(); expect(screen.queryByRole('button', { name: 'Settle filament' })).not.toBeInTheDocument()
 })
+test('Confirm stays disabled until the suggested spool has its own preview', async () => {
+  const pending = new Promise<SettlementPreview>(() => {})
+  vi.mocked(archives.settlementPreview).mockImplementation(async (_id, ids) => ids?.length ? pending : data)
+  const enabledStates: boolean[] = []
+  mount(<Profiler id="settlement" onRender={() => {
+    const confirm = screen.queryByRole<HTMLButtonElement>('button', { name: 'Confirm settlement' })
+    if (confirm) enabledStates.push(!confirm.disabled)
+  }}><FilamentAccounting archive={item} /></Profiler>)
+  fireEvent.click(screen.getByRole('button', { name: 'Settle filament' }))
+  await screen.findByText('Refreshing filament details…')
+  expect(screen.getByRole('button', { name: 'Confirm settlement' })).toBeDisabled()
+  expect(enabledStates).not.toContain(true)
+})
 test('prefills and settles a spool, then shows who settled it', async () => {
   await open(); expect(screen.getByLabelText('Grams 1')).toHaveValue('40.0')
   fireEvent.click(screen.getByRole('button', { name: 'Confirm settlement' }))
@@ -49,13 +70,20 @@ test('prefills and settles a spool, then shows who settled it', async () => {
 })
 test('every manual row must be reviewed and counted use is submitted', async () => {
   data.manual_usage = [{ usage_id: 9, spool_id: 17, grams: 10, used_at: '2026-11-16T11:00:00Z', notes: 'Manual use' }]
-  await open(); expect(screen.getByRole('button', { name: 'Confirm settlement' })).toBeDisabled()
-  fireEvent.click(screen.getByLabelText('Yes')); fireEvent.click(screen.getByRole('button', { name: 'Confirm settlement' }))
+  openForm()
+  const yes = await screen.findByRole('radio', { name: 'Yes' })
+  const confirm = screen.getByRole('button', { name: 'Confirm settlement' })
+  expect(confirm).toBeDisabled()
+  fireEvent.click(yes)
+  await waitFor(() => expect(confirm).toBeEnabled())
+  fireEvent.click(confirm)
   await waitFor(() => expect(archives.settleFilament).toHaveBeenCalledWith(1, expect.objectContaining({ counted_usage_ids: [9] })))
 })
 test('no further deduction plus counted use explains how to enter a zero-net settlement', async () => {
   data.manual_usage = [{ usage_id: 9, spool_id: 17, grams: 40, used_at: '2026-11-16T11:00:00Z', notes: '' }]
-  await open(); fireEvent.change(screen.getByLabelText('Deduction'), { target: { value: 'recorded_by_hand' } }); fireEvent.click(screen.getByLabelText('Yes'))
+  openForm()
+  await screen.findByLabelText('Grams 1')
+  fireEvent.change(screen.getByLabelText('Deduction'), { target: { value: 'recorded_by_hand' } }); fireEvent.click(screen.getByLabelText('Yes'))
   expect(screen.getByText(/only the difference is deducted/)).toBeInTheDocument(); expect(screen.getByRole('button', { name: 'Confirm settlement' })).toBeDisabled()
 })
 test('no-job explanation and no-deduction flow', async () => {
@@ -67,6 +95,7 @@ test('later balance defaults to no deduction and requires explicit override', as
   data.balance_set_after_print = [{ spool_id: 17, at: '2026-11-16T12:00:00Z', how: 'weighed' }]
   await open(); expect(screen.getByLabelText('Deduction')).toHaveValue('balance_already_updated')
   fireEvent.click(screen.getByRole('checkbox')); expect(screen.getByLabelText('Deduction')).toHaveValue('')
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Confirm settlement' })).toBeEnabled())
   fireEvent.click(screen.getByRole('button', { name: 'Confirm settlement' }))
   await waitFor(() => expect(archives.settleFilament).toHaveBeenCalledWith(1, expect.objectContaining({ deduct_despite_later_balance: [17] })))
 })
@@ -77,7 +106,8 @@ test('server refusal is shown and refreshed prior usage can be accepted', async 
   })
   await open(); fireEvent.click(screen.getByRole('button', { name: 'Confirm settlement' }))
   await screen.findByText('Filament was already deducted. Keep the existing deduction.')
-  fireEvent.click(await screen.findByRole('button', { name: 'Keep the existing deduction' }))
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Keep the existing deduction' })).toBeEnabled())
+  fireEvent.click(screen.getByRole('button', { name: 'Keep the existing deduction' }))
   await waitFor(() => expect(archives.settleFilament).toHaveBeenLastCalledWith(1, expect.objectContaining({ entries: [], no_deduction: 'accept_existing' })))
 })
 test('committed settlement remains clear if archive refresh fails', async () => {
@@ -90,7 +120,7 @@ test('committed settlement remains clear if archive refresh fails', async () => 
 })
 test('ineligible history explains refusal without a confirm button', async () => {
   data.settleable = false; data.not_settleable = 'Imported history has no print to settle.'
-  mount(); fireEvent.click(screen.getByRole('button', { name: 'Settle filament' })); await screen.findByText(data.not_settleable)
+  openForm(); await screen.findByText(data.not_settleable)
   expect(screen.queryByRole('button', { name: 'Confirm settlement' })).not.toBeInTheDocument()
 })
 
@@ -98,8 +128,9 @@ test('prior usage discovered while a blank spool is selected remains confirmable
   data.suggested = []
   data.grams = { measured: null, sliced_estimate: null }
   vi.mocked(archives.settlementPreview).mockImplementation(async (_id, ids) => ids?.length ? { ...data, prior_usage: 'marker' } : data)
-  mount(); fireEvent.click(screen.getByRole('button', { name: 'Settle filament' }))
+  openForm()
   const picker = await screen.findByLabelText('Spool 1')
+  await screen.findByRole('option', { name: /^#17\b/ })
   fireEvent.change(picker, { target: { value: '17' } })
   await waitFor(() => expect(screen.getByRole('button', { name: 'Keep the existing deduction' })).toBeEnabled())
 })
@@ -108,9 +139,9 @@ test('mixed later balances never default to discarding the other spool', async (
   data.suggested.push({ spool_id: 18, slot_number: 2, grams: 20, spool_label: 'Other', remaining_g: 100 })
   data.balance_set_after_print = [{ spool_id: 17, at: '2026-11-16T12:00:00Z', how: 'weighed' }]
   vi.mocked(spools.list).mockResolvedValue([{ id: 17 }, { id: 18 }] as any)
-  mount(); fireEvent.click(screen.getByRole('button', { name: 'Settle filament' }))
-  expect(await screen.findByLabelText('Deduction')).toHaveValue('')
-  expect(screen.getByLabelText('Spool 2')).toHaveValue('18')
+  openForm()
+  await waitFor(() => expect(screen.getByLabelText('Spool 2')).toHaveValue('18'))
+  expect(screen.getByLabelText('Deduction')).toHaveValue('')
   expect(screen.getByRole('button', { name: 'Confirm settlement' })).toBeDisabled()
   fireEvent.click(screen.getByRole('checkbox'))
   await waitFor(() => expect(screen.getByRole('button', { name: 'Confirm settlement' })).toBeEnabled())
@@ -121,7 +152,7 @@ test.each(['loading', 'failure', 'missing'])('cannot submit a hidden spool while
   if (state === 'loading') vi.mocked(spools.list).mockReturnValue(new Promise(() => {}))
   if (state === 'failure') vi.mocked(spools.list).mockRejectedValue(new Error('Unavailable'))
   if (state === 'missing') vi.mocked(spools.list).mockResolvedValue([])
-  mount(); fireEvent.click(screen.getByRole('button', { name: 'Settle filament' }))
+  openForm()
   expect(await screen.findByRole('button', { name: 'Confirm settlement' })).toBeDisabled()
   await screen.findByText(/spool.*load|available spool|Loading spools/i)
   expect(archives.settleFilament).not.toHaveBeenCalled()
@@ -129,7 +160,7 @@ test.each(['loading', 'failure', 'missing'])('cannot submit a hidden spool while
 test('prior usage accepts a truthful Yes for additional manual use', async () => {
   data.prior_usage = 'marker'
   data.manual_usage = [{ usage_id: 9, spool_id: 17, grams: 10, used_at: '2026-11-16T11:00:00Z', notes: '' }]
-  mount(); fireEvent.click(screen.getByRole('button', { name: 'Settle filament' }))
+  openForm()
   fireEvent.click(await screen.findByLabelText('Yes'))
   await waitFor(() => expect(screen.getByRole('button', { name: 'Keep the existing deduction' })).toBeEnabled())
   fireEvent.click(screen.getByRole('button', { name: 'Keep the existing deduction' }))
@@ -141,6 +172,7 @@ test.each(['refused', 'lost'])('refreshes the archive after a %s response and Ba
   await open(); fireEvent.click(screen.getByRole('button', { name: 'Confirm settlement' }))
   await waitFor(() => expect(archives.get).toHaveBeenCalledWith(1))
   if (kind === 'lost') await screen.findByText('ODIN could not confirm the result. Reload this print before trying again.')
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Back' })).toBeEnabled())
   fireEvent.click(screen.getByRole('button', { name: 'Back' }))
   expect(screen.queryByRole('button', { name: 'Settle filament' })).not.toBeInTheDocument()
 })
@@ -148,9 +180,9 @@ test('removing a suggested spool removes its override', async () => {
   data.suggested.push({ spool_id: 18, slot_number: 2, grams: 20, spool_label: 'Other', remaining_g: 100 })
   data.balance_set_after_print = [{ spool_id: 17, at: '2026-11-16T12:00:00Z', how: 'weighed' }]
   vi.mocked(spools.list).mockResolvedValue([{ id: 17 }, { id: 18 }] as any)
-  mount(); fireEvent.click(screen.getByRole('button', { name: 'Settle filament' }))
+  openForm()
   fireEvent.change(await screen.findByLabelText('Deduction'), { target: { value: '' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Remove spool 1' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Remove spool 1' }))
   expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
 })
 test.each([[.1, .2, '0.3'], [.04, .04, '0.1']] as const)('rounds accumulated suggestions %s + %s and accepts comma decimals', async (first, second, expected) => {
@@ -175,7 +207,7 @@ test('duplicate spools are refused in the form', async () => {
 })
 test('preview failure offers retry and Back', async () => {
   vi.mocked(archives.settlementPreview).mockRejectedValue(new Error('Unavailable'))
-  mount(); fireEvent.click(screen.getByRole('button', { name: 'Settle filament' }))
+  openForm()
   await screen.findByText(/Could not load filament details/)
   expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: 'Confirm settlement' })).not.toBeInTheDocument()

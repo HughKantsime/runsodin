@@ -48,7 +48,7 @@ test('filters and pagination use bounded list envelope; editor opens only explic
   expect(screen.getByRole('link', { name: 'Back to Cameras' })).toHaveAttribute('href', '/cameras')
   fireEvent.click(screen.getByRole('button', { name: 'Next' })); await waitFor(() => expect(api.list).toHaveBeenLastCalledWith({ printer_id: undefined, status: undefined, limit: 24, offset: 24 }))
   fireEvent.change(screen.getByLabelText('Status filter'), { target: { value: 'failed' } }); await waitFor(() => expect(api.list).toHaveBeenLastCalledWith({ printer_id: undefined, status: 'failed', limit: 24, offset: 0 }))
-  expect(screen.getByRole('button', { name: 'Edit recording 17' })).toBeInTheDocument()
+  expect(await screen.findByRole('button', { name: 'Edit recording 17' })).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: 'Confirm trim' })).not.toBeInTheDocument()
 })
 test('authorized detail exact ETag is retained for confirmation and duplicate-click guarded', async () => {

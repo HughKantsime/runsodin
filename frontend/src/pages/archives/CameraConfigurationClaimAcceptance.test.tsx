@@ -47,6 +47,7 @@ it('F02-2.7-05 filters reset paginated offset', async () => {
   await gallery(); expect(screen.getByRole('button', { name: 'Previous' })).toBeDisabled()
   fireEvent.click(screen.getByRole('button', { name: 'Next' })); await screen.findByRole('heading', { name: 'Second page printer' })
   expect(screen.getByText('Page 2 of 2')).toBeInTheDocument()
+  await screen.findByRole('option', { name: 'Ready printer' })
   fireEvent.change(screen.getByLabelText('Printer filter'), { target: { value: '5' } })
   await waitFor(() => expect(api.list).toHaveBeenCalledWith({ printer_id: '5', status: undefined, limit: 24, offset: 0 }))
   fireEvent.change(screen.getByLabelText('Status filter'), { target: { value: 'ready' } })
