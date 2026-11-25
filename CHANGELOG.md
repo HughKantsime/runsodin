@@ -4,6 +4,10 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- If the IP allowlist locks you out, you can now check it and turn it off from the Docker host. ODIN records the change in the audit log.
+
 ### Fixed
 
 - Bulk actions on printers, jobs, and spools now show how many items changed and why others were skipped. Items identified as unchanged stay selected.
@@ -13,12 +17,12 @@ All notable changes to O.D.I.N. are documented here.
 - In Education reviews, approval and rejection errors appear below the button you used. Retry guidance appears only when the approval can be retried or its outcome is unknown.
 - Education submissions now count toward the student's print quota when approved. If the student has reached a limit, the submission stays in review.
 - If a poor connection interrupts a mobile session renewal, the app can recover without asking for your password when it retries within ten minutes. After a longer pause, you still need your password.
+- When settling filament for an archived print, Confirm settlement stays disabled until the suggested spools and amounts are ready.
+
 ### Security
+
 - When ODIN restarts after a change to the sign-in key, everyone with a saved phone sign-in must sign in again.
 - A mobile sign-in token that was just replaced can recover its replacement from the same device up to five times within ten minutes. Once the replacement is used, the server refuses the earlier token and records the attempt in the audit log.
-- When settling filament for an archived print, Confirm settlement stays disabled until the suggested spools and amounts are ready.
-### Added
-- If the IP allowlist locks you out, you can now check it and turn it off from the Docker host. ODIN records the change in the audit log.
 
 ## [2.7.0] - 2026-11-24
 
