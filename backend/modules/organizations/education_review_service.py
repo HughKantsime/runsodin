@@ -14,6 +14,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from core.errors import ErrorCode, OdinError
+from core.quota import charge_job_quota
 from core.education_archive_audience import _BASE_SELECT, _SUBMISSION_AUDIENCE, archive_audience_sql
 from modules.organizations.education_admin_support import (
     claim_command,
@@ -411,6 +412,27 @@ def _discard_pending_claim(
     db.commit()
 
 
+def _charge_student_quota(db: Session, row) -> None:
+    owner = db.execute(text(
+        "SELECT u.id,u.quota_jobs,u.quota_grams,u.quota_hours,u.quota_period "
+        "FROM jobs j JOIN users u ON u.id=COALESCE(j.charged_to_user_id,j.submitted_by,:student) "
+        "WHERE j.id=:job AND j.charged_to_org_id=:org "
+        # Approvals from before quota enforcement also count as already admitted.
+        "AND NOT EXISTS (SELECT 1 FROM education_audit_events WHERE org_id=:org "
+        "AND resource_type='submission' AND resource_id=:submission AND action='submission.approve')"
+    ), {"student": row.submitted_by, "job": row.job_id, "org": row.org_id,
+        "submission": str(row.id)}).mappings().first()
+    if owner is None:
+        return
+    try:
+        charge_job_quota(db, owner)
+    except OdinError as error:
+        if error.code != ErrorCode.quota_exceeded:
+            raise
+        raise OdinError(error.code, "This student has used up their print quota for this period.",
+                        status=error.status, retriable=error.retriable) from error
+
+
 def approve_submission(db: Session, *, submission_id: int, body, principal: dict, prepared_ams=None) -> dict:
     row = _reviewable_submission(db, submission_id=submission_id, principal=principal)
     from modules.organizations.education_training_policy import lock_center
@@ -539,6 +561,7 @@ def approve_submission(db: Session, *, submission_id: int, body, principal: dict
             raise OdinError(
                 ErrorCode.revision_conflict, "reload_required", status=409, retriable=True
             )
+        _charge_student_quota(db, row)
         result = {
             "id": int(row.id),
             "job_id": int(row.job_id),

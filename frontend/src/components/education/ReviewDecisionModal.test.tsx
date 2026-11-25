@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import ReviewDecisionModal from './ReviewDecisionModal'
+import { education } from '../../api/education'
 import type { EducationSubmission } from '../../types'
 const api = vi.hoisted(() => ({ listCenterPrinters: vi.fn(), previewCompatibility: vi.fn(), readAMS: vi.fn(), approveSubmission: vi.fn(), rejectSubmission: vi.fn() }))
 vi.mock('../../api', () => ({ education: api }))
@@ -22,7 +23,7 @@ beforeEach(() => {
       print_file_id: 4, payload_sha256: 'b'.repeat(64), plate_index: 0 } : {}),
   }))
 })
-afterEach(() => { cleanup(); client.clear() })
+afterEach(() => { cleanup(); client.clear(); vi.unstubAllGlobals() })
 function mount() {
   const close = vi.fn()
   render(<QueryClientProvider client={client}><ReviewDecisionModal submission={submission} onClose={close} /></QueryClientProvider>)
@@ -85,6 +86,29 @@ it('preserves ordinary non-Bambu approval without AMS fields', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Approve and queue' }))
   await waitFor(() => expect(api.approveSubmission).toHaveBeenCalledOnce())
   expect(api.approveSubmission.mock.calls[0][1]).not.toHaveProperty('ams_mapping')
+})
+
+it("shows the student's quota refusal in the teacher's review dialog", async () => {
+  const detail = 'This student has used up their print quota for this period.'
+  const fetch = vi.fn(async (url: string) => {
+    if (url === '/api/education/submissions/5/approve') {
+      return Response.json({ detail, error: { code: 'quota_exceeded', detail, retriable: false } }, { status: 429 })
+    }
+    if (url.startsWith('/api/education/submissions/5/slice-info')) {
+      return Response.json({ plates: [], selected_plate_index: 0, slots: [], freshness: '' })
+    }
+    throw new Error(`Unexpected request to ${url}`)
+  })
+  vi.stubGlobal('fetch', fetch)
+  api.approveSubmission.mockImplementationOnce(education.approveSubmission)
+  const close = mount()
+  await screen.findByRole('option', { name: /Other · Other/ })
+  fireEvent.change(screen.getByLabelText('Authorized printer'), { target: { value: '10' } })
+  await screen.findByText('File and printer are compatible')
+  fireEvent.click(screen.getByRole('button', { name: 'Approve and queue' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent(detail)
+  expect(fetch).toHaveBeenCalledWith('/api/education/submissions/5/approve', expect.objectContaining({ method: 'POST' }))
+  expect(close).not.toHaveBeenCalled()
 })
 
 it('ignores a late read after switching submissions', async () => {

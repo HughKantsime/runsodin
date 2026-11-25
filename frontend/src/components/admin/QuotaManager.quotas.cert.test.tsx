@@ -34,6 +34,12 @@ function row(username: string) {
   return screen.getByText(username).closest('tr') as HTMLElement
 }
 
+it("explains when class submissions count toward a student's quota", async () => {
+  serve()
+  render(<QuotaManager />)
+  expect(await screen.findByText(/Education class submissions count toward a student's quota when a teacher approves them\./)).toBeVisible()
+})
+
 it('F11-11.8-01 renders every user with jobs, grams and hours limits and real usage', async () => {
   serve()
   render(<QuotaManager />)
