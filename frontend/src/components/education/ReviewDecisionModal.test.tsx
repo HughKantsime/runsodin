@@ -1,6 +1,6 @@
 import React from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import ReviewDecisionModal from './ReviewDecisionModal'
 import { education } from '../../api/education'
@@ -73,6 +73,7 @@ it('replays the same command after an uncertain approval response', async () => 
   await screen.findByText(/Tray 1: PETG/)
   fireEvent.click(screen.getByRole('button', { name: 'Approve and queue' }))
   await screen.findByText('Approval result unconfirmed')
+  expect(screen.getByText(/Retry uses the same approval request/)).toBeVisible()
   expect(screen.getByLabelText('Authorized printer')).toBeDisabled()
   expect(screen.getByRole('button', { name: 'Read selected tray' })).toBeDisabled()
   fireEvent.click(screen.getByRole('button', { name: 'Retry approval' }))
@@ -88,11 +89,15 @@ it('preserves ordinary non-Bambu approval without AMS fields', async () => {
   expect(api.approveSubmission.mock.calls[0][1]).not.toHaveProperty('ams_mapping')
 })
 
-it("shows the student's quota refusal in the teacher's review dialog", async () => {
-  const detail = 'This student has used up their print quota for this period.'
+it.each([
+  { status: 429, code: 'quota_exceeded', retriable: false, locked: false, detail: 'This student has used up their print quota for this period.' },
+  { status: 503, code: 'upstream_unavailable', retriable: true, locked: true, detail: 'Printer temporarily unavailable.' },
+  { status: 503, code: 'resource_conflict', retriable: false, reason: 'approval_unconfirmed', locked: true,
+    detail: 'Approval result is unconfirmed. Refresh or replay the same command ID.' },
+])('shows the $code refusal under the button and protects unresolved commands', async ({ status, code, retriable, reason, locked, detail }) => {
   const fetch = vi.fn(async (url: string) => {
     if (url === '/api/education/submissions/5/approve') {
-      return Response.json({ detail, error: { code: 'quota_exceeded', detail, retriable: false } }, { status: 429 })
+      return Response.json({ detail, error: { code, detail, retriable, reason } }, { status })
     }
     if (url.startsWith('/api/education/submissions/5/slice-info')) {
       return Response.json({ plates: [], selected_plate_index: 0, slots: [], freshness: '' })
@@ -102,12 +107,74 @@ it("shows the student's quota refusal in the teacher's review dialog", async () 
   vi.stubGlobal('fetch', fetch)
   api.approveSubmission.mockImplementationOnce(education.approveSubmission)
   const close = mount()
+  await selectAMS()
+  fireEvent.click(screen.getByRole('button', { name: 'Read selected tray' }))
+  await screen.findByText(/Tray 1: PETG/)
+  fireEvent.click(screen.getByRole('button', { name: 'Approve and queue' }))
+  const approval = within(screen.getByRole('region', { name: 'Approve to a printer' }))
+  const alert = await approval.findByRole('alert')
+  expect(alert.textContent).toBe(detail)
+  expect(alert.previousElementSibling).toBe(approval.getByRole('button', { name: retriable ? 'Retry approval' : 'Approve and queue' }))
+  expect(screen.getAllByText(detail)).toHaveLength(1)
+  if (retriable) {
+    expect(approval.getByText(/Retry uses the same approval request/)).toBeVisible()
+  } else {
+    expect(screen.queryByText(/Retry uses the same approval request/)).not.toBeInTheDocument()
+  }
+  expect(fetch).toHaveBeenCalledWith('/api/education/submissions/5/approve', expect.objectContaining({ method: 'POST' }))
+  expect(close).not.toHaveBeenCalled()
+  fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'Revise supports' } })
+  for (const control of [
+    screen.getByLabelText('Authorized printer'), screen.getByLabelText('Filament supply'),
+    screen.getByLabelText('Physical AMS tray'), screen.getByRole('button', { name: 'Read selected tray' }),
+    screen.getByRole('button', { name: 'Reject submission' }),
+  ]) {
+    if (locked) expect(control).toBeDisabled()
+    else expect(control).toBeEnabled()
+  }
+  fireEvent.click(approval.getByRole('button', { name: retriable ? 'Retry approval' : 'Approve and queue' }))
+  await waitFor(() => expect(api.approveSubmission).toHaveBeenCalledTimes(2))
+  const [first, second] = api.approveSubmission.mock.calls
+  if (locked) expect(second).toEqual(first)
+  else expect(second[1].command_id).not.toBe(first[1].command_id)
+})
+
+it.each(['reject', 'reopen'])('allows %s after a definitive quota refusal', async (action) => {
+  api.approveSubmission.mockRejectedValueOnce(Object.assign(new Error('Quota reached'), { retriable: false }))
+  const close = vi.fn()
+  const dialog = (item: EducationSubmission | null) =>
+    <QueryClientProvider client={client}><ReviewDecisionModal submission={item} onClose={close} /></QueryClientProvider>
+  const view = render(dialog(submission))
   await screen.findByRole('option', { name: /Other · Other/ })
   fireEvent.change(screen.getByLabelText('Authorized printer'), { target: { value: '10' } })
   await screen.findByText('File and printer are compatible')
   fireEvent.click(screen.getByRole('button', { name: 'Approve and queue' }))
-  expect(await screen.findByRole('alert')).toHaveTextContent(detail)
-  expect(fetch).toHaveBeenCalledWith('/api/education/submissions/5/approve', expect.objectContaining({ method: 'POST' }))
+  await screen.findByText('Quota reached')
+  if (action === 'reject') {
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'Revise supports' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Reject submission' }))
+    await waitFor(() => expect(api.rejectSubmission).toHaveBeenCalledWith(5, { revision: 1, reason: 'Revise supports', command_id: expect.any(String) }))
+    return
+  }
+  view.rerender(dialog(null))
+  view.rerender(dialog(submission))
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  expect(screen.getByLabelText('Authorized printer')).toHaveValue('')
+  expect(screen.getByRole('button', { name: 'Approve and queue' })).toBeDisabled()
+})
+
+it('shows a rejection error only under Reject submission', async () => {
+  const detail = 'This submission has already been reviewed.'
+  api.rejectSubmission.mockRejectedValueOnce(new Error(detail))
+  const close = mount()
+  const rejection = within(screen.getByRole('region', { name: 'Return to student' }))
+  fireEvent.change(rejection.getByLabelText('Reason'), { target: { value: 'Please check the dimensions.' } })
+  const button = rejection.getByRole('button', { name: 'Reject submission' })
+  fireEvent.click(button)
+  const alert = await rejection.findByRole('alert')
+  expect(alert.textContent).toBe(detail)
+  expect(alert.previousElementSibling).toBe(button)
+  expect(screen.getAllByText(detail)).toHaveLength(1)
   expect(close).not.toHaveBeenCalled()
 })
 
