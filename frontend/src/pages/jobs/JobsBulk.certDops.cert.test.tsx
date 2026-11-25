@@ -9,8 +9,10 @@ import { MemoryRouter } from 'react-router-dom'
 import Jobs from './Jobs'
 import wire from '../../test-fixtures/certDops-bulk-jobs-wire.json'
 
-const h = vi.hoisted(() => ({ list: vi.fn(), success: vi.fn(), error: vi.fn() }))
-vi.mock('react-hot-toast', () => ({ default: { success: h.success, error: h.error } }))
+import { bulkNames, testBulkUpdatePage } from '../../test/bulkUpdateCases'
+
+const h = vi.hoisted(() => ({ list: vi.fn(), partial: vi.fn(), success: vi.fn(), error: vi.fn() }))
+vi.mock('react-hot-toast', () => ({ default: Object.assign(h.partial, { success: h.success, error: h.error }) }))
 vi.mock('../../api', async () => {
   const real = await vi.importActual<typeof import('../../api/printers')>('../../api/printers')
   return {
@@ -72,10 +74,10 @@ describe('F04-4.3-05 / F19-19.2-01 multi-select bulk job toolbar', () => {
   })
 
   it.each([
-    ['cancel', 'Cancel', 'Bulk cancel completed'],
-    ['set_priority', 'Priority 1', 'Bulk set_priority completed'],
-    ['reschedule', 'Reschedule', '2 job(s) returned to queue; 0 unchanged'],
-    ['delete', 'Delete', 'Bulk delete completed'],
+    ['cancel', 'Cancel', '2 jobs cancelled.'],
+    ['set_priority', 'Priority 1', '2 jobs updated to priority 1.'],
+    ['reschedule', 'Reschedule', '2 jobs returned to the queue.'],
+    ['delete', 'Delete', '2 jobs deleted.'],
   ] as [Action, string, string][])('%s sends the exact producer-accepted payload and reports the real response', async (action, label, toastText) => {
     transport.mockImplementation(async () => new Response(JSON.stringify(wire[action].response), { status: 200, headers: { 'Content-Type': 'application/json' } }))
     show(); await selectBoth()
@@ -94,4 +96,17 @@ describe('F04-4.3-05 / F19-19.2-01 multi-select bulk job toolbar', () => {
     await waitFor(() => expect(h.success).toHaveBeenCalledWith(toastText))
     await waitFor(() => expect(screen.queryByText('2 selected')).not.toBeInTheDocument())
   })
+})
+
+testBulkUpdatePage({
+  item: 'job', action: 'Reschedule', notices: h,
+  checkbox: name => screen.getByRole('checkbox', { name: `Select job ${name}` }),
+  mount: async (affected, skips) => {
+    h.list.mockResolvedValue(bulkNames.map((display_name, i) => ({ ...wire.jobs[0], id: 41 + i, display_name })))
+    transport.mockImplementation(async () => new Response(JSON.stringify({
+      status: 'ok', affected, skipped: skips.length, skipped_items: skips.map(({ id, detail }) => ({ job_id: id, detail })),
+    })))
+    show()
+    await screen.findByRole('checkbox', { name: 'Select job Birch' })
+  },
 })

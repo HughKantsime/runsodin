@@ -153,14 +153,20 @@ export const maintenance = {
 }
 
 // Bulk Operations
+type SkippedItem<Key extends string> = Record<Key, number> & { detail: string }
+type BulkResult<Key extends string> = { status: 'ok'; affected: number; skipped?: SkippedItem<Key>[] }
+type RescheduleResult = { status: 'ok'; affected: number; skipped: number; skipped_items?: SkippedItem<'job_id'>[] }
+type JobBulkResult = BulkResult<'job_id'> | RescheduleResult
+export type BulkUpdateResult = JobBulkResult | BulkResult<'printer_id'> | BulkResult<'spool_id'>
+
 export const bulkOps = {
-  jobs: (jobIds: number[], action: string, extra: Record<string, unknown> = {}): Promise<unknown> => fetchAPI('/jobs/bulk-update', {
+  jobs: (jobIds: number[], action: string, extra: Record<string, unknown> = {}): Promise<JobBulkResult> => fetchAPI('/jobs/bulk-update', {
     method: 'POST', body: JSON.stringify({ job_ids: jobIds, action, ...extra })
   }),
-  printers: (printerIds: number[], action: string, extra: Record<string, unknown> = {}): Promise<unknown> => fetchAPI('/printers/bulk-update', {
+  printers: (printerIds: number[], action: string, extra: Record<string, unknown> = {}): Promise<BulkResult<'printer_id'>> => fetchAPI('/printers/bulk-update', {
     method: 'POST', body: JSON.stringify({ printer_ids: printerIds, action, ...extra })
   }),
-  spools: (spoolIds: number[], action: string, extra: Record<string, unknown> = {}): Promise<unknown> => fetchAPI('/spools/bulk-update', {
+  spools: (spoolIds: number[], action: string, extra: Record<string, unknown> = {}): Promise<BulkResult<'spool_id'>> => fetchAPI('/spools/bulk-update', {
     method: 'POST', body: JSON.stringify({ spool_ids: spoolIds, action, ...extra })
   }),
 }

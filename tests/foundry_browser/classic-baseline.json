@@ -66,8 +66,8 @@
     "frontend/src/pages/dashboard/TVDashboard.tsx": "f5c1bbbe1feae161f73b3b4272e6ac3eab6a759cdb4a027c5428cc6a46f99142",
     "frontend/src/pages/education/EducationWorkbench.tsx": "c4aaa1605fb96000b973bed54f2773339825823660418fd6417622ea2e4b0436",
     "frontend/src/pages/inventory/Consumables.tsx": "6e3e28a5c8836f8d683972ec785a7cf96960521d373ad8828ca762d79c59a6d0",
-    "frontend/src/pages/inventory/Spools.tsx": "4e75b9f461db80d6dde5761bcd3c8887d639eb790292e8688a09d081067999f3",
-    "frontend/src/pages/jobs/Jobs.tsx": "5b327fa15da81abf749c9754610ce2a7cfcfc22fab6a198dcad28a3e939d8a32",
+    "frontend/src/pages/inventory/Spools.tsx": "15ba557241de8cbe45f8c8457aa3895774f73fee64a7b33fd8d5efa9475c52e0",
+    "frontend/src/pages/jobs/Jobs.tsx": "fd45169ee6ff8a02191abb5c8b1047c2062cac9b02fbc3bf65df0e405eb080a4",
     "frontend/src/pages/jobs/Timeline.tsx": "a7d17b6522d985a62da3556a2632c03b461ac19be50afde78258afb3c0f633f0",
     "frontend/src/pages/models/Models.tsx": "8dcdc8be813959e391299c930b9a12c077b83c3b5931680fae5fc6f9e764373d",
     "frontend/src/pages/models/ProfileHistory.tsx": "eff558628e11b85f42f2fa7e4ab73a42c4f22cbf455e793f9f990265adfaf90b",
@@ -81,7 +81,7 @@
     "frontend/src/pages/printers/Cameras.tsx": "b421eeb3c173998b13763ebb7e8515c7a64ced9710506dfd503a0ff61d5d4289",
     "frontend/src/pages/printers/Maintenance.tsx": "6bd5c63ea8fb93dcd7a45efc0d219d69da5c57e5ba9731b916db2b009e473b16",
     "frontend/src/pages/printers/PrinterDetail.tsx": "fd58acfe958e3b0fa7d8c220bfefc50150db730a2196c1cf2a19f20c531a74ec",
-    "frontend/src/pages/printers/Printers.tsx": "f2f7cf444ba50aef809d5faead6ca751de9535ece865d969dab8fa18a3e92095",
+    "frontend/src/pages/printers/Printers.tsx": "b6ad0107e3127dc25536047bb8e39c70caab89e5caee496ced6e58c2a0334296",
     "frontend/src/pages/vision/Detections.tsx": "951594e6c4d548de5c3a1173bbc0023e1620d191362ce2fb53a2cce58ca954eb"
   },
   "repinned": {

@@ -5,6 +5,7 @@ import { useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Package, Beaker, AlertTriangle } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { runBulkUpdate } from '../../utils/bulkUpdate'
 import { canDo } from '../../permissions'
 import { useOrg } from '../../contexts/OrgContext'
 import { bulkOps, spools as spoolsApi, filaments as filamentApi, printers as printersApi } from '../../api'
@@ -160,8 +161,12 @@ export default function Spools() {
     setSelectedSpools(prev => prev.size === ids.length ? new Set() : new Set(ids))
   }
   const bulkSpoolAction = useMutation({
-    mutationFn: ({ action }: { action: string }) => bulkOps.spools([...selectedSpools], action),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['spools'] }); setSelectedSpools(new Set()) },
+    mutationFn: ({ action }: { action: string }) => runBulkUpdate({
+      item: 'spool', selected: selectedSpools, setSelected: setSelectedSpools,
+      send: ids => bulkOps.spools(ids, action),
+      nameOf: id => spools?.find(spool => spool.id === id)?.filament_name,
+    }),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['spools'] }) },
     onError: (err: any) => toast.error('Bulk spool action failed: ' + (err?.message || 'Unknown error')),
   })
 
@@ -317,12 +322,12 @@ export default function Spools() {
           </div>
 
           {selectedSpools.size > 0 && canDo('spools.edit') && (
-            <div className="flex items-center gap-3 mb-4 p-3 bg-[var(--brand-primary)]/10 border border-[var(--brand-primary)]/30 rounded-md">
+            <div className="flex flex-wrap items-center gap-3 mb-4 p-3 bg-[var(--brand-primary)]/10 border border-[var(--brand-primary)]/30 rounded-md">
               <span className="text-sm text-[var(--brand-text-secondary)]">{selectedSpools.size} selected</span>
               <Button variant="secondary" size="sm" onClick={() => setLabelSpools([...selectedSpools].sort((a, b) => a - b))}>Print labels</Button>
-              <Button variant="warning" size="sm" onClick={() => bulkSpoolAction.mutate({ action: 'archive' })}>Archive</Button>
-              <Button variant="success" size="sm" onClick={() => bulkSpoolAction.mutate({ action: 'activate' })}>Activate</Button>
-              <Button variant="danger" size="sm" onClick={() => setConfirmAction({ title: 'Delete Spools', message: `Delete ${selectedSpools.size} selected spool(s)? This cannot be undone.`, onConfirm: () => { bulkSpoolAction.mutate({ action: 'delete' }); setConfirmAction(null) } })}>Delete</Button>
+              <Button variant="warning" size="sm" disabled={bulkSpoolAction.isPending} onClick={() => bulkSpoolAction.mutate({ action: 'archive' })}>Archive</Button>
+              <Button variant="success" size="sm" disabled={bulkSpoolAction.isPending} onClick={() => bulkSpoolAction.mutate({ action: 'activate' })}>Activate</Button>
+              <Button variant="danger" size="sm" disabled={bulkSpoolAction.isPending} onClick={() => setConfirmAction({ title: 'Delete Spools', message: `Delete ${selectedSpools.size} selected spool(s)? This cannot be undone.`, onConfirm: () => { bulkSpoolAction.mutate({ action: 'delete' }); setConfirmAction(null) } })}>Delete</Button>
               <Button variant="secondary" size="sm" onClick={() => setSelectedSpools(new Set())}>Clear</Button>
             </div>
           )}
