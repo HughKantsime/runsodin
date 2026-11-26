@@ -19,13 +19,21 @@ def publisher(owner, printer_id):
     return publishers[printer_id]
 
 
-def reset_mqtt(monitor, runtime):
+def reset_mqtt(monitor, runtime, *, clear_attention=True):
     """Caller holds the monitor lock; merged telemetry is never a new seed."""
     monitor._phantom_slot_evidence = None
     monitor._display_in_failed_state = False
     monitor._display_print_error = None
     monitor._live_mqtt_state = None
     monitor._live_mqtt_generation = monitor._connection_generation
+    if clear_attention:
+        from core.printer_display_facts import remove_attention
+        try:
+            with runtime.get_db() as conn:
+                remove_attention(conn, monitor.printer_id)
+                conn.commit()
+        except Exception:
+            runtime.log.warning('[%s] Attention evidence reset failed', monitor.name)
     try:
         publisher(monitor, monitor.printer_id).publish(
             runtime.get_db, monitor.printer_id, 'UNKNOWN', dbapi=True)

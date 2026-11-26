@@ -3,7 +3,7 @@ from core.base import FilamentType, slot_filament_value
 from core.printer_maintenance import enrich_maintenance
 from modules.inventory.services import enrich_catalogue_slots
 from core.printer_live_values import enrich_live_values
-from core.printer_display_facts import enrich_printer_facts
+from core.printer_display_facts import enrich_printer_facts, printer_status_query
 
 from modules.inventory.services import assign_slot
 
@@ -64,7 +64,7 @@ def list_printers(
     db: Session = Depends(get_db),
 ):
     """List all printers, optionally filtered by tag and org."""
-    query = db.query(Printer)
+    query = printer_status_query(db)
     if active_only:
         query = query.filter(Printer.is_active.is_(True))
 
@@ -234,7 +234,7 @@ def get_printer(
     db: Session = Depends(get_db),
 ):
     """Get a specific printer."""
-    printer = db.query(Printer).filter(Printer.id == printer_id).first()
+    printer = printer_status_query(db).filter(Printer.id == printer_id).first()
     if not printer:
         raise HTTPException(status_code=404, detail="Printer not found")
     if not check_org_access(current_user, printer.org_id) and not printer.shared:

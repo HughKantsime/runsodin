@@ -239,11 +239,14 @@ class PrinterMonitor:
                     if generation != self._connection_generation or self._connection_retired:
                         return
                     from modules.printers.monitors.live_state import reset_mqtt
-                    reset_mqtt(self, sys.modules[__name__])
+                    # Clear attention with the OFFLINE row below.
+                    reset_mqtt(self, sys.modules[__name__], clear_attention=False)
                     self._transport_offline = True
                     try:
                         with get_db() as conn:
                             conn.execute("UPDATE printers SET gcode_state='OFFLINE',print_stage='Offline' WHERE id=?", (self.printer_id,))
+                            from core.printer_display_facts import remove_attention
+                            remove_attention(conn, self.printer_id)
                             conn.commit()
                     except Exception:
                         log.warning("Offline state persistence failed; retry on next connection check")

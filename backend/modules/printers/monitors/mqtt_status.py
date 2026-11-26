@@ -1,11 +1,15 @@
 """MQTT status ingestion; dependencies resolved from the owning monitor at call time."""
 
+from time import monotonic
+
 from core.hms_state import is_notice
 from core.monitor_observations import fresh_report
 from core.printer_identity_audit import observe_printer_identity
 
 RETAINED_REPORT_LOG_SECONDS = 3600
 AMS_ENV_INTERVAL = 300
+# Reconnecting can replace the monitor object for the same printer.
+_attention_warning_after = {}
 
 
 def log_retained_report(self, raw, runtime):
@@ -36,6 +40,7 @@ def handle_status(self, status, generation, runtime):
     """Handle incoming MQTT status update."""
     import modules.notifications.event_dispatcher as printer_events
     from modules.printers.hms_codes import printer_reports_no_error
+    from core.printer_display_facts import AttentionUpdateFailed, persist_attention
     from modules.printers.dispatch_readiness import state_needs_attention
     with self._lock:
         if self._connection_retired or (generation is not None and generation != self._connection_generation):
@@ -391,15 +396,12 @@ def handle_status(self, status, generation, runtime):
                     # Only observations since the last commit remain pending.
                     noz_dia = getattr(self, '_pending_nozzle_diameter', None)
                     fan_speed_val = self._state.get('cooling_fan_speed')
-                    # SQLite's default heartbeat has second precision. A new FAILED
-                    # report must invalidate the previous error even on a fast reconnect.
-                    failed_at = datetime.now(timezone.utc).replace(tzinfo=None) if gstate == 'FAILED' else None
                     conn.execute(
-                        f"UPDATE printers SET last_seen=COALESCE(?,{runtime.sql.now()}),"
+                        f"UPDATE printers SET last_seen={runtime.sql.now()},"
                         " bed_temp=?,bed_target_temp=?,nozzle_temp=?,nozzle_target_temp=?,"
                         " gcode_state=?,print_stage=?,"
                         " nozzle_type=?,fan_speed=COALESCE(?,fan_speed) WHERE id=?",
-                        (failed_at, bed_t, bed_tt, noz_t, noz_tt, gstate, stage,
+                        (bed_t, bed_tt, noz_t, noz_tt, gstate, stage,
                          noz_type, fan_speed_val, self.printer_id))
                     if noz_dia is not None:
                         observe_printer_identity(conn, self.printer_id, "nozzle_diameter", noz_dia)
@@ -411,6 +413,11 @@ def handle_status(self, status, generation, runtime):
                                      (value, observed_at.isoformat(), self.printer_id))
                     from modules.printers.monitors.nozzle_observations import persist
                     unconfirmed_filaments = persist(conn, self)
+                    try:
+                        error = persist_attention(conn, self.printer_id, gstate, error)
+                    except Exception as exc:
+                        conn.rollback()
+                        raise AttentionUpdateFailed from exc
                     conn.commit()
                     live_state_allowed = True
                     self._pending_nozzle_diameter = None
@@ -421,10 +428,7 @@ def handle_status(self, status, generation, runtime):
                     # status commit so a cache failure can't roll that back.
                     try:
                         from core.printer_display_facts import persist as persist_display_facts
-                        if failed_at is not None:
-                            persist_display_facts(conn, self, failed_report={'last_seen': str(failed_at), 'print_error': error})
-                        else:
-                            persist_display_facts(conn, self)
+                        persist_display_facts(conn, self)
                         conn.commit()
                     except Exception as e:
                         conn.rollback()
@@ -621,6 +625,11 @@ def handle_status(self, status, generation, runtime):
                     ws_payload['external_spools'] = external_spools
                 runtime.ws_push('printer_telemetry', ws_payload)
 
+            except AttentionUpdateFailed:
+                now = monotonic()
+                if now >= _attention_warning_after.get(self.printer_id, 0):
+                    _attention_warning_after[self.printer_id] = now + 60
+                    runtime.log.warning("[%s] attention evidence could not be updated; status write retried", self.name)
             except Exception as e:
                 runtime.log.warning(f"Failed to update telemetry for printer {self.printer_id}: {e}")
 

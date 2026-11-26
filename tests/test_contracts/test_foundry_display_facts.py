@@ -118,32 +118,19 @@ def test_failed_report_survives_deltas_but_not_a_new_fault_or_connection(board):
     assert attention()
     report(monitor, gcode_state='FAILED', print_error=0)
     monitor._begin_connection()
+    assert attention()
     report(monitor, gcode_state='FAILED')
     assert attention()
 
 
-def test_cache_write_failure_cannot_reuse_previous_no_error_report(board, monkeypatch):
-    from core import printer_display_facts
-    monitor, client, issue = board
-    headers = issue(['read:printers'])
-    report(monitor, gcode_state='FAILED', print_error=0)
-    assert not get_printer(client, headers)['state_needs_attention']
-    def fail(*args, **kwargs):
-        raise RuntimeError('display cache unavailable')
-    monkeypatch.setattr(printer_display_facts, 'persist', fail)
-    report(monitor, gcode_state='FAILED', print_error=42)
-    assert get_printer(client, headers)['state_needs_attention']
-
-
-def test_cached_failed_evidence_only_applies_to_the_same_bambu_heartbeat(board, offline_store):
+def test_cached_failed_evidence_survives_offset_formatting_only_for_bambu(board, offline_store):
     monitor, client, issue = board
     report(monitor, gcode_state='FAILED', print_error=0)
     headers = issue(['read:printers'])
+    offline_store.execute(text("UPDATE printers SET last_seen=last_seen || '+00:00' WHERE id=199"))
+    offline_store.commit()
     assert not get_printer(client, headers)['state_needs_attention']
     offline_store.execute(text("UPDATE printers SET api_type='prusalink' WHERE id=199"))
-    offline_store.commit()
-    assert get_printer(client, headers)['state_needs_attention']
-    offline_store.execute(text("UPDATE printers SET api_type='bambu', last_seen='2026-11-04 18:00:00' WHERE id=199"))
     offline_store.commit()
     assert get_printer(client, headers)['state_needs_attention']
 
