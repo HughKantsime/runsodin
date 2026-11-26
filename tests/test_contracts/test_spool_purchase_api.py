@@ -72,14 +72,13 @@ def test_private_projection_owner_foreign_shared_global_and_generic_cache(purcha
     assert response.json()['price_decimal']=='12.34' and response.json()['can_write'] is False
     response=client.get(f'/api/spools/{own}/purchase-evidence',headers=auth('foreign'))
     status=response.status_code;assert status==404
-    shared=create(client,auth('platform'),price=20,purchase_evidence=basis(price='20'))
+    shared=create(client,auth('platform'),notes='Original notes',price=20,purchase_evidence=basis(price='20'))
     assert read(client,auth(),shared)=={'state':'unavailable','can_write':False}
-    response=client.patch(f'/api/spools/{shared}',headers=auth(),json={'notes':'shared operational edit','price':20})
-    status=response.status_code;assert status==200
-    response=client.patch(f'/api/spools/{shared}',headers=auth(),json={'notes':'should rollback','price':21})
-    status=response.status_code;assert status==404
-    response=client.patch(f'/api/spools/{shared}',headers=auth(),json={'purchase_evidence':basis(),'expected_purchase_revision':1})
-    status=response.status_code;assert status==404
+    for change in ({'notes':'refused edit','price':20}, {'notes':'should rollback','price':21},
+                   {'purchase_evidence':basis(),'expected_purchase_revision':1}):
+        response = client.patch(f'/api/spools/{shared}', headers=auth(), json=change)
+        assert response.status_code == 403
+        assert response.json()['detail'] == 'This spool belongs to no organization. Ask a platform administrator to change it.'
     assert read(client,auth('platform'),shared)['revision']==1
     for path in ['/api/spools',f'/api/spools/{own}',f'/api/spools/{shared}']:
         response=client.get(path,headers=auth());status=response.status_code;assert status==200
@@ -87,7 +86,7 @@ def test_private_projection_owner_foreign_shared_global_and_generic_cache(purcha
         assert all('purchase_evidence' not in row and 'purchase_revision' not in row and 'evidence_nonce' not in row for row in rows)
     response=client.get(f'/api/spools/{shared}',headers=auth('platform'))
     status=response.status_code;assert status==200
-    assert response.json()['notes']=='shared operational edit'
+    assert response.json()['notes'] == 'Original notes' and response.json()['price'] == 20
 
 @pytest.mark.parametrize('body',[{'purchase_evidence':basis()}, {'expected_purchase_revision':0}, {'expected_purchase_revision':None}, {'purchase_evidence':None,'expected_purchase_revision':True}, {'purchase_evidence':None,'expected_purchase_revision':None}])
 def test_purchase_operation_requires_strict_complete_cas_pair(purchase_api,body):

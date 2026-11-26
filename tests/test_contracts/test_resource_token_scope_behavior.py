@@ -193,7 +193,15 @@ def test_matching_scope_can_access_owned_auxiliary_resource(foreign_auxiliary,re
     if operation=='slot_read':response=client.get('/printers/71/slots',headers=issue(['read:printers']))
     elif operation=='slot_update':response=client.patch('/printers/71/slots/1',headers=issue(['write:printers']),json={'color':'Authorized'})
     elif operation=='variant_read':response=client.get('/models/71/variants',headers=issue(['read:models']))
-    else:response=client.delete('/models/71/variants/71',headers=issue(['write:models']))
+    else:
+        headers = issue(['write:models'])
+        denied = client.delete('/models/71/variants/71', headers=headers)
+        assert denied.status_code == 403
+        assert denied.json()['detail'] == 'This file belongs to no organization. Ask a platform administrator to change it.'
+        assert review_db.execute(text('SELECT org_id FROM print_files WHERE id=71')).scalar_one() is None
+        review_db.execute(text('UPDATE print_files SET org_id=1 WHERE id=71'))
+        review_db.commit()
+        response = client.delete('/models/71/variants/71', headers=headers)
     assert response.status_code==200
     with Session(review_db.get_bind()) as db:
         if operation=='slot_update':assert db.execute(text('SELECT color FROM filament_slots WHERE printer_id=71 AND slot_number=1')).scalar_one()=='Authorized'

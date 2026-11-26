@@ -2,7 +2,19 @@
 import ast
 
 ORG = 'modules/organizations/'
+SQUARE = ORG + 'square_setup_grants.py'
+BIOMETRIC = 'modules/push/routes/biometric.py'
+RECOVERY = 'modules/system/allowlist_recovery.py'
+STARTUP = 'core/app_maintenance.py'
 PROTOCOLS = {
+    (SQUARE, 'set_scopes'): {
+        ORG + 'routes_sessions.py': ('set_scopes', {'set_square_setup_grant'}),
+        ORG + 'routes_users.py': ('revoke_owner_grants', {'update_user', 'delete_user'}),
+        ORG + 'gdpr_erasure.py': ('revoke_owner_grants', {'erase_user_data_sync'}),
+    },
+    (BIOMETRIC, '_audit'): {BIOMETRIC: ('_audit', {'_retry'})},
+    (RECOVERY, '_run'): {RECOVERY: ('_run', {'main'})},
+    (STARTUP, '_check_signing_secret'): {STARTUP: ('log_audit', {'_check_signing_secret'})},
     ('modules/archives/filament_settlement.py', 'settle'): {
         'modules/archives/routes/filament_settlement.py': ('settle', {'settle_filament'}),
     },
@@ -50,6 +62,17 @@ def _calls(node, name):
     return [n for n in ast.walk(node) if isinstance(n, ast.Call) and ast.unparse(n.func) == name]
 
 
+def _returns_through_biometric_commit(statement, tree):
+    issue = statement.value
+    if not (isinstance(issue, ast.Call) and ast.unparse(issue.func) == '_issue'
+            and issue.args and ast.unparse(issue.args[0]) == 'db'):
+        return False
+    issuer = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == '_issue')
+    return (ast.unparse(issuer.body[-2]) == 'db.commit()' and isinstance(issuer.body[-1], ast.Return)
+            and sum(isinstance(n, ast.Return) for n in ast.walk(issuer)) == 1
+            and len(_calls(issuer, 'db.commit')) == 1 and not _calls(issuer, 'db.rollback'))
+
+
 def caller_owned_audit_is_atomic(key, sources):
     """Require the shared session, no helper commit, and a later caller commit.
 
@@ -57,6 +80,14 @@ def caller_owned_audit_is_atomic(key, sources):
     boundaries. Each invocation must reach a commit in its enclosing statement
     blocks, never merely in an unrelated conditional branch.
     """
+    if key == (SQUARE, 'set_scopes'):
+        tree = ast.parse(sources[SQUARE])
+        revoke = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'revoke_owner_grants')
+        forwards = _calls(tree, 'set_scopes')
+        if (len(forwards) != 1 or forwards != _calls(revoke, 'set_scopes')
+                or not forwards[0].args or ast.unparse(forwards[0].args[0]) != 'db'
+                or _calls(revoke, 'db.commit') or _calls(revoke, 'db.rollback')):
+            return False
     if key == ('modules/jobs/print_failure.py', '_undo'):
         tree = ast.parse(sources[key[0]])
         change = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'change')
@@ -94,6 +125,13 @@ def caller_owned_audit_is_atomic(key, sources):
             committed = False
             while node in parents:
                 parent = parents[node]
+                if key[0] in (RECOVERY, STARTUP) and isinstance(parent, ast.With):
+                    # Both bind the session and enter its transaction in the same with.
+                    if (len(parent.items) == 2 and isinstance(parent.items[0].optional_vars, ast.Name)
+                            and parent.items[0].optional_vars.id == 'db'
+                            and ast.unparse(parent.items[1].context_expr) == 'db.begin()'
+                            and not _calls(parent, 'db.commit') and not _calls(parent, 'db.rollback')):
+                        committed = True
                 if isinstance(parent, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Module,
                                        ast.If, ast.Try, ast.ExceptHandler, ast.With, ast.For)):
                     for field in ('body', 'orelse', 'finalbody'):
@@ -101,6 +139,8 @@ def caller_owned_audit_is_atomic(key, sources):
                         if node not in block:
                             continue
                         for following in block[block.index(node) + 1:]:
+                            if key[0] == BIOMETRIC and isinstance(following, ast.Return):
+                                committed = committed or _returns_through_biometric_commit(following, tree)
                             if isinstance(following, ast.Expr) and isinstance(following.value, ast.Call) and ast.unparse(following.value.func) == 'db.commit':
                                 committed = True
                                 break

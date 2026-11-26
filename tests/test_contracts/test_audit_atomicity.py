@@ -443,6 +443,30 @@ def test_caller_owned_audit_needs_each_route_commit(service, helper, route, comm
     assert not caller_owned_audit_is_atomic((service, helper), sources)
 
 
+@pytest.mark.parametrize("operation, file, original, changed", [
+    ("set_scopes", "routes_sessions.py", "scopes, body.enabled, current_user)\n        db.commit()",
+     "scopes, body.enabled, current_user)"),
+    ("set_scopes", "square_setup_grants.py", "set_scopes(db, row, scopes, False", "set_scopes(other, row, scopes, False"),
+    ("set_scopes", "routes_users.py", "db.commit()\n    return {\"status\": \"updated\"}", "return {}"),
+    ("set_scopes", "routes_users.py", "db.commit()\n    except Exception:", "pass\n    except Exception:"),
+    ("set_scopes", "gdpr_erasure.py", "db.commit()\n\n    # Account anonymization", "return\n\n    # Account anonymization"),
+    ("_audit", "biometric.py", "db.commit()\n    return BiometricRefreshResponse", "return BiometricRefreshResponse"),
+    ("_audit", "biometric.py", "_audit(db, row, action, now, age)\n        db.commit()",
+     "_audit(db, row, action, now, age)"),
+    ("_run", "allowlist_recovery.py", "as db, db.begin():", "as db:"),
+    ("_check_signing_secret", "app_maintenance.py", "as db, db.begin():", "as db:"),
+])
+def test_release_audits_require_their_transaction_boundaries(operation, file, original, changed):
+    from tests.test_contracts.release_audit_contract import PROTOCOLS, caller_owned_audit_is_atomic
+    key = next(key for key in PROTOCOLS if key[1] == operation)
+    sources = {path: (BACKEND_DIR / path).read_text() for path in {key[0], *PROTOCOLS[key]}}
+    assert caller_owned_audit_is_atomic(key, sources)
+    path = next(path for path in sources if path.endswith('/' + file))
+    assert original in sources[path]
+    sources[path] = sources[path].replace(original, changed)
+    assert not caller_owned_audit_is_atomic(key, sources)
+
+
 class TestEveryCallSiteCommitsAfter:
     """Every log_audit() call must be followed by db.commit() in the same function."""
 

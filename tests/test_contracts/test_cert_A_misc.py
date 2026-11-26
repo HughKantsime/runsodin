@@ -2,6 +2,7 @@
 import pytest
 from sqlalchemy import text
 
+from tests._frozen_bundles import is_frozen_source
 from tests.test_contracts.test_cert_A_harness import (  # noqa: F401
     ACCESS, SERIAL, broker_socket, cert_app, cert_client, fernet_env, load_frames, replay, review_db, wire_monitor,
 )
@@ -320,7 +321,7 @@ def test_live_engine_stays_out_of_engine_type_checks():
     backend = Path(__file__).resolve().parents[2] / "backend"
     users, checkers = set(), set()
     for path in backend.rglob("*.py"):
-        if "preserved" in path.parts:
+        if is_frozen_source(path):
             continue
         source = path.read_text(errors="ignore")
         name = str(path.relative_to(backend))

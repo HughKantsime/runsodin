@@ -250,6 +250,12 @@ def test_actual_unassigned_reader_null_audience_fails_closed(client, review_db):
     review_db.execute(text('UPDATE print_archives SET printer_id=9000 WHERE id=903'))
     review_db.execute(text('UPDATE jobs SET charged_to_org_id=NULL WHERE id=901'))
     review_db.commit()
+    denied = mark(client)
+    assert denied.status_code == 403
+    assert denied.json()['detail'] == 'This job belongs to no organization. Ask a platform administrator to change it.'
+    # Record a real correction through the submitter exception for the reader check.
+    review_db.execute(text('UPDATE jobs SET submitted_by=3 WHERE id=901'))
+    review_db.commit()
     assert mark(client).status_code == 200
     user = {'id': 3, 'role': 'viewer', 'group_id': None}
     predicate, params = archive_visibility(user)

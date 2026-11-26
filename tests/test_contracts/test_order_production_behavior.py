@@ -152,6 +152,12 @@ def test_shared_order_keeps_shared_job_ownership(production_order,review_db):
     assert created.status_code==200,created.text
     order_id=created.json()['id']
     identity.clear();identity.update(actor)
+    before = snapshot(review_db, order_id)
+    denied = client.post(f'/orders/{order_id}/schedule')
+    assert denied.status_code == 403
+    assert denied.json()['detail'] == 'This order belongs to no organization. Ask a platform administrator to change it.'
+    assert snapshot(review_db, order_id) == before
+    identity.update(role='admin',group_id=None)
     response=client.post(f'/orders/{order_id}/schedule');assert response.status_code==200,response.text
     state=snapshot(review_db,order_id)
     assert {j['charged_to_org_id'] for j in state['jobs']}=={None}

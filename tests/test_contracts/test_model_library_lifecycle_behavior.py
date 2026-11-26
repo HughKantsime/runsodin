@@ -44,6 +44,17 @@ def test_accessible_revision_list_create_revert_records_uploader_and_order(libra
  before=client.get(f'/models/{identifier}/revisions',headers=read)
  assert before.status_code==200 and before.json()[0]['revision_number']==1
  response=client.post(f'/models/{identifier}/revisions?changelog=Synthetic%20second',headers=write)
+ if identifier == 103:
+  assert response.status_code == 403
+  detail = 'This model belongs to no organization. Ask a platform administrator to change it.'
+  assert response.json()['detail'] == detail
+  revert = client.post(f'/models/{identifier}/revisions/1/revert',headers=write)
+  assert revert.status_code == 403 and revert.json()['detail'] == detail
+  assert client.get(f'/models/{identifier}/revisions',headers=read).json() == before.json()
+  # A platform admin still has the full revision lifecycle on the same model.
+  review_db.execute(text('UPDATE users SET group_id=NULL WHERE id=3'))
+  review_db.commit()
+  response=client.post(f'/models/{identifier}/revisions?changelog=Synthetic%20second',headers=write)
  assert response.status_code==200 and response.json()['revision_number']==2
  response=client.post(f'/models/{identifier}/revisions/1/revert',headers=write)
  assert response.status_code==200 and response.json()=={'revision_number':3,'reverted_from':1}

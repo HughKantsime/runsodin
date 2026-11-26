@@ -361,8 +361,8 @@ def handle_status(self, status, generation, runtime):
         gstate = self._state.get('gcode_state')
         error = getattr(self, '_display_print_error', None) if not self._state_retained else None
         attention = (gstate == 'FAILED', error)
-        heartbeat_due = (self._transport_offline or attention != getattr(self, '_heartbeat_attention', (False, None))
-                         or runtime.time.time() - getattr(self, '_last_heartbeat', 0) >= 10)
+        regular_heartbeat_due = self._transport_offline or runtime.time.time() - getattr(self, '_last_heartbeat', 0) >= 10
+        heartbeat_due = regular_heartbeat_due or attention != getattr(self, '_heartbeat_attention', (False, None))
         if heartbeat_due:
             live_state_allowed = False
             try:
@@ -489,7 +489,9 @@ def handle_status(self, status, generation, runtime):
                             })
                         except Exception as e:
                             runtime.log.debug(f"Failed to push printer state event: {e}")
-                    self._last_heartbeat = runtime.time.time()
+                    # An immediate attention update does not advance the regular AMS sync cadence.
+                    if regular_heartbeat_due:
+                        self._last_heartbeat = runtime.time.time()
                     self._transport_offline = False
 
                     # ---- Timeseries Telemetry Capture ----
@@ -548,7 +550,7 @@ def handle_status(self, status, generation, runtime):
                         self._reset_pending_ams()
                         pending_ams = None
                     now = runtime.time.time()
-                    if (pending_ams is not None
+                    if (regular_heartbeat_due and pending_ams is not None
                             and now - getattr(self, '_last_ams_slot_sync', 0) >= 60
                             and now >= getattr(self, '_ams_sync_retry_at', 0.0)):
                         # Inventory receives only the latest reported AMS list; it is

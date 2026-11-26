@@ -434,6 +434,21 @@ def test_monitor_uses_only_fresh_matching_held_report(wire_monitor, review_db, n
     assert (5 not in slots(review_db, 301)) == repairs
 
 
+def test_attention_update_keeps_next_regular_ams_repair_due(wire_monitor, review_db):
+    _, sock, clock, events = wire_monitor
+    seed_extra(review_db, 301, 5)
+    sock.deliver({'print': {'gcode_state': 'IDLE'}})
+    clock[0] += 9
+    sock.deliver(single_ams_and_ht())
+    telemetry = [payload for kind, payload in events if kind == 'printer_telemetry']
+    assert telemetry[-1]['state'] == 'FAILED' and telemetry[-1]['state_needs_attention'] is False
+    assert 5 in slots(review_db, 301)
+    clock[0] += 1
+    sock.deliver({'print': {'bed_temper': 32}})
+    assert slots(review_db, 301) == [1, 2, 3, 4, 17]
+    assert count_changes(review_db, 301) == [{'field': 'slot_count', 'old': 5, 'new': 4}]
+
+
 def test_v2_retained_flag_and_arrival_belong_to_returned_section(monkeypatch):
     from modules.printers.telemetry.bambu import session
     from modules.printers.telemetry.bambu.raw import BambuPrintSection

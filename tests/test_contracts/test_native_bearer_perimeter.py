@@ -93,8 +93,9 @@ def sentinel(tmp_path, monkeypatch):
 
     engine = create_engine('sqlite:///' + str(tmp_path / 'sentinel.db'))
     with engine.begin() as conn:
-        conn.execute(text('CREATE TABLE users (id INTEGER, username TEXT, role TEXT, is_active INTEGER, created_at TEXT)'))
-        conn.execute(text("INSERT INTO users VALUES (1, 'sentinel', 'admin', 1, '2000-01-01')"))
+        conn.execute(text('CREATE TABLE groups (id INTEGER PRIMARY KEY, is_org BOOLEAN)'))
+        conn.execute(text('CREATE TABLE users (id INTEGER, username TEXT, role TEXT, is_active INTEGER, created_at TEXT, group_id INTEGER)'))
+        conn.execute(text("INSERT INTO users VALUES (1, 'sentinel', 'admin', 1, '2000-01-01', NULL)"))
         conn.execute(text('CREATE TABLE token_blacklist (jti TEXT)'))
     events = []
 
@@ -186,8 +187,14 @@ def test_sentinel_rejects_non_access_credentials(sentinel, case):
     assert [name for name, _ in events].count('close') == 1
 
 
-def test_sentinel_admits_full_access_and_session_lifetime_is_in_worker(sentinel):
-    client, token, _, events = sentinel
+@pytest.mark.parametrize('is_org', [None, True, False], ids=['unassigned', 'organization', 'ordinary-group'])
+def test_sentinel_admits_full_access_and_session_lifetime_is_in_worker(sentinel, is_org):
+    from sqlalchemy import text
+    client, token, engine, events = sentinel
+    if is_org is not None:
+        with engine.begin() as conn:
+            conn.execute(text('INSERT INTO groups (id, is_org) VALUES (1, :is_org)'), {'is_org': is_org})
+            conn.execute(text('UPDATE users SET group_id=1 WHERE id=1'))
     assert _sentinel_get(client, token).json() == {'admitted': True}
     workers = {thread for name, thread in events if name != 'route'}
     assert len(workers) == 1

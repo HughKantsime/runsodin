@@ -177,11 +177,14 @@ def test_internal_resolution_failure_refuses_write(retry_client, review_db, monk
     headers["Idempotency-Key"] = "resolver-failure"
     marker = "synthetic-sensitive-exception-message"
 
+    injected = []
+
     def broken(*args, **kwargs):
+        injected.append(failure)
         raise RuntimeError(marker)
 
     needles = {"token_lookup": "SELECT * FROM api_tokens",
-               "user_context": "SELECT * FROM users", "jwt_lookup": "FROM token_blacklist"}
+               "user_context": "FROM users WHERE id = :id", "jwt_lookup": "FROM token_blacklist"}
     if failure in needles:
         class BrokenSession(Session):
             def execute(self, statement, *args, **kwargs):
@@ -203,6 +206,7 @@ def test_internal_resolution_failure_refuses_write(retry_client, review_db, monk
     # Returning the 503, rather than letting an exception escape, is part of the contract.
     response = client.patch("/api/v1/retry-test", headers=headers)
     assert response.status_code == 503
+    assert injected == [failure]
     assert response.json()["error"]["code"] == "idempotency_unavailable"
     assert response.json()["error"]["retriable"] is True
     assert calls == []

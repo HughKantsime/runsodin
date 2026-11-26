@@ -205,9 +205,9 @@ def test_session_list_reflects_a_refresh_and_orders_by_it(auth_db):
     assert (datetime.now(timezone.utc) - first).total_seconds() < 5  # the refreshed one, first
 
 
-def test_only_the_retention_cleanup_compares_bookkeeping_times():
-    """Every time comparison on these columns is known: the throttle itself and the
-    retention cleanup that drops sessions idle for 48 h. A new one (an idle timeout,
+def test_only_known_consumers_compare_bookkeeping_times():
+    """Every time comparison on these columns is known: the throttle, the 48 h session
+    retention cleanup and the biometric per-rotation retry cap. A new one (an idle timeout,
     say) must account for the interval and be added here deliberately."""
     comparisons = set()
     pattern = re.compile(r"last_(seen|used)_at\s*(<|>|<=|>=)\s*[:?]|[<>]=?\s*\w*\.?last_(seen|used)_at")
@@ -216,8 +216,15 @@ def test_only_the_retention_cleanup_compares_bookkeeping_times():
             continue
         for line in file.read_text(errors="ignore").splitlines():
             if pattern.search(line) and not line.strip().startswith("#"):
-                comparisons.add(str(file.relative_to(_BACKEND)))
-    assert comparisons == {"core/dependencies.py", "modules/system/routes_config.py"}, comparisons
+                name = str(file.relative_to(_BACKEND))
+                if name == "modules/push/routes/biometric.py":
+                    assert "AuditLog.timestamp >= row.last_used_at" in line
+                comparisons.add(name)
+    assert comparisons == {
+        "core/dependencies.py", "modules/system/routes_config.py",
+        # BiometricToken.last_used_at is written at rotation and never throttled.
+        "modules/push/routes/biometric.py",
+    }, comparisons
     from core import dependencies
     # Worst-case staleness (the maximum interval) stays inside the 48 h idle cutoff.
     assert dependencies._MAX_LAST_SEEN_INTERVAL_SECONDS < 48 * 3600
