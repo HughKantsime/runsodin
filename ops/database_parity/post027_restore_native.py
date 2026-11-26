@@ -116,6 +116,46 @@ engine.dispose()
 '''
 
 
+RELEASED065_ARCHIVE_SOURCE = '''
+import importlib,json,os,sys
+import core
+from sqlalchemy import text
+from core.database_config import create_database_engine
+from core.schema import bootstrap_database
+from core.schema.bootstrap import POST027_MIGRATIONS
+
+assert core.__file__.startswith(sys.argv[1]) and '/preserved' not in core.__file__,core.__file__
+assert [mid for mid,_ in POST027_MIGRATIONS[-3:]] == [
+    'python:063-mfa-recovery-codes', 'python:064-mfa-code-attempts', 'python:065-mfa-last-totp-step',
+]
+engine = create_database_engine(os.environ['DATABASE_URL'],role='restore',password_file=os.environ['DATABASE_PASSWORD_FILE'])
+bootstrap_database(engine)
+with engine.begin() as c:
+    c.execute(text("INSERT INTO system_config(key,value) VALUES('historical_marker',:v)"), {'v':json.dumps('source65')})
+    c.execute(text("INSERT INTO users(id,username,password_hash,role,mfa_last_totp_step) "
+                   "VALUES(990650,'released065','fixture','viewer',990065)"))
+    c.execute(text("INSERT INTO mfa_recovery_codes(id,user_id,code_salt,code_hash,created_at,used_at) "
+                   "VALUES(1,990650,:salt1,:hash1,CURRENT_TIMESTAMP,NULL),"
+                   "(2,990650,:salt2,:hash2,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)"),
+              {'salt1':'a'*32, 'hash1':'b'*64, 'salt2':'c'*32, 'hash2':'d'*64})
+    c.execute(text("INSERT INTO mfa_code_attempts(user_id,failure_times) VALUES(990650,'[100,101]')"))
+    for name in ('063_mfa_recovery_codes', '064_mfa_code_attempts', '065_mfa_last_totp_step'):
+        importlib.import_module('core.schema.migrations.' + name).validate(c)
+    print(json.dumps(sorted(row[0] for row in c.execute(text('SELECT migration_id FROM odin_schema_migrations')))))
+engine.dispose()
+'''
+
+
+def verify_released065_data(connection):
+    from sqlalchemy import text
+
+    assert connection.execute(text("SELECT mfa_last_totp_step FROM users WHERE id=990650")).scalar_one() == 990065
+    assert connection.execute(text("SELECT failure_times FROM mfa_code_attempts WHERE user_id=990650")).scalar_one() == '[100,101]'
+    rows = connection.execute(text("SELECT id, code_salt, code_hash, used_at IS NOT NULL "
+                                   "FROM mfa_recovery_codes WHERE user_id=990650 ORDER BY id")).all()
+    assert rows == [(1, 'a'*32, 'b'*64, False), (2, 'c'*32, 'd'*64, True)]
+
+
 def main():
     with tempfile.TemporaryDirectory(prefix='post027-owned-') as folder:
         root = Path(folder); root.chmod(0o700)
@@ -364,6 +404,46 @@ def main():
         assert not list(backups.glob('.odin-preserved062-*')) and not list(backups.glob('.odin-upgraded029-*'))
         assert not list(restore_artifacts.journal_dir(backups).glob('.odin-preserved062-*'))
         print('post027-native-released062-independent-archive-frozen-stage-validated-staged-applied-filament-evidence-and-humidity-preserved-no-leftovers-pass', flush=True)
+
+        # Build the 2.7.0 archive independently of the bundle that must read it.
+        from core.schema import preserved065
+        released065 = os.environ['POST027_RELEASED065_SOURCE']
+        fresh('post027_released065').dispose()
+        db065 = server + '/post027_released065'
+        env065 = {**os.environ, 'DATABASE_URL': db065, 'PYTHONPATH': released065, 'PYTHONDONTWRITEBYTECODE': '1'}
+        made065 = subprocess.run([sys.executable, '-c', RELEASED065_ARCHIVE_SOURCE, released065],
+                                 cwd=root, env=env065, capture_output=True, text=True, timeout=600)
+        assert made065.returncode == 0, made065.stderr[-4000:]
+        ledger065 = set(json.loads(made065.stdout.strip().splitlines()[-1]))
+        assert ledger065 == preserved065.ledger_ids()
+        archive065 = root / 'released065.dump'
+        b._run_pg_tool(['pg_dump', '--format=custom', '--schema', 'public', '--no-owner', '--no-privileges',
+                        '--no-comments', '--file', str(archive065), '--dbname', db065], maintenance, str(credential), root)
+        sha065 = b._sha256(archive065)
+        routing = patch.object(stage, 'identify_contract', identify_future) if ledger065 >= set(post_ids) else nullcontext()
+        with routing:
+            assert stage.identify_contract(archive065, target, str(credential), root) is stage.PRESERVED065
+            before = marker()
+            metadata = b.validate_postgres_restore(archive065, target, maintenance, **args)
+            assert metadata['sha256'] == sha065 and metadata['source_schema_version'] == 65
+            assert metadata['prepared_schema_version'] == current_era and marker() == before
+            staged = b.stage_postgres_restore(archive065, target, maintenance, **args)
+            assert staged['candidate_sha256'] == sha065
+            release_sessions(engine)
+            result = b.apply_pending_postgres_restore(target, maintenance, acknowledgement=sha065, **args)
+            assert result['status'] == 'restored' and marker() == 'source65'
+        with engine.connect() as c:
+            assert set(c.execute(text('SELECT migration_id FROM odin_schema_migrations')).scalars()) == ledger065 | set(post_ids)
+            verify_released065_data(c)
+            for name in ('063_mfa_recovery_codes', '064_mfa_code_attempts', '065_mfa_last_totp_step'):
+                importlib.import_module('core.schema.migrations.'+name).validate(c)
+            validate_executables(c)
+        again065 = bootstrap_database(engine)
+        assert again065['applied'] == [] and bootstrap_database(engine)['schema_fingerprint'] == again065['schema_fingerprint']
+        assert b._sha256(archive065) == sha065 and leftover() == 0
+        assert not list(backups.glob('.odin-preserved065-*')) and not list(backups.glob('.odin-upgraded029-*'))
+        assert not list(restore_artifacts.journal_dir(backups).glob('.odin-preserved065-*'))
+        print('post027-native-released065-independent-archive-frozen-stage-validated-staged-applied-mfa-data-preserved-no-leftovers-pass', flush=True)
 
         # Release 2.2.0 writes an independent archive, then exercises the frozen 057 stage.
         # Before a later migration ships, simulate a future registry only for identification;
@@ -761,7 +841,7 @@ def main():
         preserved029.integrity.check_package()
         with admin.connect() as c:
             assert c.execute(text("SELECT count(*) FROM pg_database WHERE datname LIKE 'odin_validate_%'")).scalar_one() == 0
-            for name in ('post027_target', 'post027_fresh', 'post027_released', 'post027_released056', 'post027_released057', 'post027_released060', 'post027_released062', 'post027_published034', 'post027_baseline_target', 'post027_baseline'):c.exec_driver_sql('DROP DATABASE IF EXISTS ' + name + ' WITH (FORCE)')
+            for name in ('post027_target', 'post027_fresh', 'post027_released', 'post027_released056', 'post027_released057', 'post027_released060', 'post027_released062', 'post027_released065', 'post027_published034', 'post027_baseline_target', 'post027_baseline'):c.exec_driver_sql('DROP DATABASE IF EXISTS ' + name + ' WITH (FORCE)')
         admin.dispose()
     print('post027-native-pass', flush=True)
 

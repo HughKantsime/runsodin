@@ -1,0 +1,468 @@
+"""
+modules/printers/schemas.py — Pydantic schemas for the printers domain.
+"""
+
+from datetime import datetime
+from typing import Literal, Optional, List
+from pydantic import StrictBool, StrictInt, BaseModel, Field, ConfigDict, computed_field, field_validator, field_serializer, model_serializer, model_validator
+
+from core.base import FilamentType
+from modules.printers.services import check_bambu_create_count
+
+
+# ============== Filament Slot Schemas ==============
+
+class FilamentSlotBase(BaseModel):
+    slot_number: int = Field(..., ge=1)  # No upper bound — Bambu virtual trays use 513+
+    filament_type: FilamentType = FilamentType.PLA
+    color: Optional[str] = None
+    color_hex: Optional[str] = None
+    spoolman_spool_id: Optional[int] = None
+    assigned_spool_id: Optional[int] = None
+    spool_confirmed: Optional[bool] = None
+
+
+class FilamentSlotCreate(FilamentSlotBase):
+    @field_validator("filament_type", mode="before")
+    @classmethod
+    def exact_material_label(cls, value):
+        if isinstance(value, str) and value in {
+            "ASA-AERO", "ASA-CF", "PET-CF", "PPA-CF", "PPS-CF", "TPU-AMS"
+        }:
+            return FilamentType.from_bambu_code(value)
+        return value
+
+
+class FilamentSlotUpdate(BaseModel):
+    @field_validator("filament_type", mode="before")
+    @classmethod
+    def exact_material_label(cls, value):
+        if isinstance(value, str) and value in {
+            "ASA-AERO", "ASA-CF", "PET-CF", "PPA-CF", "PPS-CF", "TPU-AMS"
+        }:
+            return FilamentType.from_bambu_code(value)
+        return value
+
+    do_not_feed: Optional[StrictBool] = None
+    do_not_feed_note: Optional[str] = Field(default=None, max_length=200)
+
+    @model_validator(mode="after")
+    def feed_policy(self):
+        if "do_not_feed" in self.model_fields_set and self.do_not_feed is None:
+            raise ValueError("do_not_feed must be a boolean")
+        return self
+
+    filament_type: Optional[FilamentType] = None
+    color: Optional[str] = None
+    color_hex: Optional[str] = None
+    spoolman_spool_id: Optional[int] = None
+    assigned_spool_id: Optional[int] = None
+    spool_confirmed: Optional[bool] = None
+
+
+class FilamentSlotResponse(FilamentSlotBase):
+    catalogue_name: Optional[str] = None
+    catalogue_choices: list[dict] = Field(default_factory=list)
+    do_not_feed: bool = False
+    do_not_feed_note: Optional[str] = None
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    printer_id: int
+    loaded_at: Optional[datetime] = None
+    remaining: Optional[float] = None
+    remaining_weight: Optional[float] = None  # grams left on the assigned spool
+    spool_change_pending: bool = False
+    observed_state: Optional[str] = None
+    rack_filament: Optional[dict] = None
+    preset_id: Optional[str] = None
+    preset: Optional[str] = None
+    brand: Optional[str] = None
+    material_type: Optional[str] = None
+    display_name: Optional[str] = None
+    mapping_status: Optional[str] = None
+    external_spool_id: Optional[str | int] = None
+
+    @model_serializer(mode='wrap')
+    def _reported_preset_id(self, serialize):
+        values = serialize(self)
+        if self.preset_id is None:
+            values.pop('preset_id', None)
+        return values
+
+    @model_validator(mode='before')
+    @classmethod
+    def _slot_spool_grams(cls, data):
+        """From a FilamentSlot row: add the assigned spool's remaining grams."""
+        if isinstance(data, dict) or not hasattr(data, 'assigned_spool'):
+            return data
+        values = {name: getattr(data, name) for name in cls.model_fields if name != 'remaining_weight' and hasattr(data, name)}
+        spool = data.assigned_spool
+        from core.tray_identity import preset_label
+        from core.display_json import display_object
+        from modules.printers.printer_models import is_h3c_printer, rack_model_identity
+        observation = display_object(data.tray_observation)
+        state = observation or {}
+        rack = is_h3c_printer(data.printer)
+        identified = rack and rack_model_identity(data.printer.model, getattr(data.printer, 'machine_type', None))
+        if identified:
+            reading = (display_object(state.get('rack_filament_sources')) or {}).get('vir_slot', {})
+            if isinstance(reading, dict) and (reading.get('type') or reading.get('preset') or
+                                              reading.get('color') not in (None, '', '00000000')):
+                values['rack_filament'] = {**reading, 'id': 256 - data.slot_number}
+            if state.get('ams_unit') == 32:
+                values['preset_id'] = (display_object(state.get('observed')) or {}).get('preset') or None
+            else:
+                state = {}  # Old fixed-printer confirmations are unrelated to these positions.
+        if rack and not identified:
+            if isinstance(state.get('rack_filament'), dict):
+                values['rack_filament'] = {**state['rack_filament'], 'source': 'printer'}
+            state = {}  # Rack readings do not participate in ODIN spool confirmation.
+            values['spool_change_pending'] = False
+        else:
+            values['spool_change_pending'] = bool(data.tray_observation and observation is None) or state.get('pending', False)
+        values['observed_state'] = state.get('id')
+        # A missing initial weight prevents a percentage, not a known gram
+        # balance on an operator-managed non-Bambu spool (spec item 1).
+        unknown_bambu = data.printer and data.printer.api_type == 'bambu' and data.remaining is None
+        values['remaining_weight'] = float(spool.remaining_weight_g) if not unknown_bambu and spool is not None and spool.remaining_weight_g is not None else None
+        observed = state.get('observed', {})
+        if state and isinstance(observed, dict):
+            values['preset'] = preset_label(state) if all(
+                observed.get(key) is None or isinstance(observed[key], str)
+                for key in ('type', 'sub_brand')) else None
+            values['brand'] = spool.filament.brand if spool and spool.filament else None
+            values['color'] = f'{spool.filament.brand} {spool.filament.name}'.strip() if spool and spool.filament else values['preset']
+            if observed.get('exists') is False:
+                values.update(color=None, brand=None, preset=None)
+        return values
+
+
+# ============== Printer Schemas ==============
+
+class PrinterBase(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    model: Optional[str] = None
+    slot_count: int = Field(default=4, ge=1, le=16)
+    is_active: bool = True
+    api_type: Optional[str] = None
+    api_host: Optional[str] = None
+    # api_key is intentionally excluded — write-only credential, never returned in responses
+    camera_url: Optional[str] = None
+    nickname: Optional[str] = None
+    ace_status: Optional[str] = None
+    # Live telemetry
+    bed_temp: Optional[float] = None
+    bed_target_temp: Optional[float] = None
+    nozzle_temp: Optional[float] = None
+    nozzle_target_temp: Optional[float] = None
+    gcode_state: Optional[str] = None
+    print_stage: Optional[str] = None
+    hms_errors: Optional[str] = None
+    lights_on: Optional[bool] = None
+    installed_nozzles: Optional[list[dict]] = None
+    nozzle_type: Optional[str] = None
+    nozzle_diameter: Optional[float] = None
+    fan_speed: Optional[int] = None
+    bed_x_mm: Optional[float] = None
+    bed_y_mm: Optional[float] = None
+    last_seen: Optional[datetime] = None
+    # Care counters (universal)
+    total_print_hours: Optional[float] = None
+    total_print_count: Optional[int] = None
+    hours_since_maintenance: Optional[float] = None
+    prints_since_maintenance: Optional[int] = None
+    # Error tracking (universal)
+    last_error_code: Optional[str] = None
+    last_error_message: Optional[str] = None
+    last_error_at: Optional[datetime] = None
+    # Camera auto-discovery
+    camera_discovered: Optional[bool] = None
+    # Tags
+    tags: List[str] = []
+    # Timelapse
+    timelapse_enabled: bool = False
+    # Machine type (H2D, X1C, P1S, etc.)
+    machine_type: Optional[str] = None
+
+
+class PrinterCreate(PrinterBase):
+    api_key: Optional[str] = None  # Write-only credential
+    initial_slots: Optional[List[FilamentSlotCreate]] = None
+    shared: bool = False
+
+    _check_bambu_count = model_validator(mode='before')(check_bambu_create_count)
+
+    @model_validator(mode='after')
+    def default_bambu_bed(self):
+        from modules.printers.printer_models import BAMBU_BEDS, bambu_model_name
+        dims = BAMBU_BEDS.get(bambu_model_name(self.model)) if self.api_type == 'bambu' else None
+        if dims and self.bed_x_mm is None and self.bed_y_mm is None:
+            self.bed_x_mm, self.bed_y_mm = dims
+        return self
+
+
+class PrinterUpdate(BaseModel):
+    name: Optional[str] = None
+    model: Optional[str] = None
+    slot_count: Optional[int] = Field(default=None, ge=1, le=256)
+    is_active: Optional[bool] = None
+    api_type: Optional[str] = None
+    api_host: Optional[str] = None
+    api_key: Optional[str] = None
+    camera_url: Optional[str] = None
+    nickname: Optional[str] = None
+    tags: Optional[List[str]] = None
+    timelapse_enabled: Optional[bool] = None
+    shared: Optional[bool] = None
+    bed_x_mm: Optional[float] = None
+    bed_y_mm: Optional[float] = None
+
+
+class PrinterMaintenance(BaseModel):
+    state: Literal['ok', 'warn', 'hold'] = 'ok'
+    note: str = ''
+    set_by: Optional[int] = None
+    set_by_name: Optional[str] = None
+    set_at: Optional[str] = None
+
+
+class PlateClearConfirmation(BaseModel):
+    """Omitted fields preserve legacy presses; hidden-job readers confirm presence only."""
+    model_config = ConfigDict(extra='forbid')
+    expected_release_job_id: Optional[StrictInt] = None
+    expected_has_waiting_job: StrictBool = False
+
+
+class PlateClearJob(BaseModel):
+    id: int
+    name: str
+
+
+class PlateClearState(BaseModel):
+    needed: bool
+    has_waiting_job: bool
+    releases_job: Optional[PlateClearJob] = None
+    last_print_ended_at: Optional[datetime] = None
+
+
+class PendingControl(BaseModel):
+    action: Literal["pause", "resume", "stop"]
+    sent_at: datetime
+    deadline_at: datetime
+
+
+class PrinterResponse(PrinterBase):
+    mc_percent: Optional[float] = None
+    mc_remaining_time: Optional[float] = None
+    layer_num: Optional[int] = None
+    total_layer_num: Optional[int] = None
+    speed_level: Optional[int] = None
+    speed_percent: Optional[float] = None
+    telemetry_at: Optional[datetime] = None
+
+    @field_serializer('telemetry_at')
+    def _telemetry_timestamp(self, value):
+        return value.isoformat(timespec='microseconds').replace('+00:00', 'Z') if value else None
+
+    training_warnings: list[str] = Field(default_factory=list)
+    hms_model_prefix: str = Field(default='', exclude=True)
+
+    @field_serializer('hms_errors')
+    def _active_hms(self, value):
+        import json
+        from modules.printers.hms_codes import display_hms_errors
+        from core.hms_state import display_entries
+        try:
+            stored = json.loads(value or '[]')
+            if not isinstance(stored, list):
+                return '[]' if self.api_type == 'bambu' else value
+            entries = display_entries(stored)
+            if self.api_type != 'bambu':
+                return value if entries == stored else json.dumps(entries)
+            return json.dumps(display_hms_errors(entries, self.hms_model_prefix))
+        except (ValueError, KeyError, TypeError):
+            return '[]' if self.api_type == 'bambu' else value
+
+    feeding_slot: Optional[int] = None
+    chamber_temp: Optional[float] = None
+    plate_clear_confirmed_at: Optional[datetime] = None
+    plate_clear: Optional[PlateClearState] = None
+    @field_serializer('print_stage')
+    def _pause_stage_text(self, value):
+        from modules.printers.monitors.pause_cause import display_stage
+        return display_stage(value, self.hms_model_prefix) if self.gcode_state == 'PAUSE' else value
+
+    current_print_display_name: Optional[str] = None
+    maintenance: PrinterMaintenance = Field(default_factory=PrinterMaintenance)
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    created_at: Optional[datetime]
+    updated_at: datetime
+    filament_slots: List[FilamentSlotResponse] = []
+    filament_source: Optional[str] = None
+    filament_source_status: Optional[str] = None
+    loaded_colors: List[str] = []
+    tags: List[str] = []
+    shared: bool = False
+    org_id: Optional[int] = None
+    has_api_key: bool = False  # Safe boolean — never exposes the actual credential
+    # NULL is reported as disabled: go2rtc and /cameras only stream TRUE.
+    camera_enabled: bool = True
+    # camera_url is the camera actually streamed: the configured URL, or the one
+    # generated from credentials (Bambu RTSPS or a credential-free chamber marker). Always masked.
+    camera_source: Optional[str] = None  # 'configured' | 'auto' | None
+    # Job sending and controls on an Experimental printer type are off until a superadmin opts the printer in.
+    experimental_actions_enabled: bool = False
+
+    unidentified_rack: bool = False
+    pending_control: Optional[PendingControl] = None
+
+    @computed_field
+    @property
+    def unproven_controls(self) -> List[str]:
+        from modules.printers.support_levels import control_proof
+        return [a for a in ("pause", "resume", "stop") if control_proof(self, a) == "unproven"]
+
+    @computed_field
+    @property
+    def unavailable_controls(self) -> List[str]:
+        from modules.printers.support_levels import control_proof
+        return [a for a in ("pause", "resume", "stop") if control_proof(self, a) == "not_working"]
+
+    @computed_field
+    @property
+    def support_level(self) -> Optional[str]:
+        """'supported' | 'experimental' | 'unsupported'; None for a manual printer."""
+        from modules.printers.support_levels import support_level as level_of
+        return level_of(self.api_type)
+
+    @computed_field
+    @property
+    def support_source(self) -> Optional[str]:
+        from modules.printers.printer_models import identified_h3c
+        from modules.printers.support_levels import support_source
+        return support_source(self.api_type, h3c=self.api_type == 'bambu' and not self.unidentified_rack and identified_h3c(self))
+
+    @model_validator(mode='before')
+    @classmethod
+    def _effective_camera(cls, data):
+        """From a Printer row: report the effective camera and where it comes from."""
+        if isinstance(data, dict) or not hasattr(data, 'api_type'):
+            return data
+        from modules.printers.route_utils import effective_camera_url
+        values = {name: getattr(data, name) for name in cls.model_fields if name != 'camera_source' and hasattr(data, name)}
+        from modules.printers.printer_models import identified_h3c, is_h3c_printer
+        rack = is_h3c_printer(data)
+        if rack or values.get('installed_nozzles'):
+            from modules.printers.nozzle_capability import display_nozzles
+            values['installed_nozzles'] = display_nozzles(values.get('installed_nozzles'), rack=rack)
+        if rack:
+            values['unidentified_rack'] = not identified_h3c(data)
+            values['model'] = 'H3C'
+        url = effective_camera_url(data)
+        from modules.printers.bambu_hms_bundle import credential_prefix
+        values['hms_model_prefix'] = credential_prefix(getattr(data, 'api_key', None)) if data.api_type == 'bambu' else ''
+        values['camera_url'] = url
+        values['camera_source'] = None if not url else ('configured' if data.camera_url else 'auto')
+        return values
+
+    @field_validator('camera_enabled', mode='before')
+    @classmethod
+    def _camera_enabled_flag(cls, v):
+        return bool(v)
+
+    @field_validator('camera_url', mode='before')
+    @classmethod
+    def _sanitize_camera_url(cls, v):
+        """Strip credentials from RTSP camera URLs before returning to clients.
+
+        Credentialed URLs are stored Fernet-encrypted; decrypt first so the
+        client gets ``rtsp://***@host/...`` rather than ciphertext.
+        """
+        from modules.printers.route_utils import masked_camera_url
+        return masked_camera_url(v)
+
+
+class PrinterSummary(BaseModel):
+    """Lighter printer response for lists."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    model: Optional[str] = None
+    is_active: bool
+    loaded_colors: List[str] = []
+
+
+# ============== Nozzle Lifecycle Schemas ==============
+
+class NozzleLifecycleBase(BaseModel):
+    nozzle_type: Optional[str] = None
+    nozzle_diameter: Optional[float] = None
+    notes: Optional[str] = None
+
+
+class NozzleInstall(NozzleLifecycleBase):
+    nozzle_type: Optional[str] = Field(default=None, max_length=20)
+    nozzle_diameter: Optional[float] = Field(default=None, gt=0, allow_inf_nan=False)
+
+    @field_validator("nozzle_diameter", mode="before")
+    @classmethod
+    def reject_boolean_diameter(cls, value):
+        if isinstance(value, bool):
+            raise ValueError("Nozzle diameter must be a positive finite number")
+        return value
+
+
+class NozzleLifecycleResponse(NozzleLifecycleBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    printer_id: int
+    installed_at: datetime
+    removed_at: Optional[datetime] = None
+    print_hours_accumulated: Optional[float] = 0
+    print_count: Optional[int] = 0
+
+
+# ============== Telemetry Schemas ==============
+
+class TelemetryDataPoint(BaseModel):
+    recorded_at: datetime
+    bed_temp: Optional[float] = None
+    nozzle_temp: Optional[float] = None
+    bed_target: Optional[float] = None
+    nozzle_target: Optional[float] = None
+    fan_speed: Optional[int] = None
+
+
+class HmsErrorHistoryEntry(BaseModel):
+    id: int
+    printer_id: int
+    code: str
+    message: Optional[str] = None
+    severity: str = "warning"
+    source: str = "bambu_hms"
+    occurred_at: datetime
+
+
+# ============== Spoolman Integration ==============
+
+class SpoolmanSpool(BaseModel):
+    """Spool data from Spoolman API."""
+    id: int
+    filament_name: str
+    filament_type: str
+    color_name: Optional[str] = None
+    color_hex: Optional[str] = None
+    remaining_weight: Optional[float] = None
+
+
+class SpoolmanSyncResult(BaseModel):
+    """Result of syncing with Spoolman."""
+    success: bool
+    spools_found: int
+    slots_updated: int
+    message: str

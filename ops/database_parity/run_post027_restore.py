@@ -71,7 +71,7 @@ def prove(root, staging, source, name, prefix, baseline, receipt):
         if (root / relative).is_file():
             shutil.copy2(root / relative, target)
     # Released sources come from Git objects, independent of each bundle under proof.
-    for era in ('056', '057', '060', '062'):
+    for era in ('056', '057', '060', '062', '065'):
         receipt['released'+era+'_commit'] = json.loads((root / ('backend/core/schema/preserved'+era+'/manifest.json')).read_text())['source_commit']
         released = source / ('released'+era)
         released.mkdir(parents=True)
@@ -138,7 +138,8 @@ def prove(root, staging, source, name, prefix, baseline, receipt):
         '-e', 'POST027_RELEASED056_SOURCE=/source/released056/backend',
         '-e', 'POST027_RELEASED057_SOURCE=/source/released057/backend',
         '-e', 'POST027_RELEASED060_SOURCE=/source/released060/backend',
-        '-e', 'POST027_RELEASED062_SOURCE=/source/released062/backend', receipt['candidate_image'],
+        '-e', 'POST027_RELEASED062_SOURCE=/source/released062/backend',
+        '-e', 'POST027_RELEASED065_SOURCE=/source/released065/backend', receipt['candidate_image'],
         '-c', 'exec runuser -u odin -- python /source/ops/database_parity/post027_restore_native.py'],
         text=True, capture_output=True, timeout=5400)
     log = staging / 'post027-restore-native-stdout.log'

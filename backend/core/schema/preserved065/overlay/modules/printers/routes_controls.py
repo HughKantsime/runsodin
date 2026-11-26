@@ -1,0 +1,527 @@
+"""Printer control routes — stop, pause, resume, lights, speed, fans, clear-errors, skip-objects, plate-cleared."""
+
+import asyncio
+import logging
+import time
+
+from fastapi import Body, APIRouter, Depends, HTTPException, Request
+from sqlalchemy import text
+from sqlalchemy.orm import Session
+
+from core.db import get_db
+from core.errors import ErrorCode, OdinError
+from core.middleware.dry_run import dry_run_preview, is_dry_run
+from core.rbac import (
+    require_action,
+    AGENT_WRITE_SCOPE,
+    check_org_access,
+    require_any_scope,
+    require_role,
+)
+from core.responses import build_next_actions, next_action
+import core.crypto as crypto
+from modules.printers.models import Printer
+from modules.printers.moonraker_controls import send_control
+from modules.printers.schemas import PlateClearConfirmation, PlateClearState
+from modules.printers.route_utils import _send_printer_command, _bambu_command_direct
+from modules.printers.resume_guard import resume_refusal
+
+log = logging.getLogger("odin.api")
+router = APIRouter()
+
+
+# ====================================================================
+# Printer Commands (Stop / Pause / Resume)
+# ====================================================================
+
+async def _moonraker_control(db, printer, action, actor):
+    from contextlib import nullcontext
+    from core.audit_actor_handoff import capture_request_actor
+    bind = db.get_bind().engine
+    bind_actor = capture_request_actor(db)
+    db.expunge(printer)
+    db.rollback()
+
+    def send():
+        with Session(bind) as worker, bind_actor(worker) if bind_actor else nullcontext():
+            return send_control(worker, printer, action, actor)
+
+    return await asyncio.to_thread(send)
+
+
+@router.post("/printers/{printer_id}/stop", tags=["Printers"])
+async def stop_printer(printer_id: int, current_user: dict = Depends(require_action("printers.edit", scope="write:printers")), db: Session = Depends(get_db)):
+    """Emergency stop - cancel current print."""
+    printer = db.query(Printer).filter(Printer.id == printer_id).first()
+    if not printer:
+        raise HTTPException(status_code=404, detail="Printer not found")
+    if not check_org_access(current_user, printer.org_id):
+        raise HTTPException(status_code=404, detail="Printer not found")
+
+    from core.audit import log_audit
+    audit_details = {"actor_token_id": current_user.get("_token_id")}
+    if printer.api_type == "moonraker":
+        return await _moonraker_control(db, printer, "stop", current_user)
+    if _send_printer_command(printer, "stop_print"):
+        db.execute(text("UPDATE printers SET gcode_state = 'IDLE', print_stage = 'Idle' WHERE id = :id"), {"id": printer_id})
+        log_audit(db, "printer.stop_requested", "printer", printer_id, audit_details)
+        db.commit()
+        return {"success": True, "message": "Print stopped"}
+    log_audit(db, "printer.stop_failed", "printer", printer_id, audit_details)
+    db.commit()
+    raise HTTPException(status_code=503, detail="Printer unreachable or command failed")
+
+
+@router.post("/printers/{printer_id}/pause", tags=["Printers"])
+async def pause_printer(
+    printer_id: int,
+    request: Request,
+    # Stacked auth (Phase 2 canonical pattern — see
+    # conductor/tracks/agent-native-phase2-safety_20260415/spec.md R3):
+    #   * require_action("printers.edit") (the role matrix; operators by
+    #     default) is the authoritative gate for JWT /
+    #     cookie sessions. require_any_scope bypasses non-token auth
+    #     entirely (core/rbac.py:193-196), so dropping the role dep
+    #     would let any authenticated JWT — including viewers — pause
+    #     printers. That is the regression Phase 2 spec revision caught.
+    #   * require_any_scope enforces the allowed token scopes
+    #     after the role check for per-user tokens.
+    # BOTH must be present. Do not "simplify" to one.
+    current_user: dict = Depends(require_action("printers.edit")),
+    _agent_scope: dict = Depends(require_any_scope("admin", AGENT_WRITE_SCOPE, "write:printers")),
+    db: Session = Depends(get_db),
+):
+    """Pause current print.
+
+    Agent-surface (v1.8.9 Phase 2):
+      - Requires printers.edit and, for tokens, admin, agent:write or write:printers.
+      - Honors `X-Dry-Run: true` — returns a preview without touching MQTT or DB.
+      - Emits `next_actions` on success so agents can chain verification.
+    """
+    printer = db.query(Printer).filter(Printer.id == printer_id).first()
+    if not printer or not check_org_access(current_user, printer.org_id):
+        raise OdinError(
+            ErrorCode.printer_not_found,
+            f"Printer {printer_id} not found",
+            status=404,
+        )
+
+    if is_dry_run(request):
+        return dry_run_preview(
+            would_execute={
+                "action": "pause_print",
+                "printer_id": printer_id,
+                "printer_name": printer.name,
+                "current_gcode_state": printer.gcode_state,
+                "target_gcode_state": "PAUSED",
+            },
+            next_actions=[
+                next_action(
+                    "get_printer",
+                    {"printer_id": printer_id},
+                    "verify paused state",
+                ),
+                next_action(
+                    "resume_printer",
+                    {"printer_id": printer_id},
+                    "when ready to continue",
+                ),
+            ],
+            notes="Would send MQTT pause_print command; no DB or printer side effects.",
+        )
+
+    from core.audit import log_audit
+    audit_details = {"actor_token_id": current_user.get("_token_id")}
+    if printer.api_type == "moonraker":
+        receipt = await _moonraker_control(db, printer, "pause", current_user)
+        if receipt["outcome"] == "confirmed":
+            receipt["state"] = "PAUSED"
+    else:
+        if not _send_printer_command(printer, "pause_print"):
+            log_audit(db, "printer.pause_failed", "printer", printer_id, audit_details)
+            db.commit()
+            raise OdinError(
+                ErrorCode.upstream_unavailable,
+                "Printer unreachable or command failed",
+                status=503,
+                retriable=True,
+            )
+        db.execute(
+            text("UPDATE printers SET gcode_state = 'PAUSED' WHERE id = :id"),
+            {"id": printer_id},
+        )
+        log_audit(db, "printer.pause_requested", "printer", printer_id, audit_details)
+        db.commit()
+        receipt = {"success": True, "message": "Print paused", "state": "PAUSED"}
+    return {
+        **receipt,
+        "printer_id": printer_id,
+        "next_actions": build_next_actions(
+            next_action(
+                "get_printer",
+                {"printer_id": printer_id},
+                "confirm paused state",
+            ),
+            next_action(
+                "resume_printer",
+                {"printer_id": printer_id},
+                "when ready to continue",
+            ),
+        ),
+    }
+
+
+@router.post("/printers/{printer_id}/resume", tags=["Printers"])
+async def resume_printer(
+    printer_id: int,
+    request: Request,
+    # Stacked auth — see pause_printer above for rationale. BOTH deps required.
+    # write:printers is accepted too: it already holds clear-errors, speed, fan and stop here.
+    current_user: dict = Depends(require_action("printers.edit")),
+    _agent_scope: dict = Depends(require_any_scope("admin", AGENT_WRITE_SCOPE, "write:printers")),
+    db: Session = Depends(get_db),
+):
+    """Resume paused print.
+
+    Agent-surface (v1.9.0 Phase 2):
+      - Accepts JWT operator role OR an `agent:write` or `write:printers` scoped token.
+      - Honors `X-Dry-Run: true` — returns preview without MQTT or DB write.
+      - Requires human review for non-interactive resumes over faults/detections.
+      - Emits `next_actions` on success. Pause accepts the same scopes as resume.
+    """
+    printer = db.query(Printer).filter(Printer.id == printer_id).first()
+    if not printer or not check_org_access(current_user, printer.org_id):
+        raise OdinError(
+            ErrorCode.printer_not_found,
+            f"Printer {printer_id} not found",
+            status=404,
+        )
+
+    from core.audit import log_audit
+    refusal = resume_refusal(db, printer, current_user)
+    if refusal:
+        if not is_dry_run(request):
+            log_audit(db, "printer.resume_refused", "printer", printer_id,
+                      {"actor_token_id": current_user.get("_token_id"), "reason": refusal.value})
+            db.commit()
+        raise OdinError(
+            refusal,
+            "A person must review the printer and resume it from the ODIN web app.",
+            status=409,
+        )
+
+    if is_dry_run(request):
+        return dry_run_preview(
+            would_execute={
+                "action": "resume_print",
+                "printer_id": printer_id,
+                "printer_name": printer.name,
+                "current_gcode_state": printer.gcode_state,
+                "target_gcode_state": "RUNNING",
+            },
+            next_actions=build_next_actions(
+                next_action(
+                    "get_printer",
+                    {"printer_id": printer_id},
+                    "verify running state",
+                ),
+                next_action(
+                    "pause_printer",
+                    {"printer_id": printer_id},
+                    "if mid-print intervention needed",
+                ),
+            ),
+            notes="Would send MQTT resume_print command; no DB or printer side effects.",
+        )
+
+    # The audit row's actor columns name the user; only the token id is extra.
+    audit_details = {"actor_token_id": current_user.get("_token_id")}
+    if printer.api_type == "moonraker":
+        receipt = await _moonraker_control(db, printer, "resume", current_user)
+        if receipt["outcome"] == "confirmed":
+            receipt["state"] = "RUNNING"
+    else:
+        if not _send_printer_command(printer, "resume_print"):
+            # A failed send may still have reached the printer, so it leaves a trace.
+            log_audit(db, "printer.resume_failed", "printer", printer_id, audit_details)
+            db.commit()
+            raise OdinError(
+                ErrorCode.upstream_unavailable,
+                "Printer unreachable or command failed",
+                status=503,
+                retriable=True,
+            )
+        db.execute(
+            text("UPDATE printers SET gcode_state = 'RUNNING' WHERE id = :id"),
+            {"id": printer_id},
+        )
+        # Accepted by the transport, not proof the printer resumed.
+        log_audit(db, "printer.resume_requested", "printer", printer_id, audit_details)
+        db.commit()
+        receipt = {"success": True, "message": "Print resumed", "state": "RUNNING"}
+    return {
+        **receipt,
+        "printer_id": printer_id,
+        "next_actions": build_next_actions(
+            next_action(
+                "get_printer",
+                {"printer_id": printer_id},
+                "confirm running state",
+            ),
+            next_action(
+                "pause_printer",
+                {"printer_id": printer_id},
+                "if intervention needed",
+            ),
+        ),
+    }
+
+
+# ====================================================================
+# Bambu-specific printer controls
+# ====================================================================
+
+@router.post("/printers/{printer_id}/clear-errors", tags=["Printers"])
+async def clear_printer_errors(printer_id: int, current_user: dict = Depends(require_action("printers.edit", scope="write:printers")), db: Session = Depends(get_db)):
+    """Clear HMS/print errors on a Bambu printer."""
+    printer = db.query(Printer).filter(Printer.id == printer_id).first()
+    if not printer:
+        raise HTTPException(status_code=404, detail="Printer not found")
+    if not check_org_access(current_user, printer.org_id):
+        raise HTTPException(status_code=404, detail="Printer not found")
+    if printer.api_type != "bambu":
+        raise HTTPException(status_code=400, detail="Clear errors is only supported on Bambu printers")
+    if _bambu_command_direct(printer, "clear_print_errors"):
+        return {"success": True, "message": "Error clear command sent"}
+    raise HTTPException(status_code=503, detail="Printer unreachable or command failed")
+
+
+@router.post("/printers/{printer_id}/skip-objects", tags=["Printers"])
+def skip_printer_objects(
+    printer_id: int,
+    body: object = Body(None),
+    current_user: dict = Depends(require_action("printers.edit", scope="write:printers")),
+    db: Session = Depends(get_db),
+):
+    """Send selected identify_id values once, fenced to the listed running print."""
+    from core.audit import log_audit
+    from modules.printers.print_objects import running_print_objects
+    from modules.printers.monitor_commands import request_command
+    from starlette.responses import JSONResponse
+    printer = db.query(Printer).filter(Printer.id == printer_id).first()
+    if not printer or not check_org_access(current_user, printer.org_id):
+        raise HTTPException(status_code=404, detail="Printer not found")
+    invalid = "Send print_job_id and object_ids exactly as the object list gave them (1 to 64 objects)."
+    if type(body) is not dict:
+        raise OdinError('invalid_request', invalid, status=422)
+    job_id, ids = body.get('print_job_id'), body.get('object_ids')
+    if (type(job_id) is not int or job_id <= 0 or type(ids) is not list or not 1 <= len(ids) <= 64
+            or any(not (type(i) is str and 1 <= len(i) <= 128 or type(i) is int and i >= 0) for i in ids)):
+        raise OdinError('invalid_request', invalid, status=422)
+    ids = [str(i) for i in ids]
+    if len(set(ids)) != len(ids):
+        raise OdinError('invalid_request', invalid, status=422)
+    listing = running_print_objects(db, printer, current_user)
+    if not listing['supported']:
+        error = OdinError(listing['reason_code'], listing['reason'], status=409)
+        if listing['retry_after_seconds'] is not None:
+            return JSONResponse(error.to_envelope(), status_code=409,
+                                headers={'Retry-After': str(listing['retry_after_seconds'])})
+        raise error
+    changed = 'The print on this printer has changed since the list was loaded. Reload the list and choose again.'
+    if job_id != listing['print']['print_job_id']:
+        raise OdinError('print_changed', changed, status=409)
+    objects = {o['id']: o for o in listing['objects']}
+    for identifier in ids:
+        if identifier not in objects:
+            raise OdinError('unknown_object', f'Object {identifier} is not in the running print. Reload the list and choose again.', status=422)
+    already = [i for i in ids if objects[i]['state'] == 'skipped']
+    pending = [i for i in ids if i not in already]
+    if not pending:
+        return dict(success=True, outcome='nothing_to_send', sent=[], already_skipped=already,
+                    message='That object is already skipped.' if len(already) == 1 else 'Those objects are already skipped.')
+    if len(pending) >= sum(o['state'] == 'printing' for o in objects.values()):
+        raise OdinError('would_skip_everything', 'That would skip every object left in this print. To end the print, use Stop.', status=409)
+    outcome = request_command(printer_id, 'skip_objects', print_job_id=job_id, object_ids=[int(i) for i in pending])
+    action = {'accepted': 'requested', 'unavailable': 'failed', 'refused': 'failed'}.get(outcome, 'unconfirmed')
+    unknown = 'ODIN could not confirm that the printer received the skip. Reload the object list before trying again.'
+    try:
+        log_audit(db, 'printer.skip_objects_' + action, 'printer', printer_id,
+                  dict(print_job_id=job_id, job_id=listing['print']['job_id'], source=listing['source'],
+                       object_ids=pending if outcome in ('accepted', 'unknown') else [],
+                       object_ids_not_sent=pending if outcome in ('unavailable', 'refused') else [],
+                       already_skipped=already, outcome=outcome, actor_token_id=current_user.get('_token_id')))
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise OdinError('outcome_unknown', unknown, status=503, retriable=False) from None
+    if outcome == 'unavailable':
+        raise OdinError('not_connected', 'ODIN is not connected to this printer right now, so nothing was sent. Check that the printer is online and try again.', status=503)
+    if outcome == 'refused':
+        raise OdinError('print_changed', changed, status=409)
+    if outcome != 'accepted':
+        raise OdinError('outcome_unknown', unknown, status=503, retriable=False)
+    return dict(success=True, outcome='accepted', sent=pending, already_skipped=already,
+                message=(f"Skip sent for {len(pending)} {'object' if len(pending) == 1 else 'objects'}. "
+                         f"{'It shows' if len(pending) == 1 else 'They show'} as skipped in the list once the printer confirms."))
+
+
+@router.post("/printers/{printer_id}/speed", tags=["Printers"])
+async def set_printer_speed(
+    printer_id: int,
+    body: dict,
+    current_user: dict = Depends(require_action("printers.edit", scope="write:printers")),
+    db: Session = Depends(get_db),
+):
+    """Set print speed on a Bambu printer. Body: {"speed": 2} (1=Silent, 2=Standard, 3=Sport, 4=Ludicrous)"""
+    printer = db.query(Printer).filter(Printer.id == printer_id).first()
+    if not printer:
+        raise HTTPException(status_code=404, detail="Printer not found")
+    if not check_org_access(current_user, printer.org_id):
+        raise HTTPException(status_code=404, detail="Printer not found")
+    if printer.api_type != "bambu":
+        raise HTTPException(status_code=400, detail="Speed control is only supported on Bambu printers")
+    speed = body.get("speed")
+    if type(speed) is not int or speed not in (1, 2, 3, 4):
+        raise HTTPException(status_code=422, detail="speed must be 1 (Silent), 2 (Standard), 3 (Sport), or 4 (Ludicrous)")
+    if _bambu_command_direct(printer, "set_print_speed", speed):
+        speed_names = {1: "Silent", 2: "Standard", 3: "Sport", 4: "Ludicrous"}
+        return {"success": True, "message": f"Speed set to {speed_names[speed]}"}
+    raise HTTPException(status_code=503, detail="Printer unreachable or command failed")
+
+
+# ====================================================================
+# Fan Speed Controls (Bambu)
+# ====================================================================
+
+@router.post("/printers/{printer_id}/fan", tags=["Printers"])
+async def set_fan_speed(
+    printer_id: int,
+    body: dict,
+    current_user: dict = Depends(require_action("printers.edit", scope="write:printers")),
+    db: Session = Depends(get_db),
+):
+    """Set fan speed on a Bambu printer.
+
+    Body: {"fan": "part_cooling"|"auxiliary"|"chamber", "speed": 0-255}
+    """
+    printer = db.query(Printer).filter(Printer.id == printer_id).first()
+    if not printer:
+        raise HTTPException(status_code=404, detail="Printer not found")
+    if not check_org_access(current_user, printer.org_id):
+        raise HTTPException(status_code=404, detail="Printer not found")
+    if printer.api_type != "bambu":
+        raise HTTPException(status_code=400, detail="Fan control is only supported on Bambu printers")
+    fan = body.get("fan")
+    if fan not in ("part_cooling", "auxiliary", "chamber"):
+        raise HTTPException(status_code=422, detail="fan must be 'part_cooling', 'auxiliary', or 'chamber'")
+    speed = body.get("speed")
+    if type(speed) is not int or speed < 0 or speed > 255:
+        raise HTTPException(status_code=422, detail="speed must be integer 0-255")
+    if _bambu_command_direct(printer, "set_fan_speed", fan, speed):
+        return {"success": True, "message": f"{fan} fan set to {speed}/255"}
+    raise HTTPException(status_code=503, detail="Printer unreachable or command failed")
+
+
+# ====================================================================
+# Lights (Bambu)
+# ====================================================================
+
+@router.post("/printers/{printer_id}/lights", tags=["Printers"])
+def toggle_printer_lights(printer_id: int, current_user: dict = Depends(require_action("printers.edit", scope="write:printers")), db: Session = Depends(get_db)):
+    """Toggle chamber lights on/off for a Bambu printer."""
+    from datetime import datetime, timezone
+    printer = db.query(Printer).filter(Printer.id == printer_id).first()
+    if not printer:
+        raise HTTPException(status_code=404, detail="Printer not found")
+    if not check_org_access(current_user, printer.org_id):
+        raise HTTPException(status_code=404, detail="Printer not found")
+
+    if not printer.api_type or printer.api_type.lower() != "bambu":
+        raise HTTPException(status_code=400, detail="Light control only supported for Bambu printers")
+    if not printer.api_host or not printer.api_key:
+        raise HTTPException(status_code=400, detail="Printer connection not configured")
+
+    from modules.printers.monitor_commands import request_command
+    turn_on = not printer.lights_on
+    outcome = request_command(printer_id, "light", on=turn_on)
+    if outcome != "accepted":
+        detail = ("Printer monitor is not connected" if outcome == "unavailable" else
+                  "Light command outcome unknown; refresh before any further action" if outcome == "unknown" else
+                  "Monitor refused light command")
+        raise HTTPException(503, detail={"outcome": outcome, "message": detail})
+    printer.lights_on = turn_on
+    printer.lights_toggled_at = datetime.now(timezone.utc)
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise HTTPException(503, detail={"outcome": "unknown", "message": "Command accepted; persistence unconfirmed. Refresh before further action"}) from None
+    return {"lights_on": turn_on, "outcome": "accepted", "message": f"Lights {'on' if turn_on else 'off'}"}
+
+
+# ====================================================================
+# Clear Plate Confirmation
+# ====================================================================
+
+@router.post("/printers/{printer_id}/plate-cleared", tags=["Printers"])
+async def plate_cleared(
+    printer_id: int,
+    current_user: dict = Depends(require_action("printers.edit", scope="write:printers")),
+    db: Session = Depends(get_db),
+    body: PlateClearConfirmation | None = None,
+):
+    """Confirm plate is cleared, allowing the next queued job to dispatch.
+
+    Clients without a confirmation step (including Home Assistant) may omit the
+    precondition and retain the legacy behavior: release the current selection.
+    """
+    printer = db.query(Printer).filter(Printer.id == printer_id).first()
+    if not printer:
+        raise HTTPException(status_code=404, detail="Printer not found")
+    if not check_org_access(current_user, printer.org_id):
+        raise HTTPException(status_code=404, detail="Printer not found")
+
+    from modules.printers.plate_clear import plate_clear_states, record_plate_clear, select_plate_clear
+    waiting_ids, _, _ = select_plate_clear(db, [printer_id])
+    selected_id = waiting_ids.get(printer_id)
+    if body is not None and (
+        ('expected_release_job_id' in body.model_fields_set and body.expected_release_job_id != selected_id)
+        or ('expected_has_waiting_job' in body.model_fields_set
+            and body.expected_has_waiting_job != (selected_id is not None))
+    ):
+        raise HTTPException(status_code=409, detail={
+            'message': 'The queue changed since you looked. Check what is waiting and confirm again.',
+            'plate_clear': PlateClearState.model_validate(
+                plate_clear_states(db, [printer], current_user)[printer_id]).model_dump(mode='json'),
+        })
+    waiting = (waiting_ids[printer_id],) if printer_id in waiting_ids else None
+    if not waiting:
+        # Nothing to release, but the plate WAS cleared: record it against the last finished
+        # print so plate_clear_confirmed_at is set (Home Assistant shows the printer as ready).
+        confirmed = record_plate_clear(db, printer, current_user)
+        if confirmed is None:
+            return {"success": True, "message": "No jobs waiting for plate clear"}
+        db.commit()
+        return {"success": True, "message": "Plate clear recorded", "plate_clear_confirmed_at": confirmed.isoformat()}
+
+    from core.order_production import prepare_job_write, reconcile_job_write
+    from core.registry import registry
+    policy = registry.get_provider("EducationPolicyProvider")
+    if policy is None:
+        raise HTTPException(status_code=503, detail="Education policy unavailable")
+    policy.assert_generic_job_mutation_allowed(db, waiting[0])
+    parents = prepare_job_write(db, [waiting[0]])
+    owner = db.execute(text("SELECT charged_to_org_id FROM jobs WHERE id=:id"),
+                       {'id':waiting[0]}).first()
+    if owner is None or not check_org_access(current_user, owner[0]):
+        raise HTTPException(404, 'Job not found')
+    from modules.jobs.services import transition_job
+    changed = transition_job(db, waiting[0], "pending", "plate",
+                             where="printer_id=:pid", params={"pid": printer_id}) or None
+    reconcile_job_write(db, parents)
+    record_plate_clear(db, printer, current_user)  # the same confirmation, when a print has finished here
+    db.commit()
+    if changed is None:
+        return {"success": True, "message": "Waiting job changed; current state preserved"}
+    return {"success": True, "message": f"Job {waiting[0]} released for dispatch"}
