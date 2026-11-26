@@ -18,6 +18,9 @@ All notable changes to O.D.I.N. are documented here.
 - Education submissions now count toward the student's print quota when approved. If the student has reached a limit, the submission stays in review.
 - If a poor connection interrupts a mobile session renewal, the app can recover without asking for your password when it retries within ten minutes. After a longer pause, you still need your password.
 - When settling filament for an archived print, Confirm settlement stays disabled until the suggested spools and amounts are ready.
+- Foundry: a printer that reports a filament runout now shows Needs you on its card; before, the card showed a grey RUNOUT label while the header counted it as needing attention.
+- A printer that is idle but still reports a failed state from an earlier stopped or finished print is no longer shown as needing attention or left out of the ready count.
+- Classic and Fjord themes: a printer that reports an error, a failed print or a filament runout is now shown as Error on the dashboard and on its printer card; before, it read Idle or Online unless the printer also raised a health (HMS) fault.
 
 ### Security
 
@@ -25,9 +28,6 @@ All notable changes to O.D.I.N. are documented here.
 - A mobile sign-in token that was just replaced can recover its replacement from the same device up to five times within ten minutes. Once the replacement is used, the server refuses the earlier token and records the attempt in the audit log.
 ### Changed
 - PostgreSQL backups made with ODIN 2.5.0, 2.6.0 or 2.7.0 can be restored after a later update changes the database schema.
-- Foundry: a printer that reports a filament runout now shows Needs you on its card; before, the card showed a grey RUNOUT label while the header counted it as needing attention.
-- A printer that is idle but still reports a failed state from an earlier stopped or finished print is no longer shown as needing attention or left out of the ready count.
-- Classic and Fjord themes: a printer that reports an error, a failed print or a filament runout is now shown as Error on the dashboard and on its printer card; before, it read Idle or Online unless the printer also raised a health (HMS) fault.
 
 ## [2.7.1] - 2026-11-25
 
