@@ -110,19 +110,25 @@ def derive_mapping(sources, candidates, *, selection_notes=None):
 
     result = best(0, 0)
     if result is None:
-        raise choose(furthest)
+        filament = sources[furthest]['source_index'] + 1
+        raise ValueError(RackMessage('ams_mapping_required', f'No free compatible position is left for filament {filament}.'))
     # A tray shared by different filaments across optimal plans needs an operator.
-    # Interchangeable exact-colour trays for just one filament are unambiguous.
+    # Interchangeable same-colour trays for just one filament are unambiguous.
     choices = result[1]
     vector = [-1] * (max(s['source_index'] for s in sources) + 1)
     for i, (source, targets) in enumerate(zip(sources, choices)):
         target = min(targets)
         if len(targets) > 1:
-            if (any(targets & other for j, other in enumerate(choices) if j != i)
-                    or any(scores[i][t][0] for t in targets)):
+            if any(targets & other for j, other in enumerate(choices) if j != i):
                 raise choose(i)
+            exact = all(scores[i][t][0] == 0 for t in targets)
+            if not exact:
+                colors = {hex_color(tray.get('color_hex')) for tray in candidates[i]}
+                if None in colors or len(colors) != 1:
+                    raise choose(i)
             if selection_notes is not None:
-                selection_notes[source['source_index']] = f'Position {target + 1} is the lowest position with the same exact colour.'
+                description = 'exact colour' if exact else 'loaded colour'
+                selection_notes[source['source_index']] = f'Position {target + 1} is the lowest position with the same {description}.'
         vector[source['source_index']] = target
     return vector
 

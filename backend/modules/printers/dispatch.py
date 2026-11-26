@@ -798,15 +798,15 @@ def read_dispatch_progress(db, token, job_id):
     """Read-only attempt details; caller must enforce job and printer visibility."""
     from modules.printers.dispatch_background import progress_key, result_key, active
     from modules.printers.start_next import load
+    from sqlalchemy import text
+    running = active(token)
+    # Read progress last so an accepted claim includes the warnings already saved by its gate.
+    claim_state = db.execute(text('SELECT state FROM printer_dispatch_claims WHERE token=:token AND job_id=:job'),
+                             {'token': token, 'job': job_id}).scalar_one_or_none()
     record = load(db, progress_key(token)) or load(db, result_key(job_id))
     if not record or record['attempt_id'] != token:
         return None
-    from sqlalchemy import text
-    claim_state = db.execute(text('SELECT state FROM printer_dispatch_claims WHERE token=:token AND job_id=:job'),
-                             {'token': token, 'job': job_id}).scalar_one_or_none()
-    running = active(token)
-    # While the worker is finishing, its final record carries the operator's colour warnings.
-    if claim_state and (not running or claim_state not in ('adapter_entered', 'accepted')):
+    if claim_state and (claim_state != 'adapter_entered' or not running):
         record['phase'] = {'preparing': 'preparing' if running else 'needs_reconciliation',
             'adapter_entered': 'needs_reconciliation', 'accepted': 'start_accepted',
             'uncertain': 'needs_reconciliation'}[claim_state]

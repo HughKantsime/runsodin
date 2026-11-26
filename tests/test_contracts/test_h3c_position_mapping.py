@@ -161,21 +161,72 @@ def test_nearest_colour_and_ambiguous_or_missing_candidates():
     sources[1]['color'] = '#111111'
     assert derive_mapping(sources, candidates) == [1, 0]
     sources[1]['material'] = 'PETG'
-    with pytest.raises(ValueError, match='^Choose a mapping for filament 2[.]$'):
+    with pytest.raises(ValueError, match='^No free compatible position is left for filament 2[.]$'):
         derive_mapping(sources, rack_candidates(sources, trays, tools))
 
 
-def test_uncontested_exact_colours_use_lowest_position_in_preview():
+@pytest.mark.parametrize('loaded,description', [
+    ({'color_hex': '112233'}, 'the same exact colour'),
+    ({'color': '#112233'}, 'the same exact colour'),
+    ({'color_hex': '334455'}, 'the same loaded colour'),
+])
+def test_uncontested_identical_colours_use_lowest_position_in_preview(loaded, description):
     source = dict(source_index=2, group_id=0, color='#112233', material='PLA', nozzle_diameter=.4, volume_type='Standard')
-    trays = [dict(slot=i, color_hex='112233', material='PLA') for i in (5, 2)]
+    trays = [dict(slot=i, material='PLA', **loaded) for i in (5, 2)]
     tools = [dict(position=t['slot'], side='rack', present=True, diameter=.4, type='HS01') for t in trays]
     result = rack_preview([source], trays, tools, None, allow_different=True)
     assert result['rack_mapping'] == [dict(source_slot=3, target_slot=2)]
-    assert result['required'][0]['selection_note'] == 'Position 2 is the lowest position with the same exact colour.'
+    assert result['required'][0]['selection_note'] == f'Position 2 is the lowest position with {description}.'
 
 
-def test_incomplete_assignment_names_first_unplaceable_filament():
+def test_incomplete_assignment_names_filament_reached_when_positions_run_out():
     sources = [dict(source_index=i, color='#111111') for i in (0, 3, 8)]
     trays = [dict(slot=n, color_hex='111111') for n in (1, 2)]
-    with pytest.raises(ValueError, match='^Choose a mapping for filament 9[.]$'):
+    with pytest.raises(ValueError, match='^No free compatible position is left for filament 9[.]$'):
         derive_mapping(sources, [trays] * 3)
+
+
+@pytest.mark.parametrize('colors', [('000001', '000100'), (None, None)])
+def test_distinct_or_unknown_tied_colours_need_a_mapping(colors):
+    trays = [dict(slot=i, color_hex=color) for i, color in enumerate(colors, 1)]
+    with pytest.raises(ValueError, match='^Choose a mapping for filament 3[.]$'):
+        derive_mapping([dict(source_index=2, color='#000000')], [trays])
+
+
+@pytest.mark.parametrize('mapping,message', [
+    ([99, 0], 'Stored AMS mapping is invalid; no command was sent'),
+    ([1, 0], 'Stored AMS mapping is invalid; no command was sent'),
+    ([-2, 0], 'Stored AMS mapping is invalid; no command was sent'),
+    ([-1, 99], 'Filament 2 needs an onboard tray in positions 1 to 9.'),
+    ([-1, -1], 'Choose a position for filament 2.'),
+])
+def test_sparse_mapping_checks_used_and_unused_entries(mapping, message):
+    from modules.printers.dispatch_ams_gate import preflight_ams_source
+    from modules.printers.dispatch_options import _mapping_error
+    source = dict(source_index=1, group_id=0, volume_type='Standard', material='PLA', nozzle_diameter=.4)
+    job = dict(plate_index=0, ams_mapping=mapping)
+    assert _mapping_error(job, mapping, rack_sources=[source]) == message
+    with pytest.raises(ValueError) as exc:
+        preflight_ams_source(job, mapping=mapping, staged_path=None, payload_sha256=None,
+                             inspected_facts={'sources': [source]}, h3c=True)
+    assert str(exc.value) == message
+
+
+def test_accepted_progress_caps_message_and_preserves_warnings(review_db, monkeypatch):
+    from core import db as core_db
+    from core.durable_config import insert
+    from modules.printers import dispatch_background as background
+    engine = review_db.get_bind()
+    monkeypatch.setattr(core_db, 'engine', engine)
+    token = 'f' * 32
+    with engine.begin() as conn:
+        insert(conn, background.progress_key(token), dict(job_id=53, attempt_id=token, phase='preparing'))
+    warning = dict(filament=1, position=9, file_color='#FF6A13', loaded_color='#FFFFFF')
+    marker = background._context.set({'token': token})
+    try:
+        background.progress('starting', color_warnings=[warning])
+        background.progress('start_accepted', message='a' * 501)
+    finally:
+        background._context.reset(marker)
+    result = background.load(review_db, background.result_key(53))
+    assert result['message'] == 'a' * 500 and result['color_warnings'] == [warning]

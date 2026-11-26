@@ -95,10 +95,6 @@ def installed_nozzles(packet, *, dual=False, include_rack=False, observed_at=Non
             identity = {'nozzle_id': identifier, 'side': 'rack',
                         'position': address + 1 if type(address) is int and 0 <= address < 9 else None,
                         'stat': row.get('stat') if type(row.get('stat')) is int else None}
-            # No capture maps a nonempty 3D.uncalibrated_nozzles entry to a rack position.
-            calibration = packet.get('3D')
-            if isinstance(calibration, dict) and calibration.get('uncalibrated_nozzles') == []:
-                identity['calibration_clear'] = True
             if identity['position'] is not None:
                 identity['virtual_slot_id'] = rack_slot_id(identity['position'])
             if type(source) is int:
@@ -178,6 +174,7 @@ def position_refusal(source, position, installed):
     need = source.get('nozzle_diameter')
     if not need or not required:
         return RackMessage('nozzle_mismatch', 'Slice the plate for the H3C.')
+    # No capture maps a nonempty 3D.uncalibrated_nozzles entry to a rack position for refusal.
     if actual == required and diameter == need:
         return None
     reason = f"Filament {source['source_index'] + 1} was sliced for a {need:g} mm {required} tool."

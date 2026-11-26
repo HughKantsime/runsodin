@@ -136,6 +136,9 @@ def _mapping_error(job, mapping, *, slot_details=False, rack_sources=(), install
             or any(type(slot) is not int or slot < -1 or (not rack_sources and slot >= 24) for slot in mapping)):
         return "Stored AMS mapping is invalid; no command was sent"
     if rack_sources:
+        used = {source['source_index'] for source in rack_sources}
+        if any(slot != -1 and index not in used for index, slot in enumerate(mapping)):
+            return "Stored AMS mapping is invalid; no command was sent"
         from modules.printers.nozzle_capability import rack_tool_refusal
         detail = rack_tool_refusal(rack_sources, mapping, installed)
         if detail:

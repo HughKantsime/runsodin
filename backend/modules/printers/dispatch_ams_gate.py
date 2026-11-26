@@ -43,9 +43,12 @@ def preflight_ams_source(job, *, mapping, staged_path, payload_sha256, derived=F
     from modules.printers.services import inspect_ams_payload
     from modules.printers.dispatch_options import _ams_plate_index
     plate_index = _ams_plate_index(job)
+    if plate_index != 0:
+        raise ValueError('Explicit AMS dispatch requires supported source and plate')
     if (type(mapping) is not list or not 1 <= len(mapping) <= 16
-            or any(type(slot) is not int or slot < -1 or (not h3c and slot >= 24) for slot in mapping)
-            or plate_index != 0):
+            or any(type(slot) is not int or slot < -1 or (not h3c and slot >= 24) for slot in mapping)):
+        if h3c:
+            raise ValueError('Stored AMS mapping is invalid; no command was sent')
         raise ValueError('Explicit AMS dispatch requires supported source and plate')
     stored_mapping = job.get('ams_mapping')
     if isinstance(stored_mapping, str):
@@ -64,7 +67,12 @@ def preflight_ams_source(job, *, mapping, staged_path, payload_sha256, derived=F
     if h3c:
         rack_sources(job, facts)
     used = {source['source_index'] for source in sources}
-    if {i for i, slot in enumerate(mapping) if slot != -1} != used:
+    mapped = {i for i, slot in enumerate(mapping) if slot != -1}
+    if mapped != used:
+        if h3c:
+            if mapped - used:
+                raise ValueError('Stored AMS mapping is invalid; no command was sent')
+            raise ValueError(f'Choose a position for filament {min(used - mapped) + 1}.')
         raise ValueError('AMS selection must cover every verified file source and no unused sources')
     materials = {}
     for source in sources:
@@ -249,6 +257,11 @@ def create_ams_start_gate(engine, *, admission_inputs, staged_path, mapping, tar
                     return refuse("ams_binding_unverified", f"AMS slot {tray.slot_number}: H2D nozzle binding is missing or unsupported")
                 if tray.extruder != extruder:
                     return refuse("ams_binding_mismatch", f"AMS slot {tray.slot_number} feeds extruder {tray.extruder}; file source {source['source_index'] + 1} requires extruder {extruder}")
+        if warnings and warnings != getattr(checked, 'color_warnings', None):
+            from core.audit_dispatch import add_acceptance_details
+            from modules.printers.dispatch_background import progress
+            progress('starting', color_warnings=warnings)
+            add_acceptance_details({'color_warnings': warnings})
         checked.color_warnings = warnings
         if not current():
             return False

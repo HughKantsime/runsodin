@@ -178,6 +178,8 @@ def _finish(db, printer_id, user, data, key, record, guard):
         result = {'success': False, 'message': 'Dispatch outcome requires review before retrying.', 'job_id': data.suggested_job_id, 'request_id': str(data.request_id), 'state': 'uncertain'}
     finally:
         _context.reset(marker)
+    if audit_detail.get('color_warnings'):
+        result['color_warnings'] = audit_detail['color_warnings']
     return _record_result(db, printer_id, data, key, guard, result, audit_detail=audit_detail, clean_no_start=context.get('clean_no_start', False))
 
 

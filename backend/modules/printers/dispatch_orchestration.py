@@ -209,8 +209,9 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
                                 staged_path=staged.path, plate_number=options.get('plate_num', 1), target_handle=target_handle, **rack_options)
                             if not preflight.prepare():
                                 result = (False, dispatch._gate_refusal_message(preflight))
-                                dispatch._notify_start_outcome(job, 'gate_refused', gate_refusal=preflight.refusal,
-                                                               message=preflight.refusal.detail)
+                                from modules.printers.dispatch_ams_gate import GateRefusal
+                                refusal = getattr(preflight, 'refusal', None) or GateRefusal('gate_rejected', result[1])
+                                dispatch._notify_start_outcome(job, 'gate_refused', gate_refusal=refusal, message=refusal.detail)
                                 raise CapabilityRefused(result[1])
                         # Generic observations need an exact attempt identity,
                         # independent of display names and reused source names.
@@ -313,8 +314,6 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
                                 result=(False,'Printer command outcome needs database reconciliation before retrying')
                             elif not accepted and not clean_refusal:
                                 result=(False,result[1]+'; Dispatch claim requires explicit reconciliation before retrying')
-                            if warnings:
-                                result = (result[0], result[1] + ' ' + ' '.join(w['message'] for w in warnings))
     except CapabilityRefused as exc:
         result = (False, str(exc))
     except TargetOwnershipLost:

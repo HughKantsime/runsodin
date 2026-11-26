@@ -1,4 +1,4 @@
-import { pollDispatch } from './jobDispatch'
+import { pollDispatch, type DispatchColorWarning } from './jobDispatch'
 import { fetchAPI } from './client'
 export interface Suggestion {
   inputs?: { rack_preview?: import('../types/archive').ArchiveAmsPreview }
@@ -20,11 +20,12 @@ export const jobCompletion = {
   suggestion: (id: number) => fetchAPI<Suggestion>(`/printers/${id}/next-suggestion`),
   start: async (id: number, data: { suggested_job_id: number; suggestion_fingerprint: string; request_id: string; bed_clear_confirmed: true; attestation: StartAttestation }) =>
     {
-      const result = await fetchAPI<{ success: boolean; accepted?: boolean; state: string; job_id?: number; attempt_id?: string; message?: string }>(`/printers/${id}/start-next`, { method: 'POST', body: JSON.stringify(data) })
+      const result = await fetchAPI<{ success: boolean; accepted?: boolean; state: string; job_id?: number; attempt_id?: string; message?: string; color_warnings?: DispatchColorWarning[] }>(`/printers/${id}/start-next`, { method: 'POST', body: JSON.stringify(data) })
       if (result.accepted || ['preparing', 'admitted'].includes(result.state)) {
         const confirmation = await pollDispatch(result.job_id || data.suggested_job_id, result.attempt_id)
         return { ...result, success: confirmation.confirmation === 'accepted',
           state: confirmation.confirmation === 'accepted' ? 'dispatched' : 'uncertain',
+          color_warnings: confirmation.status?.color_warnings,
           message: confirmation.status?.message || 'Dispatch is unconfirmed. Check the printer before trying again.' }
       }
       return result

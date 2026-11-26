@@ -429,14 +429,15 @@ def dispatch_job_to_printer(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Dispatch error: {e}")
 
+    from fastapi.responses import JSONResponse
+    warnings = {'color_warnings': audit_detail['color_warnings']} if audit_detail.get('color_warnings') else {}
     if not success:
         raise HTTPException(status_code=400, detail=message)
 
     db.refresh(job)
     log_audit(db, "job.dispatched", "job", job.id, {"printer_id": job.printer_id, **audit_detail})
     db.commit()
-    from fastapi.responses import JSONResponse
-    return JSONResponse(status_code=200, content={"success": True, "message": message, "job_id": job_id, "status": job.status.value})
+    return JSONResponse(status_code=200, content={"success": True, "message": message, "job_id": job_id, "status": job.status.value, **warnings})
 
 
 # approve_job + reject_job moved to jobs_agent.py in v1.9.0 Phase 2

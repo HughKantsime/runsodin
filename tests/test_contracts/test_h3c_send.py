@@ -170,7 +170,7 @@ def target(review_db, monkeypatch, tmp_path):
 ])
 def test_offline_plate_checks_without_opt_in(target, review_db, problem, reason):
     from modules.printers.dispatch_capability_gate import static_refusal
-    path, _ = target
+    path, report = target
     creds, job = dispatch._get_printer_info(59), dispatch._load_job(53)
     if problem in ('wrong_model', 'bed'):
         member = 'project_settings.config'
@@ -198,7 +198,10 @@ def test_offline_plate_checks_without_opt_in(target, review_db, problem, reason)
         review_db.commit()
     tools = json.loads(creds['installed_nozzles'])
     tool = next(row for row in tools if row.get('position') == 9)
-    if problem == 'calibration': tool['calibration_clear'] = False
+    if problem == 'calibration':
+        assert all('calibration_clear' not in row for row in tools)
+        report['3D']['uncalibrated_nozzles'] = [16]
+        tools = installed_nozzles(report, include_rack=True)
     if problem == 'absent': tool['present'] = False
     if problem == 'diameter': tool['diameter'] = 0.6
     if problem == 'standard_on_tpu': tool['type'] = 'HT01'
@@ -221,6 +224,8 @@ def test_offline_plate_checks_without_opt_in(target, review_db, problem, reason)
                  'diameter': 'nozzle_mismatch',
                  'standard_on_tpu': 'nozzle_mismatch', 'tpu_on_standard': 'nozzle_mismatch'}
         assert error.code == codes[problem]
+    elif problem == 'calibration':
+        assert error is None and options['ams_mapping'] == MAPPING, 'an undecodable calibration list does not refuse'
     else:
         assert options['ams_mapping'] == MAPPING
 
@@ -261,7 +266,7 @@ def test_one_checked_dispatch(target, review_db, monkeypatch, caplog, protocol, 
             review_db.commit()
         if outcome == 'uncalibrated':
             report['3D']['uncalibrated_nozzles'] = [16]
-        if outcome == 'colour_changed':
+        if outcome in ('colour_changed', 'write_failed', 'no_reply'):
             report['ams']['ams'][0]['tray'][MAPPING[0]]['tray_color'] = 'FFFFFF00'
         if outcome == 'empty_tray':
             report['ams']['tray_exist_bits'] = hex(255 << 28)
@@ -337,14 +342,14 @@ def test_one_checked_dispatch(target, review_db, monkeypatch, caplog, protocol, 
     if outcome in ('write_failed', 'farm_mapping'):
         from modules.printers import dispatch_background
         if outcome == 'farm_mapping':
-            # Poll between the accepted claim and the worker's final colour message.
+            # Poll after the accepted claim, before the worker publishes its terminal record.
             progress = dispatch_background.progress
             before_result = []
             def poll_before_result(phase, **kwargs):
                 if phase == 'start_accepted':
                     with Session(review_db.get_bind()) as reader:
                         status = dispatch.read_dispatch_progress(reader, dispatch_background.attempt_token(), 53)
-                        before_result.append(status['phase'])
+                        before_result.append(status)
                 progress(phase, **kwargs)
             monkeypatch.setattr(dispatch_background, 'progress', poll_before_result)
         handle = dispatch_background.stage(59, 53)
@@ -356,6 +361,36 @@ def test_one_checked_dispatch(target, review_db, monkeypatch, caplog, protocol, 
         assert saved['attempt_id'] == handle['attempt_id']
         assert saved['phase'] == ('start_accepted' if ok else 'needs_reconciliation')
         message = saved['message']
+    elif outcome in ('colour_changed', 'no_reply'):
+        from modules.jobs.routes.jobs_lifecycle import dispatch_job_to_printer
+        if outcome == 'no_reply':
+            # An unconfirmed start answers with the plain error; colour notes ride only on an accepted start.
+            from fastapi import HTTPException
+            with pytest.raises(HTTPException) as refused:
+                dispatch_job_to_printer(53, {'id': 3, 'role': 'admin'}, review_db, wait=True)
+            ok, message = False, refused.value.detail
+            assert refused.value.status_code == 400
+        else:
+            response = dispatch_job_to_printer(53, {'id': 3, 'role': 'admin'}, review_db, wait=True)
+            body = json.loads(response.body)
+            ok = response.status_code == 200
+            assert ok and body['color_warnings'][0]['loaded_color'] == '#FFFFFF'
+            message = body['message']
+    elif outcome == 'inventory_colour_changed':
+        from modules.printers import start_next
+        from modules.printers.models import Printer
+        from tests.test_contracts.test_completion_summary import request
+        review_db.execute(text("UPDATE jobs SET status='pending' WHERE id=53"))
+        review_db.commit()
+        suggestion = {'job_id': 53, 'fingerprint': 'f' * 64}
+        monkeypatch.setattr(start_next, 'next_suggestion', lambda *a, **kw: suggestion)
+        data = request(suggestion)
+        user = {'id': 3, 'role': 'admin'}
+        printer = review_db.get(Printer, 59)
+        result = start_next.start(review_db, printer, user, data)
+        assert start_next.start(review_db, printer, user, data) == result
+        assert result['color_warnings'][0]['previous_color'] == '#0000FF'
+        ok, message = result['success'], result['message']
     else:
         ok, message = dispatch.dispatch_job(59, 53)
     if contention:
@@ -363,6 +398,8 @@ def test_one_checked_dispatch(target, review_db, monkeypatch, caplog, protocol, 
         assert review_db.execute(text('SELECT status FROM jobs WHERE id=53')).scalar_one() in ('pending', 'scheduled')
         assert not review_db.execute(text('SELECT 1 FROM printer_dispatch_claims WHERE job_id=53')).first()
     elif outcome == 'write_failed':
+        assert saved['color_warnings'][0]['loaded_color'] == '#FFFFFF'
+        assert 'colour differs' not in message
         assert not ok and 'FAIL (code 42)' in message and 'reconciliation' in message
         assert 'confirmed no-start: H3C start reply: FAIL (code 42)' in caplog.text
         assert review_db.execute(text('SELECT state FROM printer_dispatch_claims WHERE job_id=53')).scalar_one() == 'uncertain'
@@ -386,6 +423,7 @@ def test_one_checked_dispatch(target, review_db, monkeypatch, caplog, protocol, 
     elif outcome == 'empty_tray':
         assert not ok and 'empty' in message and events == ['upload']
     elif outcome == 'no_reply':
+        assert 'colour differs' not in message
         assert not ok and 'reconciliation' in message and len(sent) == 1
         assert not dispatch.dispatch_job(59, 53)[0]
         assert events == ['upload', 'start']
@@ -397,20 +435,23 @@ def test_one_checked_dispatch(target, review_db, monkeypatch, caplog, protocol, 
         assert len(sent) == int(outcome == 'start_rejected')
         assert not dispatch.dispatch_job(59, 53)[0] and events.count('upload') == 1
     else:
+        if outcome == 'uncalibrated':
+            assert ok and len(sent) == 1, 'an undecodable calibration list does not refuse'
         assert ok, message
         assert events == ['upload', 'start']
         assert len(sent) == 1 and sent[0]['use_ams'] is True and sent[0]['command'] == 'project_file'
         if outcome == 'inventory_colour_changed':
             detail = review_db.execute(text("SELECT details FROM audit_logs WHERE entity_id=53 AND action='job.dispatched'")).scalar_one()
             warning, = json.loads(detail)['color_warnings']
-            assert warning['message'] in message
+            assert warning['message'] not in message
             assert (warning['previous_color'], warning['loaded_color']) == ('#0000FF', '#FF6A13')
         if outcome == 'farm_mapping':
             detail = review_db.execute(text("SELECT details FROM audit_logs WHERE entity_id=53 AND action='job.dispatched'")).scalar_one()
             warnings = json.loads(detail)['color_warnings']
-            phase, = before_result
-            assert phase in ('preparing', 'sending', 'uploading', 'starting')
-            assert len(warnings) == 8 and all(w['message'] in message for w in warnings)
+            status, = before_result
+            assert status['phase'] == 'start_accepted'
+            assert status['color_warnings'] == saved['color_warnings'] == warnings
+            assert len(warnings) == 8 and all(w['message'] not in message for w in warnings)
             assert sent[0]['ams_mapping'] == [28, 29, 30, 31, 32, 33, 34, -1, 36]
             assert sent[0]['ams_mapping2'] == [dict(ams_id=32, slot_id=i) for i in range(7)] + [
                 dict(ams_id=255, slot_id=255), dict(ams_id=32, slot_id=8)]
@@ -418,7 +459,7 @@ def test_one_checked_dispatch(target, review_db, monkeypatch, caplog, protocol, 
         if outcome == 'colour_changed':
             detail = review_db.execute(text("SELECT details FROM audit_logs WHERE entity_id=53 AND action='job.dispatched'")).scalar_one()
             sentence = 'Filament 1 colour differs at position 9 (file #FF6A13, loaded #FFFFFF).'
-            assert sentence in message
+            assert sentence not in message
             assert json.loads(detail)['color_warnings'] == [
                 dict(filament=1, position=9, file_color='#FF6A13', loaded_color='#FFFFFF', message=sentence)]
         if outcome == 'crossed':
@@ -1152,3 +1193,17 @@ def test_pre_upload_rack_refusal_identifies_the_gate(target, review_db, monkeypa
     (reason, info), = seen
     assert (reason, info['gate_refusal'].code, info['message']) == (
         'gate_refused', 'h3c_position_unverified', POSITION_GATE_MESSAGE)
+
+
+def test_pre_upload_gate_without_refusal_keeps_its_fallback(target, monkeypatch):
+    from modules.printers import dispatch_capability_gate
+
+    class SilentGate:
+        __slots__ = ()
+
+        def prepare(self):
+            return False
+
+    gate = SilentGate()
+    monkeypatch.setattr(dispatch_capability_gate, 'create_capability_gate', lambda **kw: gate)
+    assert dispatch.dispatch_job(59, 53) == (False, dispatch._gate_refusal_message(gate))

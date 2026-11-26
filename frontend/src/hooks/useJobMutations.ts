@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { acceptedDispatchNotice } from '../api/jobDispatch'
+import { withColorWarnings } from '../api/jobDispatch'
 import { jobs, approveJob, rejectJob, resubmitJob, bulkOps } from '../api'
 import toast from 'react-hot-toast'
 
@@ -92,7 +92,7 @@ export function useJobMutations() {
       inv()
       if (['refused', 'needs_reconciliation'].includes(result.status?.phase || '')) toast.error(plainRefusal(result.status?.message) || 'Dispatch refused. Review the printer before trying again.', { duration: 15000 })
       else if (result.confirmation === 'accepted' || result.status?.phase === 'start_accepted') toast.success(
-        acceptedDispatchNotice(result.status?.message || result.message, 'Start accepted. Waiting for printer progress.'))
+        withColorWarnings('Start accepted. Waiting for printer progress.', result.status?.color_warnings || result.color_warnings))
       else if (result.status?.phase === 'layer_observed') toast('Printer layer progress was observed for this attempt.')
       else toast('Dispatch is unconfirmed. Check the printer and recorded attempt before trying again.', { duration: 10000 })
     },

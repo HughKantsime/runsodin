@@ -38,12 +38,12 @@ test('an idle S1 starts its next job only after the bed-clear confirmation', asy
 })
 
 test('shows the colour warning returned by an accepted start', async () => {
-  const message = 'Filament 1 colour differs at position 9 (file #FF6A13, loaded #FFFFFF).'
-  api.start.mockResolvedValue({ success: true, state: 'dispatched', message })
+  const warning = { filament: 1, position: 9, file_color: '#FF6A13', loaded_color: '#FFFFFF', message: 'Position 9 now holds white.' }
+  api.start.mockResolvedValue({ success: true, state: 'dispatched', message: 'Started', color_warnings: [warning] })
   mount(S1)
   fireEvent.click(await screen.findByRole('checkbox'))
   fireEvent.click(screen.getByRole('button', {name: 'Bed clear, start next'}))
-  expect(await screen.findByText(message)).toBeInTheDocument()
+  expect(await screen.findByText('Next job dispatched. ' + warning.message)).toBeInTheDocument()
 })
 
 test.each(['verify_needed', 'change_needed'])('shows physical slots, load instructions and %s for the next rack job', async filament => {
