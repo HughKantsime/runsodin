@@ -121,13 +121,13 @@ def test_root_ws_endpoint_pushes_live_monitor_telemetry(ws_capture):
 
 
 def _stable(capture):
-    keep = ("printer_id", "state", "progress", "nozzle_temp", "bed_temp", "remaining_min",
+    keep = ("printer_id", "state", "state_needs_attention", "progress", "nozzle_temp", "bed_temp", "remaining_min",
             "current_layer", "total_layers")
     frames = [{"type": f["type"], "data": {k: f["data"].get(k) for k in keep if k in f["data"]}}
               for f in capture["frames"] if f["type"] == "printer_telemetry"][-1:]
-    printers = [{k: p.get(k) for k in ("id", "name", "nozzle_temp", "bed_temp", "gcode_state")}
+    printers = [{k: p.get(k) for k in ("id", "name", "nozzle_temp", "bed_temp", "gcode_state", "state_needs_attention")}
                 for p in capture["printers_list"] if p["id"] == 9001]
-    detail = {k: capture["printer_detail"].get(k) for k in ("id", "name", "nozzle_temp", "bed_temp", "gcode_state")}
+    detail = {k: capture["printer_detail"].get(k) for k in ("id", "name", "nozzle_temp", "bed_temp", "gcode_state", "state_needs_attention")}
     return {"printers_list": printers, "printer_detail": detail, "frames": frames}
 
 

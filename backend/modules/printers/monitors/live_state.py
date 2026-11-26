@@ -19,11 +19,24 @@ def publisher(owner, printer_id):
     return publishers[printer_id]
 
 
-def reset_mqtt(monitor, runtime):
+def reset_mqtt(monitor, runtime, *, clear_attention=True):
     """Caller holds the monitor lock; merged telemetry is never a new seed."""
     monitor._phantom_slot_evidence = None
+    monitor._display_in_failed_state = False
+    monitor._display_print_error = None
     monitor._live_mqtt_state = None
     monitor._live_mqtt_generation = monitor._connection_generation
+    if clear_attention:
+        from core.printer_display_facts import remove_attention
+        try:
+            with runtime.get_db() as conn:
+                remove_attention(conn, monitor.printer_id)
+                conn.commit()
+                # The row keeps its state, but a new connection must supply its own error.
+                was_failed, _ = getattr(monitor, '_heartbeat_attention', (False, None))
+                monitor._heartbeat_attention = (was_failed, None)
+        except Exception:
+            runtime.log.warning('[%s] Attention evidence reset failed', monitor.name)
     try:
         publisher(monitor, monitor.printer_id).publish(
             runtime.get_db, monitor.printer_id, 'UNKNOWN', dbapi=True)
@@ -35,7 +48,17 @@ def stage_mqtt(monitor, status, raw):
     """Remember fresh explicit state for retries without writing any evidence."""
     retained = getattr(status, 'mqtt_retained', None) is True
     age = getattr(status, 'report_age_seconds', None)
-    if not raw or not fresh_report(retained, age):
+    fresh = fresh_report(retained, age)
+    if not isinstance(raw, dict):
+        return False
+    if not fresh or 'gcode_state' in raw:
+        monitor._display_in_failed_state = fresh and raw.get('gcode_state') == 'FAILED'
+    if not getattr(monitor, '_display_in_failed_state', False):
+        monitor._display_print_error = None
+    elif 'print_error' in raw:
+        error = raw['print_error']
+        monitor._display_print_error = error if type(error) is int else None
+    if not raw or not fresh:
         return False
     explicit = raw.get('gcode_state')
     if isinstance(explicit, str) and explicit:

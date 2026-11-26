@@ -1,5 +1,6 @@
 import ActiveHms from '../../components/printers/ActiveHms'
 import { hmsFaults } from '../../utils/hms'
+import { stateNeedsAttention } from '../../utils/fleetCounts'
 import PrinterNumber from '../../components/ui/PrinterNumber'
 import { useFoundry } from '../../hooks/themePreferences'
 import UnaccountedFilament from '../../components/foundry/UnaccountedFilament'
@@ -62,7 +63,7 @@ export function PrinterCard({ printer, hasCamera, onCameraClick, activeJob, onCl
   const stage = printer.print_stage && printer.print_stage !== 'Idle' ? printer.print_stage : null
   
   const isPrinting = online && isActivePrintState(printer.gcode_state)
-  const hasError = hmsFaults(printer.hms_errors).length > 0
+  const hasError = hmsFaults(printer.hms_errors).length > 0 || (online && stateNeedsAttention(printer))
   const statusColor = hasError ? 'bg-red-500' : isPrinting ? 'bg-[var(--status-completed)]' : online ? 'bg-yellow-500' : 'bg-[var(--brand-text-muted)]'
   const statusLabel = hasError ? 'Error' : isPrinting ? 'Printing' : online ? 'Idle' : 'Offline'
 
@@ -137,7 +138,7 @@ export function PrinterCard({ printer, hasCamera, onCameraClick, activeJob, onCl
         <div className="flex items-center gap-2">
           {!foundry && <div className="flex items-center gap-1.5">
             <div className={`w-1.5 h-1.5 rounded-full ${statusColor}`}></div>
-            <span className={online ? "text-[var(--status-completed)]" : "text-[var(--brand-text-muted)]"}>{statusLabel}</span>
+            <span className={hasError ? "text-[var(--status-failed)]" : online ? "text-[var(--status-completed)]" : "text-[var(--brand-text-muted)]"}>{statusLabel}</span>
           </div>}
           {printer.lights_on != null && (
             <button

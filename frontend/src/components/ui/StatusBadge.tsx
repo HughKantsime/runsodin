@@ -1,4 +1,5 @@
-import { hmsFaults } from '../../utils/hms'
+import { idleAfterFailure, needsYou } from '../../utils/fleetCounts'
+import { isPrintingState } from '../../utils/shared'
 import clsx from 'clsx'
 import type { ReactNode } from 'react'
 import { useFoundry } from '../../hooks/themePreferences'
@@ -64,9 +65,11 @@ const jobFinishedStates: Record<string, [string, string]> = {
 }
 
 /** Connectivity is authoritative; never show an offline printer as ready/printing. */
-export function printerBadgeStatus(printer: { gcode_state?: string | null; hms_errors?: unknown[] }, online: boolean) {
+export function printerBadgeStatus(printer: { gcode_state?: string | null; state_needs_attention?: boolean; hms_errors?: unknown }, online: boolean) {
   if (!online) return 'offline'
-  if (hmsFaults(printer.hms_errors).length) return 'error'
+  if (needsYou(printer)) return 'needs you'
+  if (isPrintingState(printer.gcode_state)) return 'printing'
+  if (idleAfterFailure(printer)) return 'ready'
   return printer.gcode_state || 'unknown'
 }
 

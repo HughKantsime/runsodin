@@ -51,6 +51,9 @@ def push_event(event_type: str, data: dict, *, audience: dict | None = None):
             stamp = datetime.fromtimestamp(created_at, timezone.utc).isoformat(timespec="microseconds")
             other = {k: v for k, v in data.items() if k not in LIVE_FIELDS}
             data = {**other, **live_fields(data), "telemetry_at": stamp.replace("+00:00", "Z")}
+            if "state" in data and "state_needs_attention" not in data:
+                from modules.printers.dispatch_readiness import state_needs_attention
+                data["state_needs_attention"] = state_needs_attention(data["state"])
         payload = json.dumps({"type": event_type, "data": data, **({"_audience": audience} if audience else {})})
         # Its own transaction; on the dispatch's shared connection when one is open.
         from core.dispatch_connection import dispatch_transaction

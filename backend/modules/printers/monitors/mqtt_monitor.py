@@ -368,9 +368,11 @@ class MQTTMonitorDaemon:
                 log.warning(f"[{p['name']}] {kind} connect failed; retry next check: {type(e).__name__}")
 
     def _persist_offline(self, printer_id):
+        from core.printer_display_facts import ATTENTION_PREFIX
         try:
             with engine.begin() as conn:
                 conn.execute(text("UPDATE printers SET gcode_state='OFFLINE',print_stage='Offline' WHERE id=:pid"), {"pid": printer_id})
+                conn.execute(text("DELETE FROM system_config WHERE key=:key"), {"key": f"{ATTENTION_PREFIX}{printer_id}"})
         except Exception:
             log.warning("Offline state persistence failed; retry on next connection check")
 

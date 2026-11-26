@@ -105,6 +105,68 @@ def persist(conn, monitor):
                      (cache_key(monitor.printer_id), value))
 
 
+ATTENTION_PREFIX = 'printer.attention.'
+
+
+def remove_attention(conn, printer_id):
+    conn.execute('DELETE FROM system_config WHERE key=?', (f'{ATTENTION_PREFIX}{printer_id}',))
+
+
+def _print_error(value):
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            return None
+    error = value.get('print_error') if isinstance(value, dict) else None
+    return error if type(error) is int else None
+
+
+class AttentionUpdateFailed(Exception):
+    """The status transaction cannot safely commit its new heartbeat."""
+
+
+def persist_attention(conn, printer_id, state, error):
+    """Return the error that readers can use after the calling transaction commits."""
+    from modules.printers.dispatch_readiness import state_needs_attention
+    key = f'{ATTENTION_PREFIX}{printer_id}'
+    conn.execute('SAVEPOINT attention')
+    if state == 'FAILED' and type(error) is int:
+        try:
+            conn.execute('INSERT INTO system_config(key,value) SELECT ?,? FROM printers WHERE id=? '
+                         'ON CONFLICT(key) DO UPDATE SET value=excluded.value',
+                         (key, json.dumps({'print_error': error}), printer_id))
+        except Exception:
+            conn.execute('ROLLBACK TO SAVEPOINT attention')
+        else:
+            conn.execute('RELEASE SAVEPOINT attention')
+            return error
+
+    # Missing evidence, a new state, or a failed replacement invalidates the old record.
+    try:
+        remove_attention(conn, printer_id)
+    except Exception:
+        conn.execute('ROLLBACK TO SAVEPOINT attention')
+        if state != 'FAILED':
+            raise
+        row = conn.execute('SELECT value FROM system_config WHERE key=?', (key,)).fetchone()
+        if row and not state_needs_attention('FAILED', 'bambu', _print_error(row[0])):
+            raise
+    conn.execute('RELEASE SAVEPOINT attention')
+    return None
+
+
+def printer_status_query(db):
+    """Fetch evidence with the printer row, even under READ COMMITTED isolation."""
+    from sqlalchemy import String, Text, cast
+    from sqlalchemy.orm import with_expression
+    from core.models import SystemConfig
+    from modules.printers.models import Printer
+    evidence = db.query(cast(SystemConfig.value, Text)).filter(
+        SystemConfig.key == ATTENTION_PREFIX + cast(Printer.id, String)).correlate(Printer).scalar_subquery()
+    return db.query(Printer).options(with_expression(Printer._attention_evidence, evidence))
+
+
 def reported_ht_slots(db, printer_id):
     """Last reported HT slots and exact material labels for planning. Starting still needs a fresh owned read."""
     row = db.execute(text("SELECT p.created_at,c.value FROM printers p JOIN system_config c ON c.key=:key "
@@ -203,11 +265,13 @@ def plate_clear_times(db, printer_ids, actor, job_clauses=(), job_params=None):
 def enrich_printer_facts(db, printers, actor):
     facts = read_facts(db, printers)
     cleared = plate_clear_times(db, [p.id for p in printers], actor)
+    from modules.printers.dispatch_readiness import state_needs_attention
     from modules.printers.plate_clear import plate_clear_states
     plate_states = plate_clear_states(db, printers, actor)
     for printer in printers:
         printer.plate_clear = plate_states[printer.id]
         observed = facts.get(printer.id, {})
+        printer.state_needs_attention = state_needs_attention(printer.gcode_state, printer.api_type, _print_error(printer._attention_evidence))
         printer.feeding_slot = observed.get('feeding_slot')
         printer.chamber_temp = observed.get('chamber_temp')
         printer.plate_clear_confirmed_at = cleared.get(printer.id)

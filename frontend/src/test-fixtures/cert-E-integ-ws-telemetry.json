@@ -5,7 +5,8 @@
       "name": "Synthetic-A",
       "nozzle_temp": null,
       "bed_temp": null,
-      "gcode_state": null
+      "gcode_state": null,
+      "state_needs_attention": false
     }
   ],
   "printer_detail": {
@@ -13,7 +14,8 @@
     "name": "Synthetic-A",
     "nozzle_temp": null,
     "bed_temp": null,
-    "gcode_state": null
+    "gcode_state": null,
+    "state_needs_attention": false
   },
   "frames": [
     {
@@ -21,6 +23,7 @@
       "data": {
         "printer_id": 9001,
         "state": "RUNNING",
+        "state_needs_attention": false,
         "progress": 9,
         "nozzle_temp": 220.15625,
         "bed_temp": 65.03125,

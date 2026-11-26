@@ -1,6 +1,7 @@
 import { cleanup, render, screen } from '@testing-library/react'
-import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PrinterCard } from './Dashboard'
+import { printerStatusCases } from '../../test/printerStatusCases'
 beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-11T12:00:00Z')) })
 afterEach(() => { delete document.documentElement.dataset.themeFamily; cleanup(); vi.useRealTimers() })
 const printer = { id: 199, name: 'Synthetic dashboard printer', last_seen: '2026-10-11T11:59:59Z', gcode_state: 'RUNNING', filament_slots: [] }
@@ -42,6 +43,27 @@ it.each([['RUNNING', 'Printing'], ['IDLE', 'Idle'], ['OFFLINE', 'Offline']])('re
  expect(labels[1].parentElement).toHaveClass('flex', 'items-center', 'gap-1.5')
  expect(labels[1].previousElementSibling).toHaveClass('w-1.5', 'h-1.5', 'rounded-full')
  expect(document.querySelector('.foundry-status')).toBeNull()
+})
+
+describe.each(['classic', 'fjord'])('%s dashboard', family => {
+ it.each(printerStatusCases)('shows $dashboard on both labels for $name', ({ report, dashboard }) => {
+  document.documentElement.dataset.themeFamily = family
+  render(<PrinterCard printer={{ ...printer, ...report }} {...props} />)
+  const labels = screen.getAllByText(dashboard)
+  expect(labels).toHaveLength(2)
+  if (dashboard === 'Error') {
+   for (const label of labels) {
+    expect(label).toHaveClass('text-[var(--status-failed)]')
+    expect(label.previousElementSibling).toHaveClass('bg-red-500')
+   }
+  }
+ })
+})
+
+it.each(printerStatusCases)('keeps the Foundry dashboard badge for $name', ({ report, foundry }) => {
+ document.documentElement.dataset.themeFamily = 'foundry'
+ render(<PrinterCard printer={{ ...printer, ...report }} {...props} />)
+ expect(screen.getByText(foundry)).toHaveClass('foundry-status')
 })
 
 it('shows confirmation instead of frozen values across telemetry and refetch', () => {

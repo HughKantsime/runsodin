@@ -79,6 +79,48 @@ def test_latest_snapshot_in_both_printer_responses_after_queue_expiry(marked, mo
             assert rows[pid][field] == detail[field] == (message[wire] if pid == 1 else None)
 
 
+def test_failed_state_frame_without_attention_evidence_requires_attention(database, monkeypatch):
+    from core import ws_hub
+    monkeypatch.setattr(ws_hub, "engine", database.get_bind())
+    ws_hub.push_event("printer_telemetry", {"printer_id": 1, "state": "FAILED"})
+    messages, _ = ws_hub.read_events_since(0)
+    assert messages[-1]["data"]["state"] == "FAILED"
+    assert messages[-1]["data"]["state_needs_attention"] is True
+
+
+@pytest.mark.parametrize("protocol", ["moonraker", "elegoo", "octoprint", "prusalink", "ultimaker"])
+def test_monitor_state_frame_gets_attention_from_hub(database, monkeypatch, protocol):
+    from core import ws_hub
+    from modules.printers.adapters import elegoo, moonraker, octoprint, prusalink, ultimaker
+    from modules.printers.monitors import elegoo_monitor, moonraker_monitor, octoprint_monitor, prusalink_monitor, ultimaker_monitor
+
+    module, monitor_type, status, wire_state, attention = {
+        "moonraker": (moonraker_monitor, moonraker_monitor.MoonrakerMonitor,
+                      moonraker.MoonrakerStatus(state=moonraker.MoonrakerState.READY, internal_state="IDLE",
+                                                raw_data={"print_stats": {"state": "standby"}}), "STANDBY", False),
+        "elegoo": (elegoo_monitor, elegoo_monitor.ElegooMonitorThread, elegoo.ElegooStatus(internal_state="IDLE"), "IDLE", False),
+        "octoprint": (octoprint_monitor, octoprint_monitor.OctoPrintMonitorThread,
+                      octoprint.OctoPrintStatus(state=octoprint.OctoPrintState.ERROR, internal_state="ERROR"), "ERROR", True),
+        "prusalink": (prusalink_monitor, prusalink_monitor.PrusaLinkMonitorThread,
+                      prusalink.PrusaLinkStatus(state=prusalink.PrusaLinkState.IDLE, internal_state="IDLE"), "IDLE", False),
+        "ultimaker": (ultimaker_monitor, ultimaker_monitor.UltimakerMonitorThread,
+                      ultimaker.UltimakerStatus(state=ultimaker.UltimakerState.ERROR, internal_state="ERROR"), "ERROR", True),
+    }[protocol]
+    monkeypatch.setattr(module, "engine", database.get_bind())
+    monkeypatch.setattr(ws_hub, "engine", database.get_bind())
+    monkeypatch.setattr(module, "mqtt_republish" if protocol == "moonraker" else "_mqtt_republish", None)
+    monitor = monitor_type(1, "Fixture", "127.0.0.1")
+    # Process a steady-state report without triggering a job transition.
+    if protocol == "moonraker":
+        monitor._prev_state = status.internal_state
+    else:
+        monitor._last_state = status.internal_state
+    monitor._process_status(status)
+    frame, = [msg["data"] for msg in ws_hub.read_events_since(0)[0] if msg["type"] == "printer_telemetry"]
+    assert frame["state"] == wire_state
+    assert frame["state_needs_attention"] is attention
+
+
 def test_older_producer_cannot_replace_newer_snapshot_or_leak_it_to_a_reused_printer_id(database, monkeypatch):
     from core import ws_hub
     from modules.printers.routes_crud import get_printer

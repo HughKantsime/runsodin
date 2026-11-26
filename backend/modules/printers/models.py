@@ -10,7 +10,7 @@ from sqlalchemy import (
     Column, Integer, String, Float, DateTime, Boolean,
     ForeignKey, Enum as SQLEnum, Text, JSON
 )
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import query_expression, relationship
 from sqlalchemy.sql import func, false
 
 from core.base import Base, FilamentType, _ENUM_VALUES
@@ -54,6 +54,7 @@ class Printer(Base):
     nozzle_1_target_temp = Column(Float, nullable=True)
     nozzle_1_temp_observed_at = Column(DateTime(timezone=True), nullable=True)
     nozzle_1_target_observed_at = Column(DateTime(timezone=True), nullable=True)
+    _attention_evidence = query_expression()
     gcode_state = Column(String(20), nullable=True)
     print_stage = Column(String(50), nullable=True)
     hms_errors = Column(Text, nullable=True)
@@ -214,7 +215,8 @@ from sqlalchemy import event as _maintenance_event
 @_maintenance_event.listens_for(Printer, 'after_delete')
 def _delete_maintenance_state(mapper, connection, target):
     from core.printer_maintenance import delete_maintenance
-    from core.printer_display_facts import plate_clear_key
+    from core.printer_display_facts import ATTENTION_PREFIX, plate_clear_key
     from sqlalchemy import text
     delete_maintenance(connection, target.id)
-    connection.execute(text('DELETE FROM system_config WHERE key=:key'), {'key': plate_clear_key(target.id)})
+    connection.execute(text('DELETE FROM system_config WHERE key IN (:plate, :attention)'),
+                       {'plate': plate_clear_key(target.id), 'attention': f'{ATTENTION_PREFIX}{target.id}'})

@@ -145,6 +145,9 @@ export default function useWebSocket() {
                   nozzle_temp: d.nozzle_temp ?? p.nozzle_temp,
                   nozzle_target_temp: d.nozzle_target ?? p.nozzle_target_temp,
                   gcode_state: d.state ?? p.gcode_state,
+                  ...(d.state != null && {
+                    state_needs_attention: d.state_needs_attention,
+                  }),
                   ...(d.gcode_file != null && { gcode_file: d.gcode_file }),
                   ...(d.h2d_nozzles != null && { h2d_nozzles: d.h2d_nozzles }),
                   ...(d.external_spools != null && { external_spools: d.external_spools }),

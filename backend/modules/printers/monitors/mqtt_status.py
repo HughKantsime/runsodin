@@ -1,11 +1,15 @@
 """MQTT status ingestion; dependencies resolved from the owning monitor at call time."""
 
+from time import monotonic
+
 from core.hms_state import is_notice
 from core.monitor_observations import fresh_report
 from core.printer_identity_audit import observe_printer_identity
 
 RETAINED_REPORT_LOG_SECONDS = 3600
 AMS_ENV_INTERVAL = 300
+# Reconnecting can replace the monitor object for the same printer.
+_attention_warning_after = {}
 
 
 def log_retained_report(self, raw, runtime):
@@ -36,10 +40,14 @@ def handle_status(self, status, generation, runtime):
     """Handle incoming MQTT status update."""
     import modules.notifications.event_dispatcher as printer_events
     from modules.printers.hms_codes import printer_reports_no_error
+    from core.printer_display_facts import AttentionUpdateFailed, persist_attention
+    from modules.printers.dispatch_readiness import state_needs_attention
     with self._lock:
         if self._connection_retired or (generation is not None and generation != self._connection_generation):
             return
         raw = status.raw_data.get('print', {})
+        if not isinstance(raw, dict):
+            return
         # Keep the live delta seed across a refused status commit, but publish
         # no evidence until status persistence below succeeds (or is throttled).
         from modules.printers.monitors.live_state import stage_mqtt
@@ -348,9 +356,13 @@ def handle_status(self, status, generation, runtime):
             except Exception:
                 runtime.log.error('[%s] Print confirmation cleanup will retry', self.name)
 
-        # Update telemetry + heartbeat (throttled to every 10 seconds)
+        # Write FAILED episode changes immediately, even between regular heartbeats.
         live_state_allowed = True
-        heartbeat_due = self._transport_offline or runtime.time.time() - getattr(self, '_last_heartbeat', 0) >= 10
+        gstate = self._state.get('gcode_state')
+        error = getattr(self, '_display_print_error', None) if not self._state_retained else None
+        attention = (gstate == 'FAILED', error)
+        heartbeat_due = (self._transport_offline or attention != getattr(self, '_heartbeat_attention', (False, None))
+                         or runtime.time.time() - getattr(self, '_last_heartbeat', 0) >= 10)
         if heartbeat_due:
             live_state_allowed = False
             try:
@@ -359,7 +371,6 @@ def handle_status(self, status, generation, runtime):
                     bed_tt = self._state.get('bed_target_temper')
                     noz_t = self._state.get('nozzle_temper')
                     noz_tt = self._state.get('nozzle_target_temper')
-                    gstate = self._state.get('gcode_state')
                     stg_cur = self._state.get('stg_cur', -1)
                     stage = pause_stage(self, runtime.resolve_stage_label(stg_cur, gstate))
                     lights_on_raw = runtime.parse_lights(self._state.get('lights_report', []))
@@ -404,7 +415,15 @@ def handle_status(self, status, generation, runtime):
                                      (value, observed_at.isoformat(), self.printer_id))
                     from modules.printers.monitors.nozzle_observations import persist
                     unconfirmed_filaments = persist(conn, self)
+                    try:
+                        error = persist_attention(conn, self.printer_id, gstate, error)
+                    except Exception as exc:
+                        # Roll back the whole status write so the old last_seen ages through stale to offline.
+                        # The attention warning below is logged at most once a minute per printer.
+                        conn.rollback()
+                        raise AttentionUpdateFailed from exc
                     conn.commit()
+                    self._heartbeat_attention = attention
                     live_state_allowed = True
                     self._pending_nozzle_diameter = None
                     self._pending_installed_nozzles = {}
@@ -597,6 +616,7 @@ def handle_status(self, status, generation, runtime):
                     'nozzle_temp': noz_t,
                     'nozzle_target': noz_tt,
                     'state': gstate,
+                    'state_needs_attention': state_needs_attention(gstate, 'bambu', error),
                     'progress': self._state.get('mc_percent'),
                     'remaining_min': self._state.get('mc_remaining_time'),
                     'current_layer': self._state.get('layer_num'),
@@ -610,6 +630,11 @@ def handle_status(self, status, generation, runtime):
                     ws_payload['external_spools'] = external_spools
                 runtime.ws_push('printer_telemetry', ws_payload)
 
+            except AttentionUpdateFailed:
+                now = monotonic()
+                if now >= _attention_warning_after.get(self.printer_id, 0):
+                    _attention_warning_after[self.printer_id] = now + 60
+                    runtime.log.warning("[%s] attention evidence could not be updated; status write retried", self.name)
             except Exception as e:
                 runtime.log.warning(f"Failed to update telemetry for printer {self.printer_id}: {e}")
 

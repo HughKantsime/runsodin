@@ -229,3 +229,12 @@ def raw_status_is_idle(protocol: str, payload: object) -> bool:
         from modules.printers.parsing.octoprint import printer_state
         return printer_state(payload) == 'IDLE'
     return False
+
+
+def state_needs_attention(state, protocol=None, print_error=None) -> bool:
+    """Classify the displayed state only. Pauses and HMS have separate indicators."""
+    if not isinstance(state, str):
+        return False
+    if state.upper() == 'FAILED' and protocol == 'bambu':
+        return not raw_status_is_idle(protocol, {'gcode_state': state, 'print_error': print_error})
+    return state.upper() in ('FAILED', 'ERROR', 'RUNOUT')

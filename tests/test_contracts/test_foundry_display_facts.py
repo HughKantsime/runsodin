@@ -32,6 +32,169 @@ def get_printer(client, headers):
     return response.json()
 
 
+@pytest.mark.parametrize('state,error,attention,dispatch_idle', [
+    ('FAILED', 0, False, True), ('FAILED', 0x0300400C, False, True),
+    ('FAILED', 42, True, False), ('FAILED', None, True, False),
+    ('FAILED', '0', True, False), ('FAILED', False, True, False),
+    ('ERROR', 0, True, False), ('RUNOUT', 0, True, False),
+    ('IDLE', 0, False, True), ('FINISH', 0, False, True),
+    ('RUNNING', 0, False, False), ('PAUSE', 0, False, False),
+])
+def test_attention_matches_dispatch_evidence_on_list_detail_and_push(board, monkeypatch, state, error, attention, dispatch_idle):
+    from modules.printers.dispatch_readiness import raw_status_is_idle
+    from modules.printers.monitors import mqtt_printer
+    monitor, client, issue = board
+    frames = []
+    monkeypatch.setattr(mqtt_printer, 'ws_push', lambda kind, data: frames.append((kind, data)))
+    packet = {'gcode_state': state}
+    if error is not None:
+        packet['print_error'] = error
+    report(monitor, **packet)
+    assert raw_status_is_idle('bambu', packet) is dispatch_idle
+    headers = issue(['read:printers'])
+    detail = get_printer(client, headers)
+    listed = next(p for p in client.get('/printers', headers=headers).json() if p['id'] == 199)
+    live = next(data for kind, data in frames if kind == 'printer_telemetry')
+    assert detail['gcode_state'] == listed['gcode_state'] == live['state'] == state
+    for row in (detail, listed, live):
+        assert row['state_needs_attention'] is attention
+        assert 'print_error' not in row
+
+
+def test_missing_print_section_is_ignored(board):
+    from modules.printers.monitors.live_state import stage_mqtt
+    monitor, client, issue = board
+    status = SimpleNamespace(raw_data={'print': None})
+    assert stage_mqtt(monitor, status, None) is False
+    report(monitor, gcode_state='FAILED', print_error=0)
+    monitor._on_status(status)
+    assert not get_printer(client, issue(['read:printers']))['state_needs_attention']
+
+
+def test_failed_error_delta_triggers_heartbeat_and_keeps_evidence(board, monkeypatch):
+    from modules.printers.monitors import mqtt_printer
+    monitor, _, _ = board
+    frames = []
+    monkeypatch.setattr(mqtt_printer, 'ws_push', lambda kind, data: frames.append((kind, data)))
+    report(monitor, gcode_state='FAILED')
+    monitor._on_status(SimpleNamespace(raw_data={'print': {'print_error': 0}}))
+    assert [d['state_needs_attention'] for k, d in frames if k == 'printer_telemetry'] == [True, False]
+    report(monitor, gcode_state='FAILED')
+    assert [d['state_needs_attention'] for k, d in frames if k == 'printer_telemetry'] == [True, False, False]
+
+
+def test_failed_transitions_write_status_evidence_and_frame_at_once(v2_offline_monitor, offline_store, monkeypatch):
+    monitor, _, module = v2_offline_monitor
+    frames = []
+    monkeypatch.setattr(module, 'ws_push', lambda kind, data: frames.append(data) if kind == 'printer_telemetry' else None)
+    monkeypatch.setattr(module.time, 'time', lambda: tick)
+    for tick, state, error, attention in [
+        (2000, 'FAILED', 0, False), (2002, 'FAILED', 42, True), (2003, 'FAILED', 43, True),
+        (2004, 'IDLE', None, False), (2005, 'FAILED', None, True),
+    ]:
+        packet = {'gcode_state': state, 'bed_temper': tick - 1980}
+        if error is not None:
+            packet['print_error'] = error
+        monitor._on_status(SimpleNamespace(raw_data={'print': packet}))
+        assert tuple(offline_store.execute(text('SELECT gcode_state, bed_temp FROM printers WHERE id=199')).one()) == (state, packet['bed_temper'])
+        evidence = offline_store.scalar(text("SELECT value FROM system_config WHERE key='printer.attention.199'"))
+        assert (json.loads(evidence) if evidence else None) == ({'print_error': error} if error is not None else None)
+        frame, = frames
+        assert (frame['state'], frame['bed_temp'], frame['state_needs_attention']) == (state, packet['bed_temper'], attention)
+        frames.clear()
+
+
+def test_identical_failed_reports_keep_ten_second_heartbeat(v2_offline_monitor, monkeypatch):
+    from core import printer_display_facts
+    monitor, _, module = v2_offline_monitor
+    writes, pushes = [], []
+    persist = printer_display_facts.persist_attention
+    def record_write(*args):
+        writes.append(tick)
+        return persist(*args)
+    monkeypatch.setattr(printer_display_facts, 'persist_attention', record_write)
+    monkeypatch.setattr(module, 'ws_push', lambda kind, data: pushes.append(tick) if kind == 'printer_telemetry' else None)
+    monkeypatch.setattr(module.time, 'time', lambda: tick)
+    for tick in range(2000, 2022):
+        monitor._on_status(SimpleNamespace(raw_data={'print': {'gcode_state': 'FAILED', 'print_error': 0}}))
+    assert writes == pushes == [2000, 2010, 2020]
+
+
+def test_reconnect_republishes_same_failed_error_after_evidence_reset(board):
+    monitor, client, issue = board
+    packet = SimpleNamespace(raw_data={'print': {'gcode_state': 'FAILED', 'print_error': 0}})
+    headers = issue(['read:printers'])
+    monitor._on_status(packet)
+    assert not get_printer(client, headers)['state_needs_attention']
+    monitor._reset_live_connection(monitor._connection_generation)
+    assert get_printer(client, headers)['state_needs_attention']
+    monitor._on_status(packet)
+    assert not get_printer(client, headers)['state_needs_attention']
+
+
+def test_bambu_quiet_failed_frame_preserves_emitter_evidence_through_hub(v2_offline_monitor, offline_store, monkeypatch):
+    from core import ws_hub
+    monitor, _, module = v2_offline_monitor
+    monkeypatch.setattr(ws_hub, 'engine', offline_store.get_bind())
+    monkeypatch.setattr(module, 'ws_push', ws_hub.push_event)
+    report(monitor, gcode_state='FAILED', print_error=0)
+    frame, = [msg['data'] for msg in ws_hub.read_events_since(0)[0] if msg['type'] == 'printer_telemetry']
+    assert frame['state'] == 'FAILED'
+    assert frame['state_needs_attention'] is False
+
+
+@pytest.mark.parametrize('earlier_failed', [False, True])
+def test_new_failed_episode_requires_its_own_error(board, earlier_failed):
+    monitor, client, issue = board
+    headers = issue(['read:printers'])
+    if earlier_failed:
+        report(monitor, gcode_state='FAILED', print_error=0)
+        report(monitor, gcode_state='RUNNING')
+    else:
+        report(monitor, gcode_state='RUNNING', print_error=0)
+    report(monitor, gcode_state='FAILED')
+    assert get_printer(client, headers)['state_needs_attention']
+    report(monitor, gcode_state='FAILED', print_error=0)
+    assert not get_printer(client, headers)['state_needs_attention']
+
+
+def test_retained_delta_invalidates_failed_error(board):
+    monitor, client, issue = board
+    report(monitor, gcode_state='FAILED', print_error=0)
+    monitor._on_status(SimpleNamespace(raw_data={'print': {'mc_percent': 0}}, mqtt_retained=True))
+    report(monitor, gcode_state='FAILED')
+    assert get_printer(client, issue(['read:printers']))['state_needs_attention']
+
+
+def test_failed_report_survives_deltas_but_not_a_new_fault_or_connection(board):
+    monitor, client, issue = board
+    headers = issue(['read:printers'])
+    def attention():
+        return get_printer(client, headers)['state_needs_attention']
+    report(monitor, gcode_state='FAILED', print_error=0)
+    report(monitor, gcode_state='FAILED')
+    assert not attention()
+    report(monitor, gcode_state='FAILED', print_error=19)
+    assert attention()
+    report(monitor, gcode_state='FAILED', print_error=0)
+    monitor._begin_connection()
+    assert attention()
+    report(monitor, gcode_state='FAILED')
+    assert attention()
+
+
+def test_cached_failed_evidence_survives_offset_formatting_only_for_bambu(board, offline_store):
+    monitor, client, issue = board
+    report(monitor, gcode_state='FAILED', print_error=0)
+    headers = issue(['read:printers'])
+    offline_store.execute(text("UPDATE printers SET last_seen=last_seen || '+00:00' WHERE id=199"))
+    offline_store.commit()
+    assert not get_printer(client, headers)['state_needs_attention']
+    offline_store.execute(text("UPDATE printers SET api_type='prusalink' WHERE id=199"))
+    offline_store.commit()
+    assert get_printer(client, headers)['state_needs_attention']
+
+
 def test_monitor_feeding_chamber_binding_and_timeline_to_http(board, offline_store):
     monitor, client, issue = board
     report(monitor, chamber_temper=38, ams={'tray_now': '4', 'ams': [
