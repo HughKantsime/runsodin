@@ -2,7 +2,7 @@ import ActiveHms from './ActiveHms'
 import PlateCleared from './PlateCleared'
 import { materialLabel } from '../../utils/shared'
 import PrinterNumber from '../ui/PrinterNumber'
-import { useFjord, useFoundry } from '../../hooks/themePreferences'
+import { useFoundry } from '../../hooks/themePreferences'
 import { stateNeedsAttention } from '../../utils/fleetCounts'
 import SlotTile from '../foundry/SlotTile'
 import StatusBadge, { printerBadgeStatus } from '../ui/StatusBadge'
@@ -133,7 +133,6 @@ async function copyOverlayUrl(printer: { id: number; name: string; nickname?: st
 
 export default function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, onUpdateSlot, onEdit, onSyncAms, isDragging, onDragStart, onDragOver, onDragEnd, hasCamera, onCameraClick, onScanSpool, onPlugToggle, plugStates, plugPending, plugOutcome, showPlatePicture }: PrinterCardProps) {
   const foundry = useFoundry()
-  const fjord = useFjord()
   const rack = isH3C(printer)
   const externallyManagedFilament = printer.filament_source === 'filament-ledger'
 
@@ -353,7 +352,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
       <div className="px-3 md:px-4 py-2 md:py-3 bg-[var(--brand-surface)] border-t border-[var(--brand-border)]">
         {(() => {
           const online = isOnline(printer)
-          const stateError = !fjord && online && stateNeedsAttention(printer)
+          const stateError = online && stateNeedsAttention(printer)
           const bedTemp = printer.bed_temp != null ? Math.round(printer.bed_temp) : null
           const nozTemp = printer.nozzle_temp != null ? Math.round(printer.nozzle_temp) : null
           const bedTarget = printer.bed_target_temp != null ? Math.round(printer.bed_target_temp) : null
