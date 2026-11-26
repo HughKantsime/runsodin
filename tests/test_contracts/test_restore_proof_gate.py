@@ -46,16 +46,17 @@ def test_offline_root_imports_and_fact_contract():
     for kind in ('native', 'coordinator'):
         facts = support.validate_facts(output(kind), kind)
         assert facts and facts[-1] == 'post027-' + kind + '-pass'
-    assert len(support.expected_facts('native')) == 34  # Includes the released 062 restore and previous-release backup.
+    assert len(support.expected_facts('native')) == 35  # Includes the released 065 restore and previous-release backup.
 
 
-def test_native_062_routing_switch_matches_other_released_ledgers():
+@pytest.mark.parametrize('era', ['062', '065'])
+def test_native_routing_switch_matches_other_released_ledgers(era):
     from inspect import getsource
     from ops.database_parity import post027_restore_native
 
     # This is an offline wiring check. The native proof exercises the selected route.
     source = getsource(post027_restore_native.main)
-    assert 'if ledger062 >= set(post_ids) else nullcontext()' in source
+    assert f'if ledger{era} >= set(post_ids) else nullcontext()' in source
 
 
 @pytest.mark.parametrize('candidate,expected', [('2.3.0','2.2.1'), ('2.2.1','2.2.0'), ('2.10.0','2.3.0')])
@@ -115,7 +116,7 @@ def fake_docker(tmp_path, monkeypatch):
     root = tmp_path / 'repo'; root.mkdir()
     table(root)
     (root / 'VERSION').write_text('2.3.0\n')
-    for era in ('056','057','060','062'):
+    for era in ('056','057','060','062','065'):
         path = root / f'backend/core/schema/preserved{era}/manifest.json'
         path.parent.mkdir(parents=True)
         path.write_text(json.dumps({'source_commit': 'b'*40}))
@@ -189,11 +190,13 @@ def test_runner_fails_closed_and_writes_receipt(fake_docker, failure):
     # Cleanup discovery runs before and after every proof, including interruptions.
     assert sum(args[0:3] == ('docker', 'container', 'ls') for args in calls) == 2
     if failure is None:
-        assert len(receipt['native_facts']) == 34
+        assert len(receipt['native_facts']) == 35
         assert receipt['released060_commit'] == 'b'*40
         assert any('POST027_RELEASED060_SOURCE=/source/released060/backend' in args for args in calls)
         assert receipt['released062_commit'] == 'b'*40
         assert any('POST027_RELEASED062_SOURCE=/source/released062/backend' in args for args in calls)
+        assert receipt['released065_commit'] == 'b'*40
+        assert any('POST027_RELEASED065_SOURCE=/source/released065/backend' in args for args in calls)
         assert len(receipt['coordinator_facts']) == 6
         assert len([args for args in calls if args[0:2] == ('docker','pull')]) == 3
 

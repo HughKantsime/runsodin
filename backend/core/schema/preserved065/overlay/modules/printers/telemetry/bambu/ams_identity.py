@@ -1,0 +1,254 @@
+"""Physical slot identity for Bambu AMS units.
+
+Bambu numbers four-tray units (AMS, AMS 2 Pro, AMS Lite) 0-3 and single-tray
+AMS HT units 128-135 (captured H2D: unit "128", module n3s/128). Slots 1-16
+are the four-tray units; AMS HT unit 128+n is slot 17+n, matching the bit
+position Bambu uses for it in ``tray_exist_bits`` (captured H2D: 0x100ff).
+
+Job selections use physical slot minus one. Only the print command converts
+an HT selection to its wire representation.
+"""
+import re
+
+from modules.printers.telemetry.validators import coerce_int_or_raise
+
+AMS_HT_FIRST_UNIT = 128
+AMS_HT_UNIT_COUNT = 8
+AMS_HT_FIRST_SLOT = 17
+
+
+def ams_slot_number(unit_id, tray_id, *, h3c=False):
+    """No array-position fallback; unknown hardware IDs return None."""
+    try:
+        unit = coerce_int_or_raise(unit_id)
+        tray = coerce_int_or_raise(tray_id)
+    except ValueError:
+        return None
+    if h3c:
+        return tray + 1 if unit == 32 and 0 <= tray < 9 else None
+    if 0 <= unit <= 3 and 0 <= tray <= 3:
+        return unit * 4 + tray + 1
+    if AMS_HT_FIRST_UNIT <= unit < AMS_HT_FIRST_UNIT + AMS_HT_UNIT_COUNT and tray == 0:
+        return AMS_HT_FIRST_SLOT + unit - AMS_HT_FIRST_UNIT
+    return None
+
+
+def unit_and_tray(slot, *, h3c=False):
+    """Inverse of ams_slot_number for a validated physical slot."""
+    if h3c:
+        if 1 <= slot <= 9:
+            return 32, slot - 1
+        raise ValueError('Unknown rack position')
+    if 1 <= slot < AMS_HT_FIRST_SLOT:
+        return divmod(slot - 1, 4)
+    if AMS_HT_FIRST_SLOT <= slot < AMS_HT_FIRST_SLOT + AMS_HT_UNIT_COUNT:
+        return AMS_HT_FIRST_UNIT + slot - AMS_HT_FIRST_SLOT, 0
+    raise ValueError('Unknown AMS slot')
+
+
+def has_ht_target(mapping):
+    return any(AMS_HT_FIRST_SLOT <= index + 1 < AMS_HT_FIRST_SLOT + AMS_HT_UNIT_COUNT for index in mapping)
+
+
+def print_mapping_fields(mapping, *, h3c=False):
+    """Both senders share this translation at the wire boundary."""
+    if any(AMS_HT_FIRST_UNIT <= index < AMS_HT_FIRST_UNIT + AMS_HT_UNIT_COUNT for index in mapping):
+        raise ValueError('Select an AMS HT tray by its physical slot')
+    if h3c and (not mapping or any(type(i) is not int or not -1 <= i < 9 for i in mapping)):
+        raise ValueError('Choose a position from 1 to 9 for each H3C filament.')
+    if not h3c and not has_ht_target(mapping):
+        return {'ams_mapping': mapping}
+    flat = []
+    pairs = []
+    for index in mapping:
+        if type(index) is int and index == -1:
+            flat.append(-1)
+            pairs.append({'ams_id': 255, 'slot_id': 255})
+            continue
+        unit, tray = unit_and_tray(index + 1, h3c=h3c)
+        flat.append(28 + tray if h3c else unit if unit >= AMS_HT_FIRST_UNIT else index)
+        pairs.append({'ams_id': unit, 'slot_id': tray})
+    return {'ams_mapping': flat, 'ams_mapping2': pairs}
+
+
+def is_rfid_tag(tag_uid):
+    """Bambu reports non-RFID spools with an all-zero placeholder tag_uid."""
+    return isinstance(tag_uid, str) and bool(tag_uid.strip()) and tag_uid.strip().strip('0') != ''
+
+
+def ams_trays_by_slot(units, *, strict=False, h3c=False):
+    """Refuse invalid inventory batches; omit ambiguous display/cache entries."""
+    entries = []
+    invalid = False
+    seen = set()
+    duplicate = set()
+    if not isinstance(units, list):
+        units = []
+        invalid = True
+    for unit in units:
+        if not isinstance(unit, dict) or not isinstance(unit.get('tray', []), list):
+            invalid = True
+            continue
+        if h3c and str(unit.get('id')) != '32':
+            continue
+        for tray in unit.get('tray', []):
+            if not isinstance(tray, dict):
+                invalid = True
+                continue
+            number = ams_slot_number(unit.get('id'), tray.get('id'), h3c=h3c)
+            if number is None:
+                invalid = True
+                continue
+            if number in seen:
+                duplicate.add(number)
+            seen.add(number)
+            entries.append((number, tray))
+    if strict and (invalid or duplicate):
+        raise ValueError('AMS physical identity unavailable')
+    return [(number, tray) for number, tray in entries if number not in duplicate]
+
+
+def ams_connection_counts(units, slot_numbers, *, h3c=False):
+    # A listed standard AMS has four slots even when its tray list is incomplete.
+    if not isinstance(units, list):
+        units = []
+    if h3c:
+        connected = any(isinstance(unit, dict) and str(unit.get('id')) == '32' for unit in units)
+        return {'ams_slots': 9 if connected else 0, 'ams_ht_slots': 0}
+    first_slots = {ams_slot_number(unit.get('id'), 0) for unit in units if isinstance(unit, dict)}
+    return {"ams_slots": 4 * sum(n is not None and n <= 16 for n in first_slots),
+            "ams_ht_slots": sum(17 <= n <= 24 for n in slot_numbers)}
+
+
+_HEX_COLOR = re.compile(r'#?([0-9A-Fa-f]{6})([0-9A-Fa-f]{2})?')
+
+
+def hex_color(value):
+    """RRGGBB from a 6- or 8-digit hex colour (optional '#'), or None.
+
+    Alpha 00 is Bambu's no-colour placeholder (00000000 on loaded trays without
+    a set colour), never a colour: it is None, not black.
+    """
+    match = _HEX_COLOR.fullmatch(value.strip()) if isinstance(value, str) else None
+    if match is None or (match.group(2) or '').upper() == '00':
+        return None
+    return match.group(1).upper()
+
+
+def reported_color(tray):
+    """The tray's RRGGBB colour, or None when the report carries no colour.
+
+    tray_color is RRGGBBAA; firmware that supports multi-colour trays repeats it
+    in cols. An absent, malformed or placeholder tray_color falls back to cols[0].
+    """
+    cols = tray.get('cols')
+    return hex_color(tray.get('tray_color')) or hex_color(cols[0] if isinstance(cols, list) and cols else None)
+
+
+def _rfid(value):
+    return value.strip().upper() if isinstance(value, str) and value.strip().strip('0') else None
+
+
+def tray_swapped(tray, observation, destination, previous_spool):
+    """Whether a different spool is in the tray than the slot last held.
+
+    A tray resolved to a spool is a swap when that spool is not the slot's
+    previous one. Otherwise the RFID identity is compared with the last
+    observed one; an RFID spool replaced by a tagless one is a swap. A tagless
+    tray after a tagless tray has unknown identity: not a swap (limitation:
+    a different tagless spool of the same material keeps the known colour).
+    """
+    if destination is not None:
+        return destination != previous_spool
+    observed = (observation or {}).get('observed') or {}
+    uuid, tag = _rfid(tray.get('tray_uuid')), _rfid(tray.get('tag_uid'))
+    old_uuid, old_tag = _rfid(observed.get('uuid')), _rfid(observed.get('tag'))
+    if uuid and old_uuid:
+        return uuid != old_uuid
+    if tag and old_tag:
+        return tag != old_tag
+    return bool(uuid or tag) != bool(old_uuid or old_tag)
+
+
+def stored_observation(value):
+    """A slot's stored tray observation, or {} when absent or unreadable."""
+    import json
+    try:
+        result = json.loads(value) if value else {}
+    except (TypeError, ValueError):
+        return {}
+    return result if isinstance(result, dict) else {}
+
+
+def slot_color(reported, filament_type, previous_type, previous_color, *, swapped=False, spool_color=None):
+    """The slot colour for a loaded tray.
+
+    A reported colour wins. Without one, a swapped spool takes that spool's own
+    colour (or none); the same or an unknown spool keeps the known colour of
+    the same loaded material.
+    """
+    if reported is not None:
+        return reported
+    if swapped:
+        return hex_color(spool_color)
+    return previous_color if filament_type == previous_type else None
+
+
+def tray_exists(bits, slot_number, *, h3c=False):
+    try:
+        return bool(int(bits, 16) & (1 << (slot_number - 1 + (28 if h3c else 0)))) if isinstance(bits, str) else None
+    except ValueError:
+        return None
+
+
+def _merge_tray_fields(held, tray):
+    # Empty/replaced trays cannot inherit the previous spool's identity.
+    if tray.get('_exists') is False or held.get('_exists') is False or (
+            tray.get('state') == 0 and not tray.get('tray_type')) or any(
+            tray[key] != held[key] for key in ('tag_uid', 'tray_uuid') if key in tray and key in held):
+        return tray
+    if 'tag_uid' not in tray and 'tray_uuid' not in tray and any(
+            tray[key] != held[key] for key in ('tray_type', 'tray_color', 'tray_info_idx') if key in tray and key in held):
+        return {**held, **tray, 'tag_uid': None, 'tray_uuid': None}
+    return {**held, **tray}
+
+
+def merge_rack_trays(previous, incoming):
+    """A zone or a single tray may arrive between the full report and the next sync."""
+    if not isinstance(previous, list) or not isinstance(incoming, list):
+        return incoming
+    old = [u for u in previous if isinstance(u, dict) and str(u.get('id')) == '32']
+    new = [u for u in incoming if isinstance(u, dict) and str(u.get('id')) == '32']
+    if len(old) != 1 or len(new) != 1 or len(incoming) != 1:
+        return incoming
+    try:
+        held = dict(ams_trays_by_slot(old, strict=True, h3c=True))
+        for number, tray in ams_trays_by_slot(incoming, strict=True, h3c=True):
+            previous_tray = held.get(number, {})
+            held[number] = _merge_tray_fields(previous_tray, tray)
+            if previous_tray.get('_removed'):
+                held[number] = {**held[number], '_removed': True}
+    except ValueError:
+        return incoming  # Let the normal writer validate the newer batch.
+    return [{**old[0], **new[0], 'tray': list(held.values())}]
+
+
+def inventory_report(units, bits=None, previous=(), *, h3c=False, bit_only=False):
+    """Keep a removal seen between heartbeat writes, including bit-only reports."""
+    import copy
+    result = copy.deepcopy(units)
+    # A malformed earlier report is no prior state, and must not refuse every later packet.
+    prior = dict(ams_trays_by_slot(list(previous) if isinstance(previous, (list, tuple)) else [], h3c=h3c))
+    for number, tray in ams_trays_by_slot(result, h3c=h3c):
+        exists = tray_exists(bits, number, h3c=h3c)
+        if h3c and not bit_only:
+            if type(tray.get('state')) is int and tray['state'] == 0 and not tray.get('tray_type'):
+                exists = False
+            elif exists is None and tray.get('tray_type'):
+                exists = True
+        old = prior.get(number, {})
+        tray['_exists'] = exists if exists is not None else old.get('_exists')
+        tray['_removed'] = bool(old.get('_removed') or old.get('_exists') is False)
+        if h3c:
+            tray.update(_merge_tray_fields(old, tray))
+    return result

@@ -70,11 +70,11 @@ This document explains how to add a database schema migration numbered 030 or hi
    - a database written by the published v1.9.24 image's own bootstrap, upgraded, backed up and restored;
    - a row in every new table surviving the current backup→restore round trip;
    - a killed preserved029 child leaving nothing behind;
-   - a real archive of the newest frozen era, written by that release's own sources from Git objects, validated, staged and applied (`POST027_RELEASED056_SOURCE` for 056), with ledger and schema refusals and a killed child;
+   - real archives for eras 056, 057, 060, 062 and 065 written by the released Git sources, then validated, staged and applied. The 056 proof also exercises ledger and schema refusals and a killed child;
    - a staged historical restore applied by the coordinator under enterprise-compose secret ownership (uid 10001, mode 0400); a root-run coordinator keeps the restore staged and fails; a deterministic archive refusal is quarantined;
    - a maintenance URL that carries `?sslmode=`.
 
-   The round trip runs `create_postgres_backup`, which calls `validate_live_postgres_objects`, and then a full validate→stage→apply. So applying every registered migration is proved never to break PostgreSQL backup and restore. If the migration adds a table or column, extend step 5 of `post027_restore_native.py` to insert a row into it before the backup and assert that the row survives the restore. The standalone receipt is written to `artifacts/application-certification/migrations/post027-restore-native.json`; CV05 writes it to `native/database-parity/restore-proof/post027-restore-native.json` under its validation run. It contains 32 native facts (the existing 31 plus the previous-release backup), six coordinator facts, baseline digest, candidate commit and durations. Its hash enters CV05 evidence and the workflow uploads the receipt alongside the promotion evidence. Run once on odin-ci outside an active Trusted Validation before merging; local wiring tests do not replace that run.
+   The round trip runs `create_postgres_backup`, which calls `validate_live_postgres_objects`, and then a full validate→stage→apply. So applying every registered migration is proved never to break PostgreSQL backup and restore. If the migration adds a table or column, extend step 5 of `post027_restore_native.py` to insert a row into it before the backup and assert that the row survives the restore. The standalone receipt is written to `artifacts/application-certification/migrations/post027-restore-native.json`; CV05 writes it to `native/database-parity/restore-proof/post027-restore-native.json` under its validation run. It contains 35 native facts, six coordinator facts, baseline digest, candidate commit and durations. Its hash enters CV05 evidence and the workflow uploads the receipt alongside the promotion evidence. Run once on odin-ci outside an active Trusted Validation before merging; local wiring tests do not replace that run.
 8. **Run the full contract batch.**
    `ops/run_contract_batches.sh <out-dir>`
    It must exit with status 0.
@@ -322,3 +322,20 @@ PostgreSQL proof exports the 2.4.0 commit into `POST027_RELEASED062_SOURCE`
 and uses it to create an independent archive. It validates, stages and applies
 the archive, then checks its filament evidence and both recorded and missing
 AMS humidity percentages.
+
+## Release 2.7.0 restore bundle (065)
+
+`preserved065` freezes 2.7.0 on top of preserved062. Releases 2.5.0, 2.6.0
+and 2.7.0 share the same ledger. Its final entries are `python:063-mfa-recovery-codes`,
+`python:064-mfa-code-attempts` and `python:065-mfa-last-totp-step`.
+
+```sh
+python3.11 -m ops.database_parity.freeze_preserved_bundle --commit 3a1489b5975e0c8ea07293eddd82215790230f8a --release 2.7.0 --era 65 --base-era 62 --migration python:065-mfa-last-totp-step --write
+python3.11 -m ops.database_parity.freeze_preserved_bundle --commit 3a1489b5975e0c8ea07293eddd82215790230f8a --release 2.7.0 --era 65 --base-era 62 --migration python:065-mfa-last-totp-step --check
+```
+
+While 065 is current, these backups use the current validator. Once the live
+registry advances, their exact ledger selects preserved065. The native proof
+creates the archive using the 2.7.0 Git sources in `POST027_RELEASED065_SOURCE`
+and checks recovery codes, failed sign-in attempts and the last accepted
+authenticator time step after restoring it.

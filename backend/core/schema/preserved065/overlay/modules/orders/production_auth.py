@@ -1,0 +1,39 @@
+"""Explicit delegation for inspected production stock, never connector setup."""
+from fastapi import Depends, HTTPException
+from core.rbac import mark_token_scope_checker
+
+PRODUCTION_SCOPE = 'write:production'
+
+
+def is_password_session(user):
+    return user.get('_auth_kind') in ('jwt', 'session_jwt', 'bearer_jwt') and not user.get('_token_scopes')
+
+
+def assert_production_operator(user):
+    if not user:
+        raise HTTPException(401, 'Not authenticated')
+    if user.get('role') not in ('admin', 'operator'):
+        raise HTTPException(403, 'Production operator access is required')
+    if is_password_session(user):
+        return user
+    if user.get('_auth_kind') == 'user_api_token' and PRODUCTION_SCOPE in (user.get('_token_scopes') or []):
+        return user
+    raise HTTPException(403, 'Sign in with a password session or use an explicit write:production operator token')
+
+
+def require_production_operator():
+    from core.dependencies import get_current_user
+
+    async def checker(user=Depends(get_current_user)):
+        return assert_production_operator(user)
+
+    return mark_token_scope_checker(checker, PRODUCTION_SCOPE)
+
+
+def require_recipe_qualifier():
+    """Keep session qualification admin-only; explicitly delegate token operators."""
+    async def checker(user=Depends(require_production_operator())):
+        if user.get('_auth_kind') != 'user_api_token' and user.get('role') != 'admin':
+            raise HTTPException(403, 'Administrator session required to qualify recipes')
+        return user
+    return mark_token_scope_checker(checker, PRODUCTION_SCOPE)
