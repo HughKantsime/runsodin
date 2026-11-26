@@ -251,7 +251,7 @@ def validate_access_token(token: str, db: Session, request=None) -> Optional[dic
         if blacklisted:
             return None
     user = db.execute(
-        text(_AUTH_USER_SELECT + "WHERE username = :username"),
+        text(_AUTH_USER_SELECT + "WHERE username = :username"),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant SQL from literal _AUTH_USER_SELECT and literal WHERE clause; username is a bound parameter
         {"username": token_data.username},
     ).fetchone()
     if token_predates_account(payload, user):
@@ -359,7 +359,7 @@ def resolve_user_api_token(api_key: str, db: Session, request=None) -> Optional[
         )
     # Fetch the user
     user = db.execute(
-        text(_AUTH_USER_SELECT + "WHERE id = :id"),
+        text(_AUTH_USER_SELECT + "WHERE id = :id"),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant SQL from literal _AUTH_USER_SELECT and literal WHERE clause; id is a bound parameter
         {"id": candidate.user_id},
     ).fetchone()
     scopes = parse_token_scopes(candidate.scopes)
@@ -392,7 +392,7 @@ def resolve_legacy_api_key(api_key: str, db: Session, request=None) -> Optional[
     if not api_key or not configured_key or not hmac.compare_digest(api_key, configured_key):
         return None
     admin = db.execute(
-        text(_AUTH_USER_SELECT + "WHERE role = 'admin' AND is_active IS TRUE ORDER BY id LIMIT 1")
+        text(_AUTH_USER_SELECT + "WHERE role = 'admin' AND is_active IS TRUE ORDER BY id LIMIT 1")  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant SQL from literal _AUTH_USER_SELECT and literal WHERE clause; no user input
     ).fetchone()
     return _principal(admin, "legacy_global_api_key", db, request)
 
@@ -451,7 +451,7 @@ def resolve_current_user_sync(
                     db.rollback()
                     log.warning("Session last_seen update failed; continuing authentication")
             user = db.execute(
-                text(_AUTH_USER_SELECT + "WHERE username = :username"),
+                text(_AUTH_USER_SELECT + "WHERE username = :username"),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant SQL from literal _AUTH_USER_SELECT and literal WHERE clause; username is a bound parameter
                 {"username": token_data.username},
             ).fetchone()
         except Exception:
