@@ -6,6 +6,7 @@ import FoundryPrinterCard from '../foundry/PrinterCard'
 import { MemoryRouter } from 'react-router-dom'
 import type { Printer } from '../../types/printer'
 import { ActiveJobPanel } from './PrinterPanels'
+import { printerStatusCases } from '../../test/printerStatusCases'
 vi.mock('../../permissions', () => ({ canDo: () => false, getCurrentUser: () => null }))
 beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-11T12:00:00Z')) })
 afterEach(() => { delete document.documentElement.dataset.themeFamily; cleanup(); vi.useRealTimers() })
@@ -24,8 +25,24 @@ it('shows persisted offline immediately and restores after a persisted valid rep
  view.rerender(<PrinterCard printer={{ ...printer, gcode_state: 'IDLE', print_stage: 'Idle', last_seen: '2026-10-11T12:00:00Z' }} {...props} />)
  expect(screen.getByTestId('printer-status')).toHaveTextContent('Online')
 })
-it.each([false, true, undefined])('shows a connected Classic FAILED printer as Online with attention %s', flag => {
- render(<PrinterCard printer={{ ...printer, gcode_state: 'FAILED', state_needs_attention: flag }} {...props} />)
+it.each(printerStatusCases)('shows $footer in the Classic footer for $name', ({ report, footer }) => {
+ render(<PrinterCard printer={{ ...printer, ...report }} {...props} />)
+ const label = screen.getByTestId('printer-status')
+ expect(label).toHaveTextContent(footer)
+ expect(label.parentElement).toHaveAttribute('data-printer-state')
+ if (footer === 'Error') {
+  expect(label).toHaveClass('text-[var(--status-failed)]')
+  expect(label.previousElementSibling).toHaveClass('bg-[var(--status-failed)]')
+ }
+})
+it.each(printerStatusCases)('keeps the Foundry footer badge for $name', ({ report, foundry }) => {
+ document.documentElement.dataset.themeFamily = 'foundry'
+ render(<PrinterCard printer={{ ...printer, ...report }} {...props} />)
+ expect(screen.getByTestId('printer-status')).toHaveTextContent(foundry)
+})
+it('keeps the Fjord footer online for an online fault', () => {
+ document.documentElement.dataset.themeFamily = 'fjord'
+ render(<PrinterCard printer={{ ...printer, gcode_state: 'FAILED', state_needs_attention: true }} {...props} />)
  expect(screen.getByTestId('printer-status')).toHaveTextContent('Online')
 })
 it.each(['compact', 'full'] as const)('shows linked notices and restores the fault badge on the %s Foundry card', slotVariant => {

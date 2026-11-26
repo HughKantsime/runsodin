@@ -2,7 +2,8 @@ import ActiveHms from './ActiveHms'
 import PlateCleared from './PlateCleared'
 import { materialLabel } from '../../utils/shared'
 import PrinterNumber from '../ui/PrinterNumber'
-import { useFoundry } from '../../hooks/themePreferences'
+import { useFjord, useFoundry } from '../../hooks/themePreferences'
+import { stateNeedsAttention } from '../../utils/fleetCounts'
 import SlotTile from '../foundry/SlotTile'
 import StatusBadge, { printerBadgeStatus } from '../ui/StatusBadge'
 import SlotLabel from './SlotLabel'
@@ -132,6 +133,7 @@ async function copyOverlayUrl(printer: { id: number; name: string; nickname?: st
 
 export default function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, onUpdateSlot, onEdit, onSyncAms, isDragging, onDragStart, onDragOver, onDragEnd, hasCamera, onCameraClick, onScanSpool, onPlugToggle, plugStates, plugPending, plugOutcome, showPlatePicture }: PrinterCardProps) {
   const foundry = useFoundry()
+  const fjord = useFjord()
   const rack = isH3C(printer)
   const externallyManagedFilament = printer.filament_source === 'filament-ledger'
 
@@ -351,6 +353,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
       <div className="px-3 md:px-4 py-2 md:py-3 bg-[var(--brand-surface)] border-t border-[var(--brand-border)]">
         {(() => {
           const online = isOnline(printer)
+          const stateError = !fjord && online && stateNeedsAttention(printer)
           const bedTemp = printer.bed_temp != null ? Math.round(printer.bed_temp) : null
           const nozTemp = printer.nozzle_temp != null ? Math.round(printer.nozzle_temp) : null
           const bedTarget = printer.bed_target_temp != null ? Math.round(printer.bed_target_temp) : null
@@ -362,14 +365,14 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
               <div className="flex items-center gap-2">
                 <StatusBadge status={printerBadgeStatus(printer, online)} testId="printer-status" classic={
                   <div data-printer-state={printerBadgeStatus(printer, online)} className="flex items-center gap-1.5">
-                <div className={`w-1.5 h-1.5 rounded-full ${online ? "bg-[var(--status-completed)]" : "bg-[var(--brand-text-muted)]"}`}></div>
-                  <span
-                    data-testid="printer-status"
-                    className={online ? "text-[var(--status-completed)]" : "text-[var(--brand-text-muted)]"}
-                  >
-                    {online ? "Online" : "Offline"}
-                  </span>
-                </div>
+                    <div className={`w-1.5 h-1.5 rounded-full ${stateError ? "bg-[var(--status-failed)]" : online ? "bg-[var(--status-completed)]" : "bg-[var(--brand-text-muted)]"}`}></div>
+                    <span
+                      data-testid="printer-status"
+                      className={stateError ? "text-[var(--status-failed)]" : online ? "text-[var(--status-completed)]" : "text-[var(--brand-text-muted)]"}
+                    >
+                      {stateError ? "Error" : online ? "Online" : "Offline"}
+                    </span>
+                  </div>
                 } />
                 {printer.lights_on != null && mayControl(printer) && (
                   <button

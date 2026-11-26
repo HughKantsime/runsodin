@@ -1,7 +1,8 @@
 import ActiveHms from '../../components/printers/ActiveHms'
 import { hmsFaults } from '../../utils/hms'
+import { stateNeedsAttention } from '../../utils/fleetCounts'
 import PrinterNumber from '../../components/ui/PrinterNumber'
-import { useFoundry } from '../../hooks/themePreferences'
+import { useFjord, useFoundry } from '../../hooks/themePreferences'
 import UnaccountedFilament from '../../components/foundry/UnaccountedFilament'
 import Floor from '../../components/foundry/Floor'
 import { useFleet } from '../../components/foundry/data'
@@ -47,6 +48,7 @@ import { getShortName, slotFullName, formatHours, formatTime, formatDuration, is
 
 export function PrinterCard({ printer, hasCamera, onCameraClick, activeJob, onClick }: { printer: any; hasCamera: boolean; onCameraClick: (id: number) => void; activeJob?: any; onClick: () => void }) {
   const foundry = useFoundry()
+  const fjord = useFjord()
   const slots = printer.filament_slots || []
   const LOW_SPOOL_THRESHOLD = 100
   const lowSpools = slots.filter(s => s.remaining_weight && s.remaining_weight < LOW_SPOOL_THRESHOLD)
@@ -62,7 +64,7 @@ export function PrinterCard({ printer, hasCamera, onCameraClick, activeJob, onCl
   const stage = printer.print_stage && printer.print_stage !== 'Idle' ? printer.print_stage : null
   
   const isPrinting = online && isActivePrintState(printer.gcode_state)
-  const hasError = hmsFaults(printer.hms_errors).length > 0
+  const hasError = hmsFaults(printer.hms_errors).length > 0 || (!fjord && online && stateNeedsAttention(printer))
   const statusColor = hasError ? 'bg-red-500' : isPrinting ? 'bg-[var(--status-completed)]' : online ? 'bg-yellow-500' : 'bg-[var(--brand-text-muted)]'
   const statusLabel = hasError ? 'Error' : isPrinting ? 'Printing' : online ? 'Idle' : 'Offline'
 

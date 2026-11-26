@@ -1,6 +1,7 @@
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { PrinterCard } from './Dashboard'
+import { printerStatusCases } from '../../test/printerStatusCases'
 beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-11T12:00:00Z')) })
 afterEach(() => { delete document.documentElement.dataset.themeFamily; cleanup(); vi.useRealTimers() })
 const printer = { id: 199, name: 'Synthetic dashboard printer', last_seen: '2026-10-11T11:59:59Z', gcode_state: 'RUNNING', filament_slots: [] }
@@ -44,13 +45,26 @@ it.each([['RUNNING', 'Printing'], ['IDLE', 'Idle'], ['OFFLINE', 'Offline']])('re
  expect(document.querySelector('.foundry-status')).toBeNull()
 })
 
-it.each([
- ['classic', false, 'Idle'], ['classic', true, 'Idle'], ['classic', undefined, 'Idle'],
- ['foundry', false, 'Ready'], ['foundry', true, 'Needs you'],
-] as const)('shows a FAILED printer in %s with attention %s as %s', (theme, attention, label) => {
- document.documentElement.dataset.themeFamily = theme
- render(<PrinterCard printer={{ ...printer, gcode_state: 'FAILED', state_needs_attention: attention }} {...props} />)
- expect(screen.getAllByText(label)[0]).toBeVisible()
+it.each(printerStatusCases)('shows $dashboard on both Classic dashboard labels for $name', ({ report, dashboard }) => {
+ render(<PrinterCard printer={{ ...printer, ...report }} {...props} />)
+ const labels = screen.getAllByText(dashboard)
+ expect(labels).toHaveLength(2)
+ if (dashboard === 'Error') {
+  expect(labels[0]).toHaveClass('text-[var(--status-failed)]')
+  for (const label of labels) expect(label.previousElementSibling).toHaveClass('bg-red-500')
+ }
+})
+
+it.each(printerStatusCases)('keeps the Foundry dashboard badge for $name', ({ report, foundry }) => {
+ document.documentElement.dataset.themeFamily = 'foundry'
+ render(<PrinterCard printer={{ ...printer, ...report }} {...props} />)
+ expect(screen.getByText(foundry)).toHaveClass('foundry-status')
+})
+
+it('keeps both Fjord dashboard labels for an online fault', () => {
+ document.documentElement.dataset.themeFamily = 'fjord'
+ render(<PrinterCard printer={{ ...printer, gcode_state: 'FAILED', state_needs_attention: true }} {...props} />)
+ expect(screen.getAllByText('Idle')).toHaveLength(2)
 })
 
 it('shows confirmation instead of frozen values across telemetry and refetch', () => {
