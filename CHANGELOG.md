@@ -7,7 +7,7 @@ All notable changes to O.D.I.N. are documented here.
 ## [2.8.0] - 2026-11-26
 
 
-<!-- summary: Printer cards now show a printer that needs attention in every theme, and an idle printer that still reports an old failed print is no longer flagged. Bulk actions say how many items changed and why others were skipped. Organization members can no longer change printers, jobs or files that belong to another organization. Education submissions count toward the student's print quota. If the IP allowlist locks you out, you can turn it off from the Docker host. -->
+<!-- summary: Printer cards now show a printer that needs attention in every theme, and an idle printer that still reports an old failed print is no longer flagged. Bulk actions say how many items changed and why others were skipped. On installs with organizations, members can still see and use printers, jobs and files that belong to no organization, but can no longer edit or delete them. Education submissions count toward the student's print quota. If the IP allowlist locks you out, you can turn it off from the Docker host. -->
 
 ### Added
 
