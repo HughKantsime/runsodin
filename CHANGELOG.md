@@ -4,6 +4,12 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+## [2.8.0] - 2026-11-26
+
+<!-- release-date placeholder: set by ops/bump-version.sh -->
+
+<!-- summary: Printer cards now show a printer that needs attention in every theme, and an idle printer that still reports an old failed print is no longer flagged. Bulk actions say how many items changed and why others were skipped. Organization members can no longer change printers, jobs or files that belong to another organization. Education submissions count toward the student's print quota. If the IP allowlist locks you out, you can turn it off from the Docker host. -->
+
 ### Added
 
 - If the IP allowlist locks you out, you can now check it and turn it off from the Docker host. ODIN records the change in the audit log.
@@ -26,8 +32,10 @@ All notable changes to O.D.I.N. are documented here.
 
 - When ODIN restarts after a change to the sign-in key, everyone with a saved phone sign-in must sign in again.
 - A mobile sign-in token that was just replaced can recover its replacement from the same device up to five times within ten minutes. Once the replacement is used, the server refuses the earlier token and records the attempt in the audit log.
+
 ### Changed
-- PostgreSQL backups made with ODIN 2.5.0, 2.6.0 or 2.7.0 can be restored after a later update changes the database schema.
+
+- PostgreSQL backups made with ODIN 2.5.0, 2.6.0, 2.7.0 or 2.7.1 can be restored after a later update changes the database schema.
 
 ## [2.7.1] - 2026-11-25
 

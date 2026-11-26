@@ -50,6 +50,11 @@
       "version": "2.7.0",
       "image_digest": "sha256:0d0d72aa255c80f1d4cc2f761a8c7151bdfd5b46933fd2f5b6532c0f271ded9a",
       "schema_era": 65
+    },
+    {
+      "version": "2.7.1",
+      "image_digest": "sha256:b8118159eb1895279fde4e2212a15318de4ea7dbab54fa41bf4c4470c1fa6158",
+      "schema_era": 65
     }
   ]
 }
