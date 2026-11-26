@@ -281,6 +281,20 @@
           ],
           "title": "Code"
         },
+        "color_warnings": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "object"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Color Warnings"
+        },
         "accepted": {
           "type": "boolean",
           "title": "Accepted",
