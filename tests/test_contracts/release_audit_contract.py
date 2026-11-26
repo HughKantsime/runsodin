@@ -62,6 +62,14 @@ def _calls(node, name):
     return [n for n in ast.walk(node) if isinstance(n, ast.Call) and ast.unparse(n.func) == name]
 
 
+def _contains_caller_return(node):
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        return False
+    return isinstance(node, ast.Return) or any(
+        _contains_caller_return(child) for child in ast.iter_child_nodes(node)
+    )
+
+
 def _returns_through_biometric_commit(statement, tree):
     issue = statement.value
     if not (isinstance(issue, ast.Call) and ast.unparse(issue.func) == '_issue'
@@ -125,6 +133,8 @@ def caller_owned_audit_is_atomic(key, sources):
             committed = False
             while node in parents:
                 parent = parents[node]
+                if key[0] == BIOMETRIC and isinstance(parent, ast.Return):
+                    return False
                 if key[0] in (RECOVERY, STARTUP) and isinstance(parent, ast.With):
                     # Both bind the session and enter its transaction in the same with.
                     if (len(parent.items) == 2 and isinstance(parent.items[0].optional_vars, ast.Name)
@@ -139,8 +149,12 @@ def caller_owned_audit_is_atomic(key, sources):
                         if node not in block:
                             continue
                         for following in block[block.index(node) + 1:]:
-                            if key[0] == BIOMETRIC and isinstance(following, ast.Return):
-                                committed = committed or _returns_through_biometric_commit(following, tree)
+                            if key[0] == BIOMETRIC and not committed and _contains_caller_return(following):
+                                if not (isinstance(following, ast.Return)
+                                        and _returns_through_biometric_commit(following, tree)):
+                                    return False
+                                committed = True
+                                break
                             if isinstance(following, ast.Expr) and isinstance(following.value, ast.Call) and ast.unparse(following.value.func) == 'db.commit':
                                 committed = True
                                 break
