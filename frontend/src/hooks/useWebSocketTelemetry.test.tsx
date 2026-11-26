@@ -2,6 +2,7 @@ import { cleanup, renderHook, waitFor, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, expect, it, vi } from 'vitest'
 import useWebSocket from './useWebSocket'
+import { needsYou } from '../utils/fleetCounts'
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 it('retains H2D observations across omitted packets and applies measured zero to the correct printer', async () => {
  let socket: any
@@ -42,13 +43,17 @@ it('updates list and detail attention with the state and falls back for older fr
  await waitFor(() => expect(socket?.onmessage).toBeTypeOf('function'))
  for (const [patch, expected] of [
    [{ state: 'FAILED', state_needs_attention: false }, false], [{ bed_temp: 30 }, false],
-   [{ state: 'FAILED' }, false], [{ state: 'FAILED', state_needs_attention: true }, true],
+   [{ state: 'FAILED' }, undefined], [{ state: 'FAILED', state_needs_attention: true }, true],
    [{ state: 'FAILED' }, undefined], [{ state: 'FAILED', state_needs_attention: false }, false],
    [{ state: 'RUNNING' }, undefined], [{ state: 'FAILED' }, undefined],
  ] as const) {
    act(() => socket.onmessage({ data: JSON.stringify({ type: 'printer_telemetry', data: { printer_id: 199, ...patch } }) }))
-   expect((client.getQueryData(['printers']) as any)[0].state_needs_attention).toBe(expected)
-   expect((client.getQueryData(['printer', 199]) as any).state_needs_attention).toBe(expected)
+   const listed = (client.getQueryData(['printers']) as any)[0]
+   const detail = client.getQueryData(['printer', 199]) as any
+   for (const cached of [listed, detail]) {
+     expect(cached.state_needs_attention).toBe(expected)
+     expect(needsYou(cached)).toBe(expected ?? (cached.gcode_state === 'FAILED'))
+   }
  }
 })
 it.each([

@@ -71,16 +71,76 @@ def test_missing_print_section_is_ignored(board):
     assert not get_printer(client, issue(['read:printers']))['state_needs_attention']
 
 
-def test_throttled_status_keeps_telemetry_on_the_next_heartbeat(board, monkeypatch):
+def test_failed_error_delta_triggers_heartbeat_and_keeps_evidence(board, monkeypatch):
     from modules.printers.monitors import mqtt_printer
     monitor, _, _ = board
     frames = []
     monkeypatch.setattr(mqtt_printer, 'ws_push', lambda kind, data: frames.append((kind, data)))
     report(monitor, gcode_state='FAILED')
     monitor._on_status(SimpleNamespace(raw_data={'print': {'print_error': 0}}))
-    assert [d['state_needs_attention'] for k, d in frames if k == 'printer_telemetry'] == [True]
-    report(monitor, gcode_state='FAILED')
     assert [d['state_needs_attention'] for k, d in frames if k == 'printer_telemetry'] == [True, False]
+    report(monitor, gcode_state='FAILED')
+    assert [d['state_needs_attention'] for k, d in frames if k == 'printer_telemetry'] == [True, False, False]
+
+
+def test_failed_transitions_write_status_evidence_and_frame_at_once(v2_offline_monitor, offline_store, monkeypatch):
+    monitor, _, module = v2_offline_monitor
+    frames = []
+    monkeypatch.setattr(module, 'ws_push', lambda kind, data: frames.append(data) if kind == 'printer_telemetry' else None)
+    monkeypatch.setattr(module.time, 'time', lambda: tick)
+    for tick, state, error, attention in [
+        (2000, 'FAILED', 0, False), (2002, 'FAILED', 42, True), (2003, 'FAILED', 43, True),
+        (2004, 'IDLE', None, False), (2005, 'FAILED', None, True),
+    ]:
+        packet = {'gcode_state': state, 'bed_temper': tick - 1980}
+        if error is not None:
+            packet['print_error'] = error
+        monitor._on_status(SimpleNamespace(raw_data={'print': packet}))
+        assert tuple(offline_store.execute(text('SELECT gcode_state, bed_temp FROM printers WHERE id=199')).one()) == (state, packet['bed_temper'])
+        evidence = offline_store.scalar(text("SELECT value FROM system_config WHERE key='printer.attention.199'"))
+        assert (json.loads(evidence) if evidence else None) == ({'print_error': error} if error is not None else None)
+        frame, = frames
+        assert (frame['state'], frame['bed_temp'], frame['state_needs_attention']) == (state, packet['bed_temper'], attention)
+        frames.clear()
+
+
+def test_identical_failed_reports_keep_ten_second_heartbeat(v2_offline_monitor, monkeypatch):
+    from core import printer_display_facts
+    monitor, _, module = v2_offline_monitor
+    writes, pushes = [], []
+    persist = printer_display_facts.persist_attention
+    def record_write(*args):
+        writes.append(tick)
+        return persist(*args)
+    monkeypatch.setattr(printer_display_facts, 'persist_attention', record_write)
+    monkeypatch.setattr(module, 'ws_push', lambda kind, data: pushes.append(tick) if kind == 'printer_telemetry' else None)
+    monkeypatch.setattr(module.time, 'time', lambda: tick)
+    for tick in range(2000, 2022):
+        monitor._on_status(SimpleNamespace(raw_data={'print': {'gcode_state': 'FAILED', 'print_error': 0}}))
+    assert writes == pushes == [2000, 2010, 2020]
+
+
+def test_reconnect_republishes_same_failed_error_after_evidence_reset(board):
+    monitor, client, issue = board
+    packet = SimpleNamespace(raw_data={'print': {'gcode_state': 'FAILED', 'print_error': 0}})
+    headers = issue(['read:printers'])
+    monitor._on_status(packet)
+    assert not get_printer(client, headers)['state_needs_attention']
+    monitor._reset_live_connection(monitor._connection_generation)
+    assert get_printer(client, headers)['state_needs_attention']
+    monitor._on_status(packet)
+    assert not get_printer(client, headers)['state_needs_attention']
+
+
+def test_bambu_quiet_failed_frame_preserves_emitter_evidence_through_hub(v2_offline_monitor, offline_store, monkeypatch):
+    from core import ws_hub
+    monitor, _, module = v2_offline_monitor
+    monkeypatch.setattr(ws_hub, 'engine', offline_store.get_bind())
+    monkeypatch.setattr(module, 'ws_push', ws_hub.push_event)
+    report(monitor, gcode_state='FAILED', print_error=0)
+    frame, = [msg['data'] for msg in ws_hub.read_events_since(0)[0] if msg['type'] == 'printer_telemetry']
+    assert frame['state'] == 'FAILED'
+    assert frame['state_needs_attention'] is False
 
 
 @pytest.mark.parametrize('earlier_failed', [False, True])

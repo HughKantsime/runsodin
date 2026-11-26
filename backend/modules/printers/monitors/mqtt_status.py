@@ -356,10 +356,13 @@ def handle_status(self, status, generation, runtime):
             except Exception:
                 runtime.log.error('[%s] Print confirmation cleanup will retry', self.name)
 
-        # Update telemetry + heartbeat (throttled to every 10 seconds)
+        # Write FAILED episode changes immediately, even between regular heartbeats.
         live_state_allowed = True
-        heartbeat_due = self._transport_offline or runtime.time.time() - getattr(self, '_last_heartbeat', 0) >= 10
+        gstate = self._state.get('gcode_state')
         error = getattr(self, '_display_print_error', None) if not self._state_retained else None
+        attention = (gstate == 'FAILED', error)
+        heartbeat_due = (self._transport_offline or attention != getattr(self, '_heartbeat_attention', (False, None))
+                         or runtime.time.time() - getattr(self, '_last_heartbeat', 0) >= 10)
         if heartbeat_due:
             live_state_allowed = False
             try:
@@ -368,7 +371,6 @@ def handle_status(self, status, generation, runtime):
                     bed_tt = self._state.get('bed_target_temper')
                     noz_t = self._state.get('nozzle_temper')
                     noz_tt = self._state.get('nozzle_target_temper')
-                    gstate = self._state.get('gcode_state')
                     stg_cur = self._state.get('stg_cur', -1)
                     stage = pause_stage(self, runtime.resolve_stage_label(stg_cur, gstate))
                     lights_on_raw = runtime.parse_lights(self._state.get('lights_report', []))
@@ -416,9 +418,12 @@ def handle_status(self, status, generation, runtime):
                     try:
                         error = persist_attention(conn, self.printer_id, gstate, error)
                     except Exception as exc:
+                        # Roll back the whole status write so the old last_seen ages through stale to offline.
+                        # The attention warning below is logged at most once a minute per printer.
                         conn.rollback()
                         raise AttentionUpdateFailed from exc
                     conn.commit()
+                    self._heartbeat_attention = attention
                     live_state_allowed = True
                     self._pending_nozzle_diameter = None
                     self._pending_installed_nozzles = {}

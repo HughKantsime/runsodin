@@ -138,8 +138,6 @@ export default function useWebSocket() {
             case 'printer_telemetry':
               const updatePrinter = (p: Printer) => {
                 if (p.id !== d.printer_id) return p
-                const keepQuietFailure = d.state === 'FAILED' && p.gcode_state === 'FAILED'
-                  && p.state_needs_attention === false && d.state_needs_attention === undefined
                 return mergePrinter(p, {
                   ...p,
                   bed_temp: d.bed_temp ?? p.bed_temp,
@@ -147,7 +145,7 @@ export default function useWebSocket() {
                   nozzle_temp: d.nozzle_temp ?? p.nozzle_temp,
                   nozzle_target_temp: d.nozzle_target ?? p.nozzle_target_temp,
                   gcode_state: d.state ?? p.gcode_state,
-                  ...(d.state != null && !keepQuietFailure && {
+                  ...(d.state != null && {
                     state_needs_attention: d.state_needs_attention,
                   }),
                   ...(d.gcode_file != null && { gcode_file: d.gcode_file }),

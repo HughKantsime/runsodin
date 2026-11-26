@@ -32,6 +32,9 @@ def reset_mqtt(monitor, runtime, *, clear_attention=True):
             with runtime.get_db() as conn:
                 remove_attention(conn, monitor.printer_id)
                 conn.commit()
+                # The row keeps its state, but a new connection must supply its own error.
+                was_failed, _ = getattr(monitor, '_heartbeat_attention', (False, None))
+                monitor._heartbeat_attention = (was_failed, None)
         except Exception:
             runtime.log.warning('[%s] Attention evidence reset failed', monitor.name)
     try:
