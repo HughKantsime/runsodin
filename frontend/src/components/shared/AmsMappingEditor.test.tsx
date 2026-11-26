@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import AmsMappingEditor, { useAmsMapping } from './AmsMappingEditor'
 import wire from '../../test-fixtures/ams-file-source-wire.json'
@@ -26,7 +26,11 @@ test.each(['classic', 'foundry'])('edits a saved H3C position and shows both col
     expect(screen.queryByText(/lowest position/)).toBeNull()
     expect(screen.getByText('Sliced for a 0.4 mm standard tool')).toBeInTheDocument()
     expect(screen.getByText('Filament 4 · PETG · #FFFFFF')).toBeInTheDocument()
-    expect(screen.getByText('Position 1 · PETG · #FF0000')).toBeInTheDocument()
+    expect(screen.getByText('Position 1 · PETG · #FF0000', { selector: 'div' })).toBeInTheDocument()
+    for (const [label, color] of [['Filament 4 · PETG · #FFFFFF', '#FFFFFF'], ['Position 1 · PETG · #FF0000', '#FF0000']]) {
+      expect(screen.getByText(label, { selector: 'div' }).querySelector('[aria-hidden="true"]')).toHaveStyle({ backgroundColor: color })
+    }
+    expect(within(picker).queryByRole('option', { name: 'Position 1 · PETG · #FF0000' })).toBeInTheDocument()
     expect(screen.getByText('Colour differs')).toBeInTheDocument()
     expect(screen.queryByRole('option', { name: /Position 8/ })).toBeNull()
     fireEvent.change(picker, { target: { value: '4' } })

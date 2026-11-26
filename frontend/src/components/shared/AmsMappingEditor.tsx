@@ -37,6 +37,16 @@ function slotLabel(slot: ArchiveAmsSlot) {
   return [name, slot.material ? materialLabel(slot.material) : null, hex].filter(Boolean).join(' ')
 }
 
+function rackHex(color?: string) {
+  if (!color || !/^#?(?:[\da-f]{6}|[\da-f]{8})$/i.test(color)) return undefined
+  return '#' + color.replace(/^#/, '')
+}
+
+function RackSwatch({ hex }: { hex?: string }) {
+  return hex ? <span aria-hidden="true" className="ml-2 inline-block h-3 w-3 rounded-full border border-[var(--brand-card-border)]"
+    style={{ backgroundColor: hex }} /> : null
+}
+
 export function RackSlotPreview({ preview, mapping = preview?.rack_mapping, onChange }: {
   preview?: ArchiveAmsPreview | null; mapping?: AmsMapping; onChange?: (value: AmsMapping) => void
 }) {
@@ -46,11 +56,12 @@ export function RackSlotPreview({ preview, mapping = preview?.rack_mapping, onCh
     <ul className="space-y-2">{preview.required.map(file => {
       const position = mapping?.find(row => row.source_slot === file.slot)?.target_slot
       const tray = preview.available.find(row => row.slot === position)
-      const color = tray?.color_hex ? '#' + tray.color_hex.replace(/^#/, '') : tray?.color || 'Colour unknown'
+      const fileHex = rackHex(file.color)
+      const trayHex = rackHex(tray?.color_hex || tray?.color)
       return <li key={file.slot} className="min-w-0 break-words">
-        <div>Filament {file.slot} · {file.material ? materialLabel(file.material) : 'Material unknown'} · {file.color || 'Colour unknown'}</div>
+        <div>Filament {file.slot} · {file.material ? materialLabel(file.material) : 'Material unknown'} · {fileHex || file.color || 'Colour unknown'}<RackSwatch hex={fileHex} /></div>
         {file.diameter && <div>Sliced for a {file.diameter} mm {file.tool} tool</div>}
-        {position && <div>Position {position} · {tray ? materialLabel(tray.material) : 'Contents unknown'} · {color}</div>}
+        {position && <div>Position {position} · {tray ? materialLabel(tray.material) : 'Contents unknown'} · {trayHex || tray?.color || 'Colour unknown'}<RackSwatch hex={trayHex} /></div>}
         {file.selection_note && preview.rack_mapping?.some(row => row.source_slot === file.slot && row.target_slot === position)
           && <p>{file.selection_note}</p>}
         {position && file.different_colors?.includes(position) && <strong>Colour differs</strong>}
@@ -65,7 +76,7 @@ export function RackSlotPreview({ preview, mapping = preview?.rack_mapping, onCh
           <option value="">Choose a position</option>
           {position && !file.eligible.includes(position) && <option disabled value={position}>Position {position} (unavailable)</option>}
           {preview.available.filter(s => file.eligible?.includes(s.slot)).map(s =>
-            <option key={s.slot} value={s.slot}>Position {s.slot} · {materialLabel(s.material)} · {s.color_hex || s.color || 'Colour unknown'}</option>)}
+            <option key={s.slot} value={s.slot}>Position {s.slot} · {materialLabel(s.material)} · {rackHex(s.color_hex || s.color) || s.color || 'Colour unknown'}</option>)}
         </select>}
       </li>
     })}</ul>

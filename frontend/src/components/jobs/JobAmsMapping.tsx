@@ -27,9 +27,10 @@ export default function JobAmsMapping({ job }: { job: {
     onError: () => { client.invalidateQueries({ queryKey: ['job', job.id] }) },
   })
   const loads = job.ams_preview?.planned_loads ?? []
+  const targetLabel = job.ams_preview?.rack_mapping ? 'Position' : 'Slot'
   const editable = canDo('jobs.edit') && job.ams_mapping_editable && ['pending', 'scheduled'].includes(job.status)
   return <section aria-label="Job AMS mapping" className="rounded-md border border-[var(--brand-card-border)] p-4">
-    <p className="text-sm">Saved AMS mapping: {job.ams_mapping?.length ? job.ams_mapping.flatMap((slot, index) => slot < 0 ? [] : [`Filament ${index + 1} → Slot ${slot + 1}`]).join(', ') : 'None'}</p>
+    <p className="text-sm">Saved AMS mapping: {job.ams_mapping?.length ? job.ams_mapping.flatMap((slot, index) => slot < 0 ? [] : [`Filament ${index + 1} → ${targetLabel} ${slot + 1}`]).join(', ') : 'None'}</p>
     {job.hold && loads.length > 0 && <p role="status">Planned: {loads.join('; ')}</p>}
     {job.hold && editable && <button type="button" disabled={release.isPending || save.isPending || loads.length > 0}
       onClick={() => release.mutate()} className="px-3 py-2 rounded text-sm">
