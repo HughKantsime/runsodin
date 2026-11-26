@@ -22,6 +22,7 @@ def publisher(owner, printer_id):
 def reset_mqtt(monitor, runtime):
     """Caller holds the monitor lock; merged telemetry is never a new seed."""
     monitor._phantom_slot_evidence = None
+    monitor._display_in_failed_state = False
     monitor._display_print_error = None
     monitor._live_mqtt_state = None
     monitor._live_mqtt_generation = monitor._connection_generation
@@ -37,9 +38,15 @@ def stage_mqtt(monitor, status, raw):
     retained = getattr(status, 'mqtt_retained', None) is True
     age = getattr(status, 'report_age_seconds', None)
     fresh = fresh_report(retained, age)
-    if 'print_error' in raw:
+    if not isinstance(raw, dict):
+        return False
+    if not fresh or 'gcode_state' in raw:
+        monitor._display_in_failed_state = fresh and raw.get('gcode_state') == 'FAILED'
+    if not getattr(monitor, '_display_in_failed_state', False):
+        monitor._display_print_error = None
+    elif 'print_error' in raw:
         error = raw['print_error']
-        monitor._display_print_error = error if fresh and type(error) is int else None
+        monitor._display_print_error = error if type(error) is int else None
     if not raw or not fresh:
         return False
     explicit = raw.get('gcode_state')

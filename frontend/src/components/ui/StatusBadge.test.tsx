@@ -29,6 +29,16 @@ it.each(['light', 'high-contrast'])('keeps Classic markup verbatim in the %s fal
   const { container } = render(<StatusBadge status="idle" classic={classic} />)
   expect(container.innerHTML).toBe('<div class="legacy"><span>Online</span></div>')
 })
+it.each([undefined, true, false])('preserves badge precedence and firmware spelling with attention %s', flag => {
+  for (const state of ['ERROR', 'RUNOUT', 'FAILED', 'failed', 'IDLE', 'RUNNING', 'PAUSED', 'new state', '', null]) {
+    const printer = { gcode_state: state, state_needs_attention: flag }
+    const expected = state?.toUpperCase() === 'FAILED' && flag === false ? 'ready' : state || 'unknown'
+    expect(printerBadgeStatus(printer, true)).toBe(expected)
+    expect(printerBadgeStatus({ ...printer, hms_errors: ['fault'] }, true)).toBe('error')
+    expect(printerBadgeStatus({ ...printer, hms_errors: ['fault'] }, false)).toBe('offline')
+  }
+})
+
 it('prioritizes offline and errors over stale ready/printing telemetry', () => {
   expect(printerBadgeStatus({ gcode_state: 'RUNNING' }, false)).toBe('offline')
   expect(printerBadgeStatus({ gcode_state: 'IDLE', hms_errors: ['fault'] }, true)).toBe('error')

@@ -61,6 +61,51 @@ def test_attention_matches_dispatch_evidence_on_list_detail_and_push(board, monk
         assert 'print_error' not in row
 
 
+def test_missing_print_section_is_ignored(board):
+    from modules.printers.monitors.live_state import stage_mqtt
+    monitor, client, issue = board
+    status = SimpleNamespace(raw_data={'print': None})
+    assert stage_mqtt(monitor, status, None) is False
+    report(monitor, gcode_state='FAILED', print_error=0)
+    monitor._on_status(status)
+    assert not get_printer(client, issue(['read:printers']))['state_needs_attention']
+
+
+def test_throttled_status_keeps_telemetry_on_the_next_heartbeat(board, monkeypatch):
+    from modules.printers.monitors import mqtt_printer
+    monitor, _, _ = board
+    frames = []
+    monkeypatch.setattr(mqtt_printer, 'ws_push', lambda kind, data: frames.append((kind, data)))
+    report(monitor, gcode_state='FAILED')
+    monitor._on_status(SimpleNamespace(raw_data={'print': {'print_error': 0}}))
+    assert [d['state_needs_attention'] for k, d in frames if k == 'printer_telemetry'] == [True]
+    report(monitor, gcode_state='FAILED')
+    assert [d['state_needs_attention'] for k, d in frames if k == 'printer_telemetry'] == [True, False]
+
+
+@pytest.mark.parametrize('earlier_failed', [False, True])
+def test_new_failed_episode_requires_its_own_error(board, earlier_failed):
+    monitor, client, issue = board
+    headers = issue(['read:printers'])
+    if earlier_failed:
+        report(monitor, gcode_state='FAILED', print_error=0)
+        report(monitor, gcode_state='RUNNING')
+    else:
+        report(monitor, gcode_state='RUNNING', print_error=0)
+    report(monitor, gcode_state='FAILED')
+    assert get_printer(client, headers)['state_needs_attention']
+    report(monitor, gcode_state='FAILED', print_error=0)
+    assert not get_printer(client, headers)['state_needs_attention']
+
+
+def test_retained_delta_invalidates_failed_error(board):
+    monitor, client, issue = board
+    report(monitor, gcode_state='FAILED', print_error=0)
+    monitor._on_status(SimpleNamespace(raw_data={'print': {'mc_percent': 0}}, mqtt_retained=True))
+    report(monitor, gcode_state='FAILED')
+    assert get_printer(client, issue(['read:printers']))['state_needs_attention']
+
+
 def test_failed_report_survives_deltas_but_not_a_new_fault_or_connection(board):
     monitor, client, issue = board
     headers = issue(['read:printers'])

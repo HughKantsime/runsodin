@@ -351,10 +351,6 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
       <div className="px-3 md:px-4 py-2 md:py-3 bg-[var(--brand-surface)] border-t border-[var(--brand-border)]">
         {(() => {
           const online = isOnline(printer)
-          const badge = printerBadgeStatus(printer, online)
-          const failed = online && printer.gcode_state?.toUpperCase() === 'FAILED'
-          const showError = failed && badge === 'error'
-          const classicLabel = !online ? 'Offline' : showError ? 'Error' : failed ? 'Idle' : 'Online'
           const bedTemp = printer.bed_temp != null ? Math.round(printer.bed_temp) : null
           const nozTemp = printer.nozzle_temp != null ? Math.round(printer.nozzle_temp) : null
           const bedTarget = printer.bed_target_temp != null ? Math.round(printer.bed_target_temp) : null
@@ -364,14 +360,14 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
           return (
             <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
               <div className="flex items-center gap-2">
-                <StatusBadge status={badge} testId="printer-status" classic={
-                  <div data-printer-state={badge} className="flex items-center gap-1.5">
-                <div className={`w-1.5 h-1.5 rounded-full ${showError ? "bg-[var(--status-failed)]" : online ? "bg-[var(--status-completed)]" : "bg-[var(--brand-text-muted)]"}`}></div>
+                <StatusBadge status={printerBadgeStatus(printer, online)} testId="printer-status" classic={
+                  <div data-printer-state={printerBadgeStatus(printer, online)} className="flex items-center gap-1.5">
+                <div className={`w-1.5 h-1.5 rounded-full ${online ? "bg-[var(--status-completed)]" : "bg-[var(--brand-text-muted)]"}`}></div>
                   <span
                     data-testid="printer-status"
-                    className={showError ? "text-[var(--status-failed)]" : online ? "text-[var(--status-completed)]" : "text-[var(--brand-text-muted)]"}
+                    className={online ? "text-[var(--status-completed)]" : "text-[var(--brand-text-muted)]"}
                   >
-                    {classicLabel}
+                    {online ? "Online" : "Offline"}
                   </span>
                 </div>
                 } />

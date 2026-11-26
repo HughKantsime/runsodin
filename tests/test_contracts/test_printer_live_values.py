@@ -79,6 +79,15 @@ def test_latest_snapshot_in_both_printer_responses_after_queue_expiry(marked, mo
             assert rows[pid][field] == detail[field] == (message[wire] if pid == 1 else None)
 
 
+def test_state_frame_without_attention_evidence_omits_the_field(database, monkeypatch):
+    from core import ws_hub
+    monkeypatch.setattr(ws_hub, "engine", database.get_bind())
+    ws_hub.push_event("printer_telemetry", {"printer_id": 1, "state": "FAILED"})
+    messages, _ = ws_hub.read_events_since(0)
+    assert messages[-1]["data"]["state"] == "FAILED"
+    assert "state_needs_attention" not in messages[-1]["data"]
+
+
 def test_older_producer_cannot_replace_newer_snapshot_or_leak_it_to_a_reused_printer_id(database, monkeypatch):
     from core import ws_hub
     from modules.printers.routes_crud import get_printer

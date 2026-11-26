@@ -24,9 +24,9 @@ it('shows persisted offline immediately and restores after a persisted valid rep
  view.rerender(<PrinterCard printer={{ ...printer, gcode_state: 'IDLE', print_stage: 'Idle', last_seen: '2026-10-11T12:00:00Z' }} {...props} />)
  expect(screen.getByTestId('printer-status')).toHaveTextContent('Online')
 })
-it.each([[false, 'Idle'], [true, 'Error'], [undefined, 'Error']] as const)('shows Classic FAILED status with attention %s', (flag, label) => {
+it.each([false, true, undefined])('shows a connected Classic FAILED printer as Online with attention %s', flag => {
  render(<PrinterCard printer={{ ...printer, gcode_state: 'FAILED', state_needs_attention: flag }} {...props} />)
- expect(screen.getByTestId('printer-status')).toHaveTextContent(label)
+ expect(screen.getByTestId('printer-status')).toHaveTextContent('Online')
 })
 it.each(['compact', 'full'] as const)('shows linked notices and restores the fault badge on the %s Foundry card', slotVariant => {
  document.documentElement.dataset.themeFamily = 'foundry'

@@ -41,6 +41,8 @@ def handle_status(self, status, generation, runtime):
         if self._connection_retired or (generation is not None and generation != self._connection_generation):
             return
         raw = status.raw_data.get('print', {})
+        if not isinstance(raw, dict):
+            return
         # Keep the live delta seed across a refused status commit, but publish
         # no evidence until status persistence below succeeds (or is throttled).
         from modules.printers.monitors.live_state import stage_mqtt
@@ -352,6 +354,7 @@ def handle_status(self, status, generation, runtime):
         # Update telemetry + heartbeat (throttled to every 10 seconds)
         live_state_allowed = True
         heartbeat_due = self._transport_offline or runtime.time.time() - getattr(self, '_last_heartbeat', 0) >= 10
+        error = getattr(self, '_display_print_error', None) if not self._state_retained else None
         if heartbeat_due:
             live_state_allowed = False
             try:
@@ -388,7 +391,6 @@ def handle_status(self, status, generation, runtime):
                     # Only observations since the last commit remain pending.
                     noz_dia = getattr(self, '_pending_nozzle_diameter', None)
                     fan_speed_val = self._state.get('cooling_fan_speed')
-                    error = getattr(self, '_display_print_error', None) if not self._state_retained else None
                     # SQLite's default heartbeat has second precision. A new FAILED
                     # report must invalidate the previous error even on a fast reconnect.
                     failed_at = datetime.now(timezone.utc).replace(tzinfo=None) if gstate == 'FAILED' else None

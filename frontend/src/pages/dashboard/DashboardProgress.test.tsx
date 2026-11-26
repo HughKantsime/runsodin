@@ -45,7 +45,7 @@ it.each([['RUNNING', 'Printing'], ['IDLE', 'Idle'], ['OFFLINE', 'Offline']])('re
 })
 
 it.each([
- ['classic', false, 'Idle'], ['classic', true, 'Error'],
+ ['classic', false, 'Idle'], ['classic', true, 'Idle'], ['classic', undefined, 'Idle'],
  ['foundry', false, 'Ready'], ['foundry', true, 'Needs you'],
 ] as const)('shows a FAILED printer in %s with attention %s as %s', (theme, attention, label) => {
  document.documentElement.dataset.themeFamily = theme

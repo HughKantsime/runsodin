@@ -1,4 +1,4 @@
-import { idleAfterFailure, stateNeedsAttention } from '../../utils/fleetCounts'
+import { idleAfterFailure } from '../../utils/fleetCounts'
 import { hmsFaults } from '../../utils/hms'
 import clsx from 'clsx'
 import type { ReactNode } from 'react'
@@ -68,7 +68,6 @@ const jobFinishedStates: Record<string, [string, string]> = {
 export function printerBadgeStatus(printer: { gcode_state?: string | null; state_needs_attention?: boolean; hms_errors?: unknown }, online: boolean) {
   if (!online) return 'offline'
   if (hmsFaults(printer.hms_errors).length) return 'error'
-  if (stateNeedsAttention(printer)) return 'error'
   if (idleAfterFailure(printer)) return 'ready'
   return printer.gcode_state || 'unknown'
 }

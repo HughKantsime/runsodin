@@ -42,7 +42,9 @@ it('updates list and detail attention with the state and falls back for older fr
  await waitFor(() => expect(socket?.onmessage).toBeTypeOf('function'))
  for (const [patch, expected] of [
    [{ state: 'FAILED', state_needs_attention: false }, false], [{ bed_temp: 30 }, false],
-   [{ state: 'FAILED', state_needs_attention: true }, true], [{ state: 'FAILED' }, undefined],
+   [{ state: 'FAILED' }, false], [{ state: 'FAILED', state_needs_attention: true }, true],
+   [{ state: 'FAILED' }, undefined], [{ state: 'FAILED', state_needs_attention: false }, false],
+   [{ state: 'RUNNING' }, undefined], [{ state: 'FAILED' }, undefined],
  ] as const) {
    act(() => socket.onmessage({ data: JSON.stringify({ type: 'printer_telemetry', data: { printer_id: 199, ...patch } }) }))
    expect((client.getQueryData(['printers']) as any)[0].state_needs_attention).toBe(expected)
