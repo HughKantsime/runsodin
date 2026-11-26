@@ -6,7 +6,6 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [2.7.1] - 2026-11-25
 
-<!-- release-date placeholder: set by ops/bump-version.sh -->
 
 <!-- summary: Fix for Bambu Lab H3C jobs: ODIN 2.7.0 refused a job when a filament was set to print from a different rack position than the slicer's own grouping. Any position with a matching tool and material can now be used. -->
 
