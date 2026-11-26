@@ -141,6 +141,29 @@ def owned_read(monkeypatch, engine, report, events, *, slots=(2, 3), change=None
     monkeypatch.setattr(gate, 'read_current_selected_ams', acquired)
 
 
+@pytest.mark.parametrize('model', ['X1C', 'H2D'])
+@pytest.mark.parametrize('protocol', ['legacy', 'v2'])
+def test_complete_non_rack_command(review_db, tmp_path, monkeypatch, model, protocol):
+    from modules.printers import dispatch
+    mapping = [2, 4] if model == 'H2D' else [2, 1]
+    engine, path, report = setup_multi(review_db, tmp_path, monkeypatch, model=model, mapping=mapping,
+                                       extruders=[0, 1] if model == 'H2D' else None)
+    events = []
+    sent = transport(monkeypatch, path, protocol, events)
+    owned_read(monkeypatch, engine, report, events, slots=tuple(sorted(n + 1 for n in mapping)))
+    ok, reason = dispatch.dispatch_job(59, 53)
+    assert ok, reason
+    assert events == ['upload', 'fresh_read', 'start']
+    command, = sent
+    # Only the attempt filename and clock value vary between runs.
+    filename = command['url'].removeprefix('ftp:///')
+    expected = dict(sequence_id=command['sequence_id'], command='project_file', param='Metadata/plate_1.gcode',
+                    subtask_name=filename.replace('.3mf', ''), url='ftp:///' + filename, bed_type='auto',
+                    timelapse=False, bed_leveling=True, flow_cali=False, vibration_cali=True, layer_inspect=False,
+                    use_ams=True, profile_id='0', project_id='0', subtask_id='0', task_id='0', ams_mapping=mapping)
+    assert json.dumps(command).encode() == json.dumps(expected).encode()
+
+
 @pytest.mark.parametrize('model', ['A1', 'P1S', 'X1C'])
 @pytest.mark.parametrize('protocol', ['legacy', 'v2'])
 @pytest.mark.parametrize('sparse', [False, True])

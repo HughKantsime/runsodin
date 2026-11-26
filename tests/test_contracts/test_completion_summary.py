@@ -40,19 +40,36 @@ def queue(review_db, monkeypatch):
 
 def advice(db,printer,**kw):return service.next_suggestion(db,printer,**kw)
 
-def test_start_next_previews_rack_slots_for_an_unassigned_job(queue, review_db):
+@pytest.mark.parametrize('loaded_filaments,expected_slots,file_note', [
+    pytest.param((2, 3, 1, 5, 4), [3, 1, 2, 5, 4], None, id='by-loaded-colour'),
+    pytest.param((), [], 'No free compatible position is left for filament 1.', id='empty-rack'),
+    pytest.param((1, 3, 1, 5, 4), [], 'Choose a mapping for filament 1.', id='tied-colours'),
+])
+def test_start_next_previews_rack_slots_for_an_unassigned_job(queue, review_db, loaded_filaments, expected_slots, file_note):
     from pathlib import Path
     from modules.models_library.threemf_parser import parse_3mf
+    from modules.printers.nozzle_capability import installed_nozzles
     plate = Path(__file__).parents[1] / 'fixtures/telemetry/h3c-cli-five.3mf'
     required = [dict(slot=f.slot, type=f.type, color=f.color) for f in parse_3mf(str(plate)).filaments]
+    report = json.loads(plate.with_name('h3c-ams3h-loaded-2026-11-21.json').read_bytes())['message']['print']
     queue.api_type, queue.model = 'bambu', 'H3C'
+    queue.installed_nozzles = installed_nozzles(report, include_rack=True)
+    colors = {f['slot']: f['color'] for f in required}
+    for position, filament in enumerate(loaded_filaments, 1):
+        review_db.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type,color_hex) "
+                               "VALUES(:printer,:slot,'PLA',:color)"),
+                          {'printer': queue.id, 'slot': position, 'color': colors[filament]})
     review_db.execute(text('UPDATE jobs SET printer_id=NULL WHERE id=202'))
     review_db.execute(text('UPDATE print_files SET stored_path=:path,filaments_json=:required WHERE id=201'),
                       {'path': str(plate), 'required': json.dumps(required)})
     review_db.commit()
     result = advice(review_db, queue, actor={'id': 3, 'role': 'admin'}, include_preview=True)
     assert result['job_id'] == 202
-    assert [r['target_slot'] for r in result['inputs']['rack_preview']['rack_mapping']] == [5, 4, 3, 2, 1]
+    preview = result['inputs']['rack_preview']
+    assert preview['rack_mapping'] == [
+        {'source_slot': source, 'target_slot': target} for source, target in enumerate(expected_slots, 1)
+    ]
+    assert preview.get('file_note') == file_note
 
 
 def test_scheduler_nulls_and_final_id(queue,review_db):

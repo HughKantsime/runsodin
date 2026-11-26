@@ -581,10 +581,14 @@ class Floor:
         self.refusals = _refusals(db, [row["id"] for row in self.next_rows.values()]) if self.next_rows else {}
         self.loaded = {}
         if self.next_rows:
-            query = text("SELECT printer_id, slot_number, color, filament_type FROM filament_slots "
+            query = text("SELECT printer_id, slot_number, color, filament_type, color_hex FROM filament_slots "
                          "WHERE printer_id IN :ids").bindparams(bindparam("ids", expanding=True))
-            for printer_id, slot, color, kind in db.execute(query, {"ids": list(self.next_rows)}).all():
-                self.loaded.setdefault(printer_id, {})[slot] = {"color": color, "material": _material(kind)}
+            from modules.printers.printer_models import identified_h3c
+            for printer_id, slot, color, kind, color_hex in db.execute(query, {"ids": list(self.next_rows)}).all():
+                loaded = {"color": color, "material": _material(kind)}
+                if identified_h3c(by_id[printer_id]):
+                    loaded['color_hex'] = color_hex
+                self.loaded.setdefault(printer_id, {})[slot] = loaded
         self.clear_plate = _clear_plate(db, actor, scope, controlled, ids) if ids else {}
         self.load_pauses(db, printers, running, now)
         self.hidden_pause_times = set()
@@ -730,6 +734,13 @@ class Floor:
                 ok = True if alone is None else (False if _mismatched_slot(alone) is not None else None)
             slots.append({"slot": tray, "need": side(need), "loaded": loaded.get(tray) if tray else None, "ok": ok})
         status = "match" if whole is None else ("mismatch" if failed is not None else "unknown")
+        from core.filament_color import hex_color, same_color
+        for entry in slots:
+            loaded_tray = entry['loaded'] or {}
+            required_color = entry['need']['color']
+            if 'color_hex' in loaded_tray and hex_color(required_color) and hex_color(loaded_tray['color_hex']):
+                if not same_color(required_color, {'color_hex': loaded_tray['color_hex']}):
+                    entry['color_warning'] = 'Colour differs'
         reason = None
         if status == "mismatch":
             bad = next((s for s in slots if s["slot"] == failed), None)

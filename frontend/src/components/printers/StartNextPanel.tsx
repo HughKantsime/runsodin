@@ -2,6 +2,7 @@ import { RackSlotPreview } from '../shared/AmsMappingEditor'
 import { materialLabel } from '../../utils/shared'
 import { useRef, useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { withColorWarnings } from '../../api/jobDispatch'
 import { jobCompletion } from '../../api/jobCompletion'
 import { canDo, getCurrentUser } from '../../permissions'
 import { isKobraS1 } from '../../utils/printerMapping'
@@ -20,7 +21,7 @@ export default function StartNextPanel({ printerId, active = true, children }: {
     setBusy(true);setError('')
     try{
       const result=await jobCompletion.start(printerId,{suggested_job_id:next.job_id,suggestion_fingerprint:next.fingerprint,request_id:request.current.id,bed_clear_confirmed:true,attestation:ownerInApp?'owner_in_app':'owner_confirmed_to_operator'})
-      if(result.success){setNotice(result.state==='dispatched'?'Next job dispatched.':'Start admitted; check dispatch status.');setConfirmed(null)}
+      if(result.success){setNotice(withColorWarnings(result.state==='dispatched'?'Next job dispatched.':'Start admitted; check dispatch status.', result.color_warnings));setConfirmed(null)}
       else {setError(result.message||'Start refused. Review the printer and queue.');if(result.state==='refused')request.current=null}
       await refetch()
     }catch(e){setError(e instanceof Error?e.message:'Could not start the next job.');setConfirmed(null);await refetch()}

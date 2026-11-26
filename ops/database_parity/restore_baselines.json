@@ -45,6 +45,11 @@
       "version": "2.6.0",
       "image_digest": "sha256:b119c78ea4b600b877ff67e2ad5579da3a437b825ccd367211edbb797f351cb7",
       "schema_era": 65
+    },
+    {
+      "version": "2.7.0",
+      "image_digest": "sha256:0d0d72aa255c80f1d4cc2f761a8c7151bdfd5b46933fd2f5b6532c0f271ded9a",
+      "schema_era": 65
     }
   ]
 }

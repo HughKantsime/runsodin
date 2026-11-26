@@ -43,9 +43,12 @@ def preflight_ams_source(job, *, mapping, staged_path, payload_sha256, derived=F
     from modules.printers.services import inspect_ams_payload
     from modules.printers.dispatch_options import _ams_plate_index
     plate_index = _ams_plate_index(job)
+    if plate_index != 0:
+        raise ValueError('Explicit AMS dispatch requires supported source and plate')
     if (type(mapping) is not list or not 1 <= len(mapping) <= 16
-            or any(type(slot) is not int or not -1 <= slot < 24 for slot in mapping)
-            or plate_index != 0):
+            or any(type(slot) is not int or slot < -1 or (not h3c and slot >= 24) for slot in mapping)):
+        if h3c:
+            raise ValueError('Stored AMS mapping is invalid; no command was sent')
         raise ValueError('Explicit AMS dispatch requires supported source and plate')
     stored_mapping = job.get('ams_mapping')
     if isinstance(stored_mapping, str):
@@ -64,13 +67,20 @@ def preflight_ams_source(job, *, mapping, staged_path, payload_sha256, derived=F
     if h3c:
         rack_sources(job, facts)
     used = {source['source_index'] for source in sources}
-    if {i for i, slot in enumerate(mapping) if slot != -1} != used:
+    mapped = {i for i, slot in enumerate(mapping) if slot != -1}
+    if mapped != used:
+        if h3c:
+            if mapped - used:
+                raise ValueError('Stored AMS mapping is invalid; no command was sent')
+            raise ValueError(f'Choose a position for filament {min(used - mapped) + 1}.')
         raise ValueError('AMS selection must cover every verified file source and no unused sources')
     materials = {}
     for source in sources:
         slot = mapping[source['source_index']]
-        if h3c and slot != source['group_id']:
-            raise ValueError(f"Filament {source['source_index'] + 1} requires slot {source['group_id'] + 1}.")
+        if h3c and not 0 <= slot < 9:
+            raise ValueError(f"Filament {source['source_index'] + 1} needs an onboard tray in positions 1 to 9.")
+        if h3c and slot in materials:
+            raise ValueError(f'Choose separate positions for the two filaments assigned to position {slot + 1}.')
         if slot in materials and materials[slot] != source['material']:
             raise ValueError(f'AMS slot {slot + 1} maps sources with different materials')
         materials[slot] = source['material']
@@ -128,6 +138,9 @@ def create_ams_start_gate(engine, *, admission_inputs, staged_path, mapping, tar
     read_ms = None
 
     def refuse(code, detail):
+        from core.h3c_plate import RackMessage
+        if isinstance(detail, RackMessage):
+            return record_refusal(checked, detail.code, detail)
         if read_ms is not None:
             detail += f'; ams_read_ms={read_ms}'
         return record_refusal(checked, code, detail)
@@ -209,13 +222,20 @@ def create_ams_start_gate(engine, *, admission_inputs, staged_path, mapping, tar
             detail = rack_tool_refusal(sources, mapping, snapshot.nozzles)
             if detail:
                 return refuse('nozzle_mismatch', detail)
+        warnings = []
         for source in sources:
             tray = trays[mapping[source['source_index']] + 1]
-            if h3c and (tray.material_state != 'reported' or canonical_reported_material(tray.material) != source['material']):
+            if h3c:
+                from modules.printers.h3c_mapping import start_color_warning, material_refusal
+                warning = start_color_warning(source, tray.slot_number, tray.color_hex,
+                                              facts.get('inventory_colors', {}).get(tray.slot_number))
+                if warning:
+                    warnings.append(warning)
                 loaded = tray.material if tray.material_state == 'reported' else (
-                    'empty' if tray.material_state == 'explicit_empty' else 'unreported')
-                return refuse('material_mismatch' if tray.material_state == 'reported' else 'tray_material_unreported',
-                    f"Filament {source['source_index'] + 1} requires slot {tray.slot_number} with {source['material']}. Loaded there: {loaded}.")
+                    'empty' if tray.material_state == 'explicit_empty' else None)
+                detail = material_refusal(source, tray.slot_number, loaded)
+                if detail:
+                    return refuse('material_mismatch' if tray.material_state == 'reported' else 'tray_material_unreported', detail)
             if tray.material_state != 'reported':
                 if tray.material_state == 'explicit_empty':
                     return refuse("tray_material_unreported", f"AMS slot {tray.slot_number} is empty: load a spool and set the filament type on the printer")
@@ -232,6 +252,12 @@ def create_ams_start_gate(engine, *, admission_inputs, staged_path, mapping, tar
                     return refuse("ams_binding_unverified", f"AMS slot {tray.slot_number}: H2D nozzle binding is missing or unsupported")
                 if tray.extruder != extruder:
                     return refuse("ams_binding_mismatch", f"AMS slot {tray.slot_number} feeds extruder {tray.extruder}; file source {source['source_index'] + 1} requires extruder {extruder}")
+        if warnings and warnings != getattr(checked, 'color_warnings', None):
+            from core.audit_dispatch import add_acceptance_details
+            from modules.printers.dispatch_background import progress
+            progress('starting', color_warnings=warnings)
+            add_acceptance_details({'color_warnings': warnings})
+        checked.color_warnings = warnings
         if not current():
             return False
         if not runtime_current():

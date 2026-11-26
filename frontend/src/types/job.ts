@@ -101,6 +101,7 @@ export interface JobCreate {
 
 export interface JobUpdate {
   // Entries, or the stored vector Job.ams_mapping serves (round-trips unchanged).
+  ams_file_revision?: string;
   ams_mapping?: { source_slot: number; target_slot: number }[] | number[] | null;
   item_name?: string;
   model_id?: number;

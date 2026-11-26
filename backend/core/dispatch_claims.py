@@ -91,10 +91,13 @@ def release_unstarted(engine, token):
     return _change(engine, token, delete(TABLE).where(TABLE.c.state == 'adapter_entered'))
 
 
-def record_outcome(engine,token,status, *, audit_actor=None):
+def record_outcome(engine,token,status, *, audit_actor=None, audit_detail=None):
     if status not in ('accepted','uncertain'):
         return False
     from core.audit_dispatch import caller_owns_acceptance
+    if status == 'accepted' and audit_detail and audit_actor is None:
+        from core.audit_dispatch import add_acceptance_details
+        add_acceptance_details(audit_detail)
     if status != 'accepted' or (audit_actor is None and caller_owns_acceptance()):
         return _change(engine,token,update(TABLE).where(TABLE.c.state=='adapter_entered').values(state=status,updated_at=func.now()))
     from sqlalchemy.orm import Session
@@ -107,7 +110,7 @@ def record_outcome(engine,token,status, *, audit_actor=None):
                     .values(state=status,updated_at=func.now()).returning(TABLE.c.job_id,TABLE.c.printer_id)).one_or_none()
                 if claim is None:
                     return False
-                log_audit(db, 'job.dispatched', 'job', claim.job_id, {'printer_id': claim.printer_id})
+                log_audit(db, 'job.dispatched', 'job', claim.job_id, {'printer_id': claim.printer_id, **(audit_detail or {})})
                 db.commit()
         return True
     except Exception:

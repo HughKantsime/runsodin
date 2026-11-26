@@ -279,7 +279,7 @@ export default function GeneralTab() {
   }
 
   const saveSettings = useMutation({
-    mutationFn: (data) => configApi.update(data),
+    mutationFn: (data: Parameters<typeof configApi.update>[0]) => configApi.update(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['config'] })
       queryClient.invalidateQueries({ queryKey: ['stats'] })

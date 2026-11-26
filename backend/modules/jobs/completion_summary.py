@@ -281,7 +281,7 @@ def next_suggestion(db, printer, *, visible=None, at=None, actor=None, include_p
             'fingerprint': fingerprint, 'finished_attempt_uid': finished['economic_uid'] if finished else None,
             'inputs': {'computed_at': at.isoformat(), 'job_updated_at': str(job.updated_at), 'material': facts, 'stock': stock_inputs, 'order_created_at': order_created_at}}
 
-    if include_preview and len(facts['required']['filaments']) > 1:
+    if include_preview:
         from modules.printers.services import is_h3c_printer
         if is_h3c_printer(printer):
             from core.rbac import _check_token_scope

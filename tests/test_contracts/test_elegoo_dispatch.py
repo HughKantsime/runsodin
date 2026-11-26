@@ -152,7 +152,8 @@ def test_elegoo_send_refusal_names_the_capability_not_the_printer_type(review_db
     assert captured == {'code': 'experimental_not_enabled'}
     assert len(reports) == 1
     reason, report = reports[0]
-    assert reason == 'adapter_rejected'
+    # Refused before any upload or adapter call: a gate refusal, not an adapter rejection (B123).
+    assert reason == 'gate_refused'
     assert report['message'] == expected
     assert report['gate_refusal'].code == 'experimental_not_enabled'
     assert report['gate_refusal'].detail == expected

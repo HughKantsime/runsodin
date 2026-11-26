@@ -167,11 +167,12 @@ def start(db, printer, user, data, *, background=False):
 def _finish(db, printer_id, user, data, key, record, guard):
     context = {'key': key, 'record': record, 'user': user}
     marker = _context.set(context)
+    audit_detail = {}
     try:
         from modules.printers.dispatch import dispatch_job
         from modules.printers.maintenance_gate import capture_refusal
         from core.audit_dispatch import caller_records_acceptance
-        with capture_refusal() as refusal, caller_records_acceptance():
+        with capture_refusal() as refusal, caller_records_acceptance() as audit_detail:
             success, message = dispatch_job(printer_id, data.suggested_job_id)
         result = {'success': success, 'message': message, 'job_id': data.suggested_job_id,
                   'request_id': str(data.request_id), 'state': 'dispatched' if success else 'refused'}
@@ -182,7 +183,9 @@ def _finish(db, printer_id, user, data, key, record, guard):
         result = {'success': False, 'message': 'Dispatch outcome requires review before retrying.', 'job_id': data.suggested_job_id, 'request_id': str(data.request_id), 'state': 'uncertain'}
     finally:
         _context.reset(marker)
-    return _record_result(db, printer_id, data, key, guard, result, clean_no_start=context.get('clean_no_start', False))
+    if audit_detail.get('color_warnings'):
+        result['color_warnings'] = audit_detail['color_warnings']
+    return _record_result(db, printer_id, data, key, guard, result, audit_detail=audit_detail, clean_no_start=context.get('clean_no_start', False))
 
 
 def confirm_no_start():
@@ -191,7 +194,7 @@ def confirm_no_start():
         context['clean_no_start'] = True
 
 
-def _record_result(db, printer_id, data, key, guard, result, *, clean_no_start=False):
+def _record_result(db, printer_id, data, key, guard, result, *, audit_detail=None, clean_no_start=False):
     from core.order_production import prepare_job_write, reconcile_job_write
     from modules.jobs.models import Job
     success = result['success']
@@ -216,7 +219,7 @@ def _record_result(db, printer_id, data, key, guard, result, *, clean_no_start=F
         from modules.printers.dispatch_background import audit_actor
         if success and audit_actor() is None:
             from core.audit import log_audit
-            log_audit(db, 'job.dispatched', 'job', data.suggested_job_id, {'printer_id':printer_id})
+            log_audit(db, 'job.dispatched', 'job', data.suggested_job_id, {'printer_id':printer_id, **(audit_detail or {})})
         db.commit()
     except BaseException:
         db.rollback()

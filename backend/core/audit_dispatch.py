@@ -5,21 +5,28 @@ from sqlalchemy import text
 from core.audit_actor import _BINDING
 
 
-_caller_records = ContextVar('dispatch_caller_records_acceptance', default=False)
+_caller_records = ContextVar('dispatch_caller_records_acceptance', default=None)
 
 
 @contextmanager
 def caller_records_acceptance():
     """Legacy synchronous callers already write their acceptance in their session."""
-    marker = _caller_records.set(True)
+    details = {}
+    marker = _caller_records.set(details)
     try:
-        yield
+        yield details
     finally:
         _caller_records.reset(marker)
 
 
 def caller_owns_acceptance():
-    return _caller_records.get()
+    return _caller_records.get() is not None
+
+
+def add_acceptance_details(details):
+    caller = _caller_records.get()
+    if caller is not None:
+        caller.update(details)
 
 
 def dispatch_details(db, job_id, details):

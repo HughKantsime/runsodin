@@ -17,13 +17,14 @@ it('uses the server-owned suggestion contract and start-next request fields',asy
 it('polls a staged bed-clear start without repeating its POST', async () => {
   vi.useFakeTimers()
   const attempt = 'b'.repeat(32)
+  const color_warnings = [{ filament: 1, position: 9, file_color: '#FF6A13', loaded_color: '#FFFFFF', message: 'New tray colour.' }]
   vi.mocked(fetchAPI).mockResolvedValueOnce({success:false,accepted:true,state:'preparing',job_id:3,attempt_id:attempt})
     .mockResolvedValueOnce({job_id:3,phase:'uploading',retry_blocked:true,observation:null})
-    .mockResolvedValueOnce({job_id:3,phase:'start_accepted',retry_blocked:true,observation:null})
+    .mockResolvedValueOnce({job_id:3,phase:'start_accepted',color_warnings,retry_blocked:true,observation:null})
   try {
     const pending = jobCompletion.start(201, {...fixture.request, bed_clear_confirmed:true, attestation:'owner_in_app'})
     await vi.runAllTimersAsync()
-    expect(await pending).toMatchObject({success:true,state:'dispatched'})
+    expect(await pending).toMatchObject({success:true,state:'dispatched',color_warnings})
     expect(vi.mocked(fetchAPI).mock.calls.filter(call => call[1]?.method === 'POST')).toHaveLength(1)
     expect(fetchAPI).toHaveBeenLastCalledWith(`/jobs/3/dispatch-status?attempt_id=${attempt}`)
   } finally { vi.useRealTimers() }

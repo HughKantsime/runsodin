@@ -1,23 +1,7 @@
 """AMS filament mapping suggestions for reprints."""
 
 
-def _hex_color(value):
-    """Normalize '#RRGGBB', 'RRGGBB' or 'RRGGBBAA' to lower-case 'rrggbb'; None otherwise."""
-    raw = (value or "").strip().lstrip("#").lower()
-    if len(raw) in (6, 8) and all(ch in "0123456789abcdef" for ch in raw):
-        return raw[:6]
-    return None
-
-
-def _same_color(required, slot):
-    """A sliced file names colours as hex; a slot carries a name and/or a hex."""
-    want = (required or "").strip().lower()
-    if not want:
-        return False
-    if want == (slot.get("color") or "").strip().lower():
-        return True
-    want_hex = _hex_color(want)
-    return want_hex is not None and want_hex == _hex_color(slot.get("color_hex"))
+from core.filament_color import same_color as _same_color
 
 
 def suggest_mapping(required, available):
