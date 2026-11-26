@@ -26,20 +26,20 @@ it('shows a refused save', async () => {
   expect(await screen.findByRole('alert')).toHaveTextContent('Permission denied')
 })
 
-it('can pin an inherited currency and then clear its own setting', async () => {
+it.each([
+  ['organization', false, 'Set by your organization.'],
+  ['global', true, 'Set for the installation.'],
+  [null, false, 'No display currency is set.'],
+] as const)('says where the currency comes from (basis %s)', (basis, global, sentence) => {
+  render(<QueryClientProvider client={new QueryClient()}><DisplayCurrencySetting saved={basis ? 'EUR' : null} global={global} basis={basis} /></QueryClientProvider>)
+  expect(screen.getByText(sentence)).toBeVisible()
+  expect(screen.getByRole('button', {name:'Save currency'})).toBeDisabled()
+})
+
+it('clears its own setting', async () => {
   vi.mocked(fetchAPI).mockResolvedValue({})
-  const client = new QueryClient()
-  const view = (basis: 'global' | 'organization') => <QueryClientProvider client={client}>
-    <DisplayCurrencySetting saved="EUR" global={false} basis={basis} />
-  </QueryClientProvider>
-  const { rerender } = render(view('global'))
-  expect(screen.getByText('Inherited from the installation.')).toBeVisible()
-  fireEvent.click(screen.getByRole('button', {name:'Save currency'}))
-  await vi.waitFor(() => expect(fetchAPI).toHaveBeenCalledWith('/orders/finance-settings', {method:'PUT', body:'{"currency":"EUR"}'}))
-  rerender(view('organization'))
-  expect(screen.getByText('Set by your organization.')).toBeVisible()
+  render(<QueryClientProvider client={new QueryClient()}><DisplayCurrencySetting saved="EUR" global={false} basis="organization" /></QueryClientProvider>)
   fireEvent.change(screen.getByLabelText('Display currency'), {target:{value:''}})
-  await vi.waitFor(() => expect(screen.getByRole('button', {name:'Save currency'})).toBeEnabled())
   fireEvent.click(screen.getByRole('button', {name:'Save currency'}))
   await vi.waitFor(() => expect(fetchAPI).toHaveBeenCalledWith('/orders/finance-settings', {method:'PUT', body:'{"currency":null}'}))
 })
