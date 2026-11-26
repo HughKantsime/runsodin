@@ -98,22 +98,3 @@ class RackMessage(str):
 
     def __getnewargs__(self):
         return self.code, str(self)
-
-
-REQUIRE_VERIFIED_H3C_POSITION = True
-POSITION_GATE_MESSAGE = ('Sending an H3C filament from a different position than the slice planned is not yet '
-                         'verified on this ODIN. An administrator can enable it in Settings.')
-
-
-def different_positions_enabled(db):
-    from sqlalchemy import text
-    from core.system_config_values import config_bool
-    return not REQUIRE_VERIFIED_H3C_POSITION or config_bool(db.execute(text(
-        "SELECT value FROM system_config WHERE key='h3c_allow_different_positions'")).scalar_one_or_none())
-
-
-def position_gate(db, sources, mapping):
-    if any(mapping[s['source_index']] != s['group_id'] for s in sources):
-        if not different_positions_enabled(db):
-            return RackMessage('h3c_position_unverified', POSITION_GATE_MESSAGE)
-    return None

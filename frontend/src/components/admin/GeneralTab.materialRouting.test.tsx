@@ -49,11 +49,9 @@ it('Save Scheduling Settings does not resend the mode', async () => {
   await waitFor(() => expect(api.update).toHaveBeenCalledWith({ spoolman_url: 'http://10.0.0.6:7912', blackout_start: '22:30', blackout_end: '05:30' }))
 })
 
-it('keeps crossed H3C positions off until an administrator chooses them', async () => {
-  api.config = {}
+it('omits the retired H3C position setting for administrators', async () => {
+  api.config = { scheduler_material_mode: 'prefer' }
   mount()
-  const checkbox = await screen.findByRole('checkbox', { name: /Allow H3C jobs/ })
-  expect(checkbox).not.toBeChecked()
-  fireEvent.click(checkbox)
-  await waitFor(() => expect(api.update).toHaveBeenCalledWith({ h3c_allow_different_positions: true }))
+  await waitFor(() => expect(screen.getByLabelText('Filament routing')).toHaveValue('prefer'))
+  expect(screen.queryByRole('checkbox', { name: /Allow H3C jobs/ })).not.toBeInTheDocument()
 })

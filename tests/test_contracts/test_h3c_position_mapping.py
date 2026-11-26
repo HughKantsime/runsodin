@@ -1,4 +1,4 @@
-"""Crossed H3C positions, sparse file IDs, colour ties, and the installation gate."""
+"""Crossed H3C positions, sparse file IDs, colour ties, and legacy configuration."""
 import hashlib
 import json
 from xml.etree.ElementTree import Element, SubElement, tostring
@@ -8,7 +8,6 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from core.h3c_plate import POSITION_GATE_MESSAGE
 from modules.printers import dispatch
 from modules.printers.h3c_mapping import derive_mapping, rack_candidates, rack_preview
 from modules.printers.telemetry.bambu.ams_identity import print_mapping_fields
@@ -46,8 +45,6 @@ def test_sparse_rack_mapping(dialect, request, tmp_path, monkeypatch):
     from core import db as core_db
     from modules.printers.models import Printer
     from modules.printers.nozzle_capability import installed_nozzles
-    from modules.system.routes_config import update_config, get_config
-    from modules.system.schemas import ConfigUpdate
     from modules.printers.h3c_mapping import onboard_inventory
 
     engine = request.getfixturevalue('review_db').get_bind() if dialect == 'sqlite' else request.getfixturevalue('pg_engine')
@@ -69,7 +66,6 @@ def test_sparse_rack_mapping(dialect, request, tmp_path, monkeypatch):
             db.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type,color_hex) "
                             "VALUES(901,:slot,'PLA',:color)"), file)
         db.commit()
-        assert get_config({}, db)['h3c_allow_different_positions'] is False
         from core.ams_mapping import validate_for_printer
         from fastapi import HTTPException
         entries = [dict(source_slot=i, target_slot=i) for i in GROUPS]
@@ -81,19 +77,13 @@ def test_sparse_rack_mapping(dialect, request, tmp_path, monkeypatch):
             with pytest.raises(HTTPException) as exc:
                 validate_for_printer(db, changed, job['filaments_json'], 901, actor, stored_path=path)
             assert (exc.value.status_code, exc.value.detail) == (400, sentence)
-        assert options() == (None, POSITION_GATE_MESSAGE)
-        job['ams_mapping'] = None
-        planned = [GROUPS.get(i, -1) for i in range(1, 10)]
-        options_off, error = options()
-        assert error is None and options_off['ams_mapping'] == planned
-        update_config(ConfigUpdate(h3c_allow_different_positions=True), {}, db)
         for selection in (IDENTITY, None):
             job['ams_mapping'] = selection
             accepted, error = options()
             assert error is None and accepted['ams_mapping'] == IDENTITY
         sources = accepted.source_facts['sources']
         trays = onboard_inventory(db, 901)
-        preview = rack_preview(sources, trays, tools, None, allow_different=True)
+        preview = rack_preview(sources, trays, tools, None)
         assert preview['rack_mapping'] == [dict(source_slot=f, target_slot=f) for f in GROUPS]
         fields = print_mapping_fields(accepted['ams_mapping'], h3c=True)
         assert fields == {'ams_mapping': [28, 29, 30, 31, 32, 33, 34, -1, 36],
@@ -106,9 +96,28 @@ def test_sparse_rack_mapping(dialect, request, tmp_path, monkeypatch):
         db.execute(text("UPDATE filament_slots SET color_hex='#101010' WHERE printer_id=901 AND slot_number=2"))
         db.commit()
         assert options() == (None, 'Choose a mapping for filament 1.')
-        update_config(ConfigUpdate(h3c_allow_different_positions=False), {}, db)
-        accepted, error = options()
-        assert error is None and accepted['ams_mapping'] == planned
+        db.execute(text("UPDATE filament_slots SET filament_type='empty' WHERE printer_id=901 AND slot_number=2"))
+        db.commit()
+        assert options() == (None, 'No free compatible position is left for filament 9.')
+
+
+@pytest.mark.parametrize('dialect', ['sqlite', pytest.param('postgresql', marks=pytest.mark.postgresql)])
+def test_retired_position_setting_is_ignored(dialect, request):
+    from core.system_config_values import write_config_text
+    from modules.system.routes_config import get_config, update_config
+    from modules.system.schemas import ConfigUpdate
+
+    engine = request.getfixturevalue('review_db').get_bind() if dialect == 'sqlite' else request.getfixturevalue('pg_engine')
+    key = 'h3c_allow_different_positions'
+    with Session(engine) as db:
+        write_config_text(db, key, 'false')
+        db.commit()
+        query = text("SELECT value FROM system_config WHERE key=:key")
+        original = db.execute(query, {'key': key}).scalar_one()
+        assert key not in get_config({}, db)
+        assert key not in ConfigUpdate.model_json_schema()['properties']
+        update_config(ConfigUpdate.model_validate({key: True}), {}, db)
+        assert db.execute(query, {'key': key}).scalar_one() == original
 
 
 @pytest.mark.parametrize('dialect', ['sqlite', pytest.param('postgresql', marks=pytest.mark.postgresql)])
@@ -174,7 +183,7 @@ def test_uncontested_identical_colours_use_lowest_position_in_preview(loaded, de
     source = dict(source_index=2, group_id=0, color='#112233', material='PLA', nozzle_diameter=.4, volume_type='Standard')
     trays = [dict(slot=i, material='PLA', **loaded) for i in (5, 2)]
     tools = [dict(position=t['slot'], side='rack', present=True, diameter=.4, type='HS01') for t in trays]
-    result = rack_preview([source], trays, tools, None, allow_different=True)
+    result = rack_preview([source], trays, tools, None)
     assert result['rack_mapping'] == [dict(source_slot=3, target_slot=2)]
     assert result['required'][0]['selection_note'] == f'Position 2 is the lowest position with {description}.'
 

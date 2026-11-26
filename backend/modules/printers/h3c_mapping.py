@@ -60,13 +60,6 @@ def rack_candidates(sources, available, installed):
              and not position_refusal(source, tray['slot'], tools)] for source in sources]
 
 
-def planned_mapping(sources):
-    mapping = [-1] * (max(s['source_index'] for s in sources) + 1)
-    for source in sources:
-        mapping[source['source_index']] = source['group_id']
-    return mapping
-
-
 def derive_mapping(sources, candidates, *, selection_notes=None):
     """Find a unique best complete assignment. Nine trays bound the subset search."""
     def choose(index):
@@ -133,7 +126,7 @@ def derive_mapping(sources, candidates, *, selection_notes=None):
     return vector
 
 
-def rack_preview(sources, available, installed, stored, *, allow_different):
+def rack_preview(sources, available, installed, stored):
     candidates = rack_candidates(sources, available, installed)
     rows = []
     for source, trays in zip(sources, candidates):
@@ -147,7 +140,7 @@ def rack_preview(sources, available, installed, stored, *, allow_different):
         notes = {}
         mapping = stored
         if mapping is None:
-            mapping = derive_mapping(sources, candidates, selection_notes=notes) if allow_different else planned_mapping(sources)
+            mapping = derive_mapping(sources, candidates, selection_notes=notes)
         for row in rows:
             if row['slot'] - 1 in notes:
                 row['selection_note'] = notes[row['slot'] - 1]

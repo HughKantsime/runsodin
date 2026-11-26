@@ -222,11 +222,6 @@ def create_ams_start_gate(engine, *, admission_inputs, staged_path, mapping, tar
             detail = rack_tool_refusal(sources, mapping, snapshot.nozzles)
             if detail:
                 return refuse('nozzle_mismatch', detail)
-            from core.h3c_plate import position_gate
-            with engine.connect() as conn:
-                detail = position_gate(conn, sources, mapping)
-            if detail:
-                return refuse('h3c_position_unverified', detail)
         warnings = []
         for source in sources:
             tray = trays[mapping[source['source_index']] + 1]

@@ -81,14 +81,12 @@ def _validated_print_options(job,creds,stored_path,payload_sha256):
                         from modules.printers.dispatch_ams_gate import rack_sources
                         sources = rack_sources(job, facts)
                         from core.db import engine
-                        from core.h3c_plate import different_positions_enabled
-                        from modules.printers.h3c_mapping import onboard_inventory, rack_candidates, derive_mapping, planned_mapping
+                        from modules.printers.h3c_mapping import onboard_inventory, rack_candidates, derive_mapping
                         with engine.connect() as conn:
                             trays = onboard_inventory(conn, printer_id)
-                            allow_different = derived and different_positions_enabled(conn)
                         if derived:
-                            mapping = (derive_mapping(sources, rack_candidates(sources, trays, creds.get('installed_nozzles')))
-                                       if allow_different else planned_mapping(sources))
+                            candidates = rack_candidates(sources, trays, creds.get('installed_nozzles'))
+                            mapping = derive_mapping(sources, candidates)
                         facts['inventory_colors'] = {t['slot']: t['color_hex'] for t in trays}
                     else:
                         source = facts['source_index']
@@ -151,13 +149,11 @@ def _mapping_error(job, mapping, *, slot_details=False, rack_sources=(), install
         reason = flagged_mapping_reason(conn, job['printer_id'], mapping)
         if rack_sources:
             from modules.printers.h3c_mapping import material_refusal
-            from core.h3c_plate import position_gate
             for source in rack_sources:
                 position = mapping[source['source_index']] + 1
                 detail = material_refusal(source, position, slots.get(position))
                 if detail:
                     return detail
-            reason = reason or position_gate(conn, rack_sources, mapping)
     if reason:
         return reason
     try:

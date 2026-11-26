@@ -171,9 +171,7 @@ def preview(db, filaments_json, printer_id, actor, *, stored_path=None, plate_in
         available = [tray for tray in available if 1 <= tray['slot'] <= 9]
         sources = read_rack_sources(stored_path, plate_index)
         if sources:
-            from core.h3c_plate import different_positions_enabled
-            return rack_preview(sources, available, db.get(Printer, printer_id).installed_nozzles, stored_mapping,
-                                allow_different=stored_mapping is None and different_positions_enabled(db))
+            return rack_preview(sources, available, db.get(Printer, printer_id).installed_nozzles, stored_mapping)
         return {**preview_for_slots(filaments_json, available), 'rack_mapping': [], 'suggested_mapping': [],
                 'file_note': 'The rack tools could not be read from this file.'}
     return preview_for_slots(filaments_json, selectable_slots(db, printer_id, printer.api_type, available))

@@ -143,14 +143,11 @@ def owned_read(monkeypatch, engine, report, events, *, slots=(2, 3), change=None
 
 @pytest.mark.parametrize('model', ['X1C', 'H2D'])
 @pytest.mark.parametrize('protocol', ['legacy', 'v2'])
-def test_position_opt_in_preserves_complete_non_rack_command(review_db, tmp_path, monkeypatch, model, protocol):
-    from core.system_config_values import write_config_text
+def test_complete_non_rack_command(review_db, tmp_path, monkeypatch, model, protocol):
     from modules.printers import dispatch
     mapping = [2, 4] if model == 'H2D' else [2, 1]
     engine, path, report = setup_multi(review_db, tmp_path, monkeypatch, model=model, mapping=mapping,
                                        extruders=[0, 1] if model == 'H2D' else None)
-    write_config_text(review_db, 'h3c_allow_different_positions', 'true')
-    review_db.commit()
     events = []
     sent = transport(monkeypatch, path, protocol, events)
     owned_read(monkeypatch, engine, report, events, slots=tuple(sorted(n + 1 for n in mapping)))

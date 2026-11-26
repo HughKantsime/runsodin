@@ -231,7 +231,7 @@ def test_offline_plate_checks_without_opt_in(target, review_db, problem, reason)
 
 
 @pytest.mark.parametrize('protocol', ['legacy', 'v2'])
-@pytest.mark.parametrize('outcome', ['manual', 'auto', 'farm_mapping', 'colour_changed', 'inventory_colour_changed', 'crossed', 'gate_disabled', 'uncalibrated', 'timeout', 'busy', 'lock_unavailable', 'transfer', 'refused_connection', 'tls', 'no_suback', 'mqtt_down', 'mqtt_lost', 'sub_refused', 'write_failed', 'upload_rejected', 'start_rejected', 'no_reply', 'empty_tray', 'changed_tool'])
+@pytest.mark.parametrize('outcome', ['manual', 'auto', 'farm_mapping', 'colour_changed', 'inventory_colour_changed', 'crossed', 'crossed_empty_tray', 'uncalibrated', 'timeout', 'busy', 'lock_unavailable', 'transfer', 'refused_connection', 'tls', 'no_suback', 'mqtt_down', 'mqtt_lost', 'sub_refused', 'write_failed', 'upload_rejected', 'start_rejected', 'no_reply', 'empty_tray', 'changed_tool'])
 def test_one_checked_dispatch(target, review_db, monkeypatch, caplog, protocol, outcome):
     from modules.printers.telemetry.bambu import ftp_upload, project_reply
     from tests.test_contracts.test_multi_source_ams_dispatch import transport
@@ -246,24 +246,19 @@ def test_one_checked_dispatch(target, review_db, monkeypatch, caplog, protocol, 
         review_db.commit()
     if outcome == 'farm_mapping':
         from tests.test_contracts.test_h3c_position_mapping import plate, IDENTITY
-        from core.h3c_plate import POSITION_GATE_MESSAGE
-        from core.system_config_values import write_config_text
         files = plate(path)
         review_db.execute(text('UPDATE print_files SET filaments_json=:f WHERE id=52'), {'f': json.dumps(files)})
         review_db.execute(text('UPDATE jobs SET payload_sha256=:sha,ams_mapping=:m WHERE id=53'),
                           {'sha': hashlib.sha256(path.read_bytes()).hexdigest(), 'm': json.dumps(IDENTITY)})
         review_db.commit()
-    if outcome in ('crossed', 'gate_disabled'):
-        from core.system_config_values import write_config_text
+    if outcome in ('crossed', 'crossed_empty_tray'):
         selection[0], selection[1] = selection[1], selection[0]
-        write_config_text(review_db, 'h3c_allow_different_positions', 'true')
         review_db.execute(text('UPDATE jobs SET ams_mapping=:m WHERE id=53'), {'m': json.dumps(selection)})
         review_db.commit()
     # Reuse the offline upload and MQTT boundary. Exercise the real reply parser.
     def after_upload():
-        if outcome == 'gate_disabled':
-            write_config_text(review_db, 'h3c_allow_different_positions', 'false')
-            review_db.commit()
+        if outcome == 'crossed_empty_tray':
+            report['ams']['tray_exist_bits'] = hex((511 ^ (1 << selection[0])) << 28)
         if outcome == 'uncalibrated':
             report['3D']['uncalibrated_nozzles'] = [16]
         if outcome in ('colour_changed', 'write_failed', 'no_reply'):
@@ -326,11 +321,6 @@ def test_one_checked_dispatch(target, review_db, monkeypatch, caplog, protocol, 
         failure = lambda *a, **kw: events.append('upload') or ftp_upload.UploadResult(False, phase)
         monkeypatch.setattr(ftp_upload, 'upload_file', failure)
         sender.upload_file = failure
-    if outcome == 'farm_mapping':
-        assert dispatch.dispatch_job(59, 53) == (False, POSITION_GATE_MESSAGE)
-        assert events == [] and sent == []
-        write_config_text(review_db, 'h3c_allow_different_positions', 'true')
-        review_db.commit()
     if outcome == 'write_failed':
         from modules.jobs import services
         original_transition = services.transition_job
@@ -415,9 +405,8 @@ def test_one_checked_dispatch(target, review_db, monkeypatch, caplog, protocol, 
         assert not ok and 'subscri' in message and events == ['upload']
         row = review_db.execute(text('SELECT status,fail_notes FROM jobs WHERE id=53')).one()
         assert row.status == 'failed' and 'subscription was refused (code 128)' in row.fail_notes
-    elif outcome == 'gate_disabled':
-        from core.h3c_plate import POSITION_GATE_MESSAGE
-        assert (ok, message, events) == (False, POSITION_GATE_MESSAGE, ['upload'])
+    elif outcome == 'crossed_empty_tray':
+        assert not ok and f'Position {selection[0] + 1} is empty.' in message and events == ['upload']
     elif outcome == 'changed_tool':
         assert not ok and 'Position 9' in message and events == ['upload']
     elif outcome == 'empty_tray':
@@ -502,11 +491,6 @@ def test_job_detail_previews_file_rack_positions_and_current_colours(target, rev
     actor = {'id': 1, 'role': 'admin', 'group_id': None}
     def preview():
         return detail_view(review_db, job, actor)['ams_preview']
-    facts = preview()
-    assert facts['rack_mapping'] == [dict(source_slot=i, target_slot=n) for i, n in enumerate([5, 4, 3, 2, 1], 1)]
-    from core.system_config_values import write_config_text
-    write_config_text(review_db, 'h3c_allow_different_positions', 'true')
-    review_db.commit()
     facts = preview()
     # Two indistinguishable grey trays are equally good for the remaining file colours.
     assert facts['rack_mapping'] == [] and 'Choose a mapping' in facts['file_note']
@@ -795,7 +779,7 @@ def test_swapped_gcode_tools():
     (SLICE, [4, 3, 2, 0, 1]), (FIXTURES / 'h3c-cli-two.3mf', [1, 0]),
     (FIXTURES / 'h3c-cli-five.3mf', [4, 3, 2, 1, 0]), (FIXTURES / 'h3c-cli-single.3mf', [0]),
 ])
-def test_cli_mapping_is_bound_to_slice(target, review_db, fixture, expected):
+def test_cli_mapping_accepts_compatible_crossed_positions(target, review_db, fixture, expected):
     from modules.models_library.threemf_parser import parse_3mf
     path, _ = target
     data = fixture.read_bytes()
@@ -805,7 +789,7 @@ def test_cli_mapping_is_bound_to_slice(target, review_db, fixture, expected):
     creds, job = dispatch._get_printer_info(59), dispatch._load_job(53)
     job.update(ams_mapping=None, payload_sha256=sha, filaments_json=json.dumps(
         [dict(slot=f.slot, type=f.type, color=f.color) for f in filaments]))
-    # These fixtures remain usable with the setting off when their planned trays are loaded.
+    # Load each colour into its planned tray for the derived mapping.
     for f, target_slot in zip(filaments, expected):
         review_db.execute(text('UPDATE filament_slots SET color_hex=:color WHERE printer_id=59 AND slot_number=:n'),
                           {'color': f.color, 'n': target_slot + 1})
@@ -816,8 +800,6 @@ def test_cli_mapping_is_bound_to_slice(target, review_db, fixture, expected):
     review_db.commit()
     options, reason = dispatch._validated_print_options(job, creds, path, sha)
     assert reason is None and options['ams_mapping'] == expected
-    from core.h3c_plate import POSITION_GATE_MESSAGE
-    from core.system_config_values import write_config_text
     from modules.printers.telemetry.bambu.ams_identity import print_mapping_fields
     crossed = expected.copy()
     if len(crossed) > 1:
@@ -827,9 +809,6 @@ def test_cli_mapping_is_bound_to_slice(target, review_db, fixture, expected):
         review_db.execute(text("UPDATE filament_slots SET filament_type='PLA' WHERE printer_id=59 AND slot_number=2"))
         review_db.commit()
     job['ams_mapping'] = crossed
-    assert dispatch._validated_print_options(job, creds, path, sha) == (None, POSITION_GATE_MESSAGE)
-    write_config_text(review_db, 'h3c_allow_different_positions', 'true')
-    review_db.commit()
     options, reason = dispatch._validated_print_options(job, creds, path, sha)
     assert reason is None and print_mapping_fields(options['ams_mapping'], h3c=True) == {
         'ams_mapping': [28 + n for n in crossed], 'ams_mapping2': [dict(ams_id=32, slot_id=n) for n in crossed]}
@@ -1185,14 +1164,14 @@ def test_pre_upload_rack_refusal_identifies_the_gate(target, review_db, monkeypa
     seen = []
     monkeypatch.setattr(dispatch, '_notify_start_outcome', lambda job, reason, **kw: seen.append((reason, kw)))
     selection = MAPPING.copy()
-    selection.reverse()
+    selection[0] = selection[1]
     review_db.execute(text('UPDATE jobs SET ams_mapping=:m WHERE id=53'), {'m': json.dumps(selection)})
     review_db.commit()
-    from core.h3c_plate import POSITION_GATE_MESSAGE
-    assert dispatch.dispatch_job(59, 53) == (False, POSITION_GATE_MESSAGE)
+    message = 'Choose separate positions for the two filaments assigned to position 7.'
+    assert dispatch.dispatch_job(59, 53) == (False, message)
     (reason, info), = seen
     assert (reason, info['gate_refusal'].code, info['message']) == (
-        'gate_refused', 'h3c_position_unverified', POSITION_GATE_MESSAGE)
+        'gate_refused', 'duplicate_position', message)
 
 
 def test_pre_upload_gate_without_refusal_keeps_its_fallback(target, monkeypatch):
