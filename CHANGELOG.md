@@ -4,9 +4,15 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+## [2.7.1] - 2026-11-25
+
+<!-- release-date placeholder: set by ops/bump-version.sh -->
+
+<!-- summary: Fix for Bambu Lab H3C jobs: ODIN 2.7.0 refused a job when a filament was set to print from a different rack position than the slicer's own grouping. Any position with a matching tool and material can now be used. -->
+
 ### Fixed
 
-- H3C jobs are no longer refused when a filament prints from a different rack position than the slicer's own grouping. Any position with a matching tool and material can be chosen, ODIN picks positions by loaded colour when none is saved, and the mapping view shows the tool each filament was sliced for and flags colour differences.
+- H3C jobs are no longer refused when a filament prints from a different rack position than the slicer's own grouping. Any position with a matching tool and material can be chosen, ODIN picks positions by loaded colour when none is saved, and the mapping view shows the tool each filament was sliced for and flags colour differences. When two loaded positions suit a filament equally well, ODIN asks you to choose a mapping before it sends the job.
 
 ## [2.7.0] - 2026-11-24
 
