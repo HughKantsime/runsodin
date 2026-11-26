@@ -121,6 +121,7 @@ export interface Printer {
   nozzle_temp: number | null;
   nozzle_target_temp: number | null;
   gcode_state: string | null;
+  state_needs_attention?: boolean;
   print_stage: string | null;
   hms_errors: string | null;
   lights_on: boolean | null;

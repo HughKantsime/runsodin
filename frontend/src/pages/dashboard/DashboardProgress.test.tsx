@@ -44,6 +44,15 @@ it.each([['RUNNING', 'Printing'], ['IDLE', 'Idle'], ['OFFLINE', 'Offline']])('re
  expect(document.querySelector('.foundry-status')).toBeNull()
 })
 
+it.each([
+ ['classic', false, 'Idle'], ['classic', true, 'Error'],
+ ['foundry', false, 'Ready'], ['foundry', true, 'Needs you'],
+] as const)('shows a FAILED printer in %s with attention %s as %s', (theme, attention, label) => {
+ document.documentElement.dataset.themeFamily = theme
+ render(<PrinterCard printer={{ ...printer, gcode_state: 'FAILED', state_needs_attention: attention }} {...props} />)
+ expect(screen.getAllByText(label)[0]).toBeVisible()
+})
+
 it('shows confirmation instead of frozen values across telemetry and refetch', () => {
  const job = { job_name: 'Bracket', awaiting_confirmation: true, progress_percent: 13, remaining_minutes: 615, current_layer: 6, total_layers: 93 }
  const view = render(<PrinterCard printer={printer} activeJob={job} {...props} />)

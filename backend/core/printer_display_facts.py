@@ -94,13 +94,16 @@ def observe(monitor, packet, *, retained=False):
     monitor._display_facts = facts
 
 
-def persist(conn, monitor):
+def persist(conn, monitor, *, failed_report=None):
     facts = getattr(monitor, '_display_facts', None)
-    if not facts:
+    if not facts and failed_report is None:
         return
     row = conn.execute('SELECT created_at FROM printers WHERE id=?', (monitor.printer_id,)).fetchone()
     if row:
-        value = json.dumps({'printer_created_at': str(row[0]), 'facts': facts})
+        entry = {'printer_created_at': str(row[0]), 'facts': facts or {}}
+        if failed_report is not None:
+            entry['failed_report'] = failed_report
+        value = json.dumps(entry)
         conn.execute('INSERT INTO system_config(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',
                      (cache_key(monitor.printer_id), value))
 
@@ -140,6 +143,11 @@ def read_facts(db, printers):
                 continue
             result[printer.id] = {key: fact['value'] for key, fact in entry.get('facts', {}).items()
                                   if 0 <= now - fact['at'] <= MAX_AGE_SECONDS}
+            # Only this exact FAILED heartbeat can clear its own attention flag.
+            failed = entry.get('failed_report')
+            if (printer.gcode_state == 'FAILED' and isinstance(failed, dict) and printer.last_seen
+                    and failed.get('last_seen') == str(printer.last_seen)):
+                result[printer.id]['print_error'] = failed.get('print_error')
         except (ValueError, TypeError, AttributeError, KeyError):
             continue
     return result
@@ -203,11 +211,13 @@ def plate_clear_times(db, printer_ids, actor, job_clauses=(), job_params=None):
 def enrich_printer_facts(db, printers, actor):
     facts = read_facts(db, printers)
     cleared = plate_clear_times(db, [p.id for p in printers], actor)
+    from modules.printers.dispatch_readiness import state_needs_attention
     from modules.printers.plate_clear import plate_clear_states
     plate_states = plate_clear_states(db, printers, actor)
     for printer in printers:
         printer.plate_clear = plate_states[printer.id]
         observed = facts.get(printer.id, {})
+        printer.state_needs_attention = state_needs_attention(printer.gcode_state, printer.api_type, observed.get('print_error'))
         printer.feeding_slot = observed.get('feeding_slot')
         printer.chamber_temp = observed.get('chamber_temp')
         printer.plate_clear_confirmed_at = cleared.get(printer.id)

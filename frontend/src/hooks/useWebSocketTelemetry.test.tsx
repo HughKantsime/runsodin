@@ -28,6 +28,27 @@ it('retains H2D observations across omitted packets and applies measured zero to
  expect(updated[0].external_spools.right.remain_percent).toBe(0)
  expect(updated[1]).toEqual(other)
 })
+it('updates list and detail attention with the state and falls back for older frames', async () => {
+ let socket: any
+ class Socket { onmessage: any; constructor() { socket = this } close() {} }
+ vi.stubGlobal('WebSocket', Socket)
+ vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ token: 'synthetic-local-token' }) })))
+ const client = new QueryClient()
+ const printer = { id: 199, gcode_state: 'FAILED', state_needs_attention: true }
+ client.setQueryData(['printers'], [printer])
+ client.setQueryData(['printer', 199], printer)
+ const wrapper = ({ children }: any) => <QueryClientProvider client={client}>{children}</QueryClientProvider>
+ renderHook(() => useWebSocket(), { wrapper })
+ await waitFor(() => expect(socket?.onmessage).toBeTypeOf('function'))
+ for (const [patch, expected] of [
+   [{ state: 'FAILED', state_needs_attention: false }, false], [{ bed_temp: 30 }, false],
+   [{ state: 'FAILED', state_needs_attention: true }, true], [{ state: 'FAILED' }, undefined],
+ ] as const) {
+   act(() => socket.onmessage({ data: JSON.stringify({ type: 'printer_telemetry', data: { printer_id: 199, ...patch } }) }))
+   expect((client.getQueryData(['printers']) as any)[0].state_needs_attention).toBe(expected)
+   expect((client.getQueryData(['printer', 199]) as any).state_needs_attention).toBe(expected)
+ }
+})
 it.each([
  [{ remaining_min: 0 }, { progress_percent: 37, remaining_minutes: 0 }],
  [{ current_layer: 0 }, { progress_percent: 37, remaining_minutes: 125, current_layer: 0 }],

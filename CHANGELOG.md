@@ -4,6 +4,10 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- A printer that is idle but still reports a failed state from an earlier stopped or finished print is no longer shown as needing attention or left out of the ready count.
+
 ## [2.7.1] - 2026-11-25
 
 

@@ -7,6 +7,7 @@ from typing import Literal, Optional, List
 from pydantic import StrictBool, StrictInt, BaseModel, Field, ConfigDict, computed_field, field_validator, field_serializer, model_serializer, model_validator
 
 from core.base import FilamentType
+from modules.printers.dispatch_readiness import state_needs_attention
 from modules.printers.services import check_bambu_create_count
 
 
@@ -253,6 +254,7 @@ class PendingControl(BaseModel):
 
 
 class PrinterResponse(PrinterBase):
+    state_needs_attention: bool = Field(default_factory=lambda data: state_needs_attention(data.get('gcode_state')))
     mc_percent: Optional[float] = None
     mc_remaining_time: Optional[float] = None
     layer_num: Optional[int] = None

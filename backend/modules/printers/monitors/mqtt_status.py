@@ -36,6 +36,7 @@ def handle_status(self, status, generation, runtime):
     """Handle incoming MQTT status update."""
     import modules.notifications.event_dispatcher as printer_events
     from modules.printers.hms_codes import printer_reports_no_error
+    from modules.printers.dispatch_readiness import state_needs_attention
     with self._lock:
         if self._connection_retired or (generation is not None and generation != self._connection_generation):
             return
@@ -387,12 +388,16 @@ def handle_status(self, status, generation, runtime):
                     # Only observations since the last commit remain pending.
                     noz_dia = getattr(self, '_pending_nozzle_diameter', None)
                     fan_speed_val = self._state.get('cooling_fan_speed')
+                    error = getattr(self, '_display_print_error', None) if not self._state_retained else None
+                    # SQLite's default heartbeat has second precision. A new FAILED
+                    # report must invalidate the previous error even on a fast reconnect.
+                    failed_at = datetime.now(timezone.utc).replace(tzinfo=None) if gstate == 'FAILED' else None
                     conn.execute(
-                        f"UPDATE printers SET last_seen={runtime.sql.now()},"
+                        f"UPDATE printers SET last_seen=COALESCE(?,{runtime.sql.now()}),"
                         " bed_temp=?,bed_target_temp=?,nozzle_temp=?,nozzle_target_temp=?,"
                         " gcode_state=?,print_stage=?,"
                         " nozzle_type=?,fan_speed=COALESCE(?,fan_speed) WHERE id=?",
-                        (bed_t, bed_tt, noz_t, noz_tt, gstate, stage,
+                        (failed_at, bed_t, bed_tt, noz_t, noz_tt, gstate, stage,
                          noz_type, fan_speed_val, self.printer_id))
                     if noz_dia is not None:
                         observe_printer_identity(conn, self.printer_id, "nozzle_diameter", noz_dia)
@@ -414,7 +419,10 @@ def handle_status(self, status, generation, runtime):
                     # status commit so a cache failure can't roll that back.
                     try:
                         from core.printer_display_facts import persist as persist_display_facts
-                        persist_display_facts(conn, self)
+                        if failed_at is not None:
+                            persist_display_facts(conn, self, failed_report={'last_seen': str(failed_at), 'print_error': error})
+                        else:
+                            persist_display_facts(conn, self)
                         conn.commit()
                     except Exception as e:
                         conn.rollback()
@@ -597,6 +605,7 @@ def handle_status(self, status, generation, runtime):
                     'nozzle_temp': noz_t,
                     'nozzle_target': noz_tt,
                     'state': gstate,
+                    'state_needs_attention': state_needs_attention(gstate, 'bambu', error),
                     'progress': self._state.get('mc_percent'),
                     'remaining_min': self._state.get('mc_remaining_time'),
                     'current_layer': self._state.get('layer_num'),

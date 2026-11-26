@@ -32,6 +32,77 @@ def get_printer(client, headers):
     return response.json()
 
 
+@pytest.mark.parametrize('state,error,attention,dispatch_idle', [
+    ('FAILED', 0, False, True), ('FAILED', 0x0300400C, False, True),
+    ('FAILED', 42, True, False), ('FAILED', None, True, False),
+    ('FAILED', '0', True, False), ('FAILED', False, True, False),
+    ('ERROR', 0, True, False), ('RUNOUT', 0, True, False),
+    ('IDLE', 0, False, True), ('FINISH', 0, False, True),
+    ('RUNNING', 0, False, False), ('PAUSE', 0, False, False),
+])
+def test_attention_matches_dispatch_evidence_on_list_detail_and_push(board, monkeypatch, state, error, attention, dispatch_idle):
+    from modules.printers.dispatch_readiness import raw_status_is_idle
+    from modules.printers.monitors import mqtt_printer
+    monitor, client, issue = board
+    frames = []
+    monkeypatch.setattr(mqtt_printer, 'ws_push', lambda kind, data: frames.append((kind, data)))
+    packet = {'gcode_state': state}
+    if error is not None:
+        packet['print_error'] = error
+    report(monitor, **packet)
+    assert raw_status_is_idle('bambu', packet) is dispatch_idle
+    headers = issue(['read:printers'])
+    detail = get_printer(client, headers)
+    listed = next(p for p in client.get('/printers', headers=headers).json() if p['id'] == 199)
+    live = next(data for kind, data in frames if kind == 'printer_telemetry')
+    assert detail['gcode_state'] == listed['gcode_state'] == live['state'] == state
+    for row in (detail, listed, live):
+        assert row['state_needs_attention'] is attention
+        assert 'print_error' not in row
+
+
+def test_failed_report_survives_deltas_but_not_a_new_fault_or_connection(board):
+    monitor, client, issue = board
+    headers = issue(['read:printers'])
+    def attention():
+        return get_printer(client, headers)['state_needs_attention']
+    report(monitor, gcode_state='FAILED', print_error=0)
+    report(monitor, gcode_state='FAILED')
+    assert not attention()
+    report(monitor, gcode_state='FAILED', print_error=19)
+    assert attention()
+    report(monitor, gcode_state='FAILED', print_error=0)
+    monitor._begin_connection()
+    report(monitor, gcode_state='FAILED')
+    assert attention()
+
+
+def test_cache_write_failure_cannot_reuse_previous_no_error_report(board, monkeypatch):
+    from core import printer_display_facts
+    monitor, client, issue = board
+    headers = issue(['read:printers'])
+    report(monitor, gcode_state='FAILED', print_error=0)
+    assert not get_printer(client, headers)['state_needs_attention']
+    def fail(*args, **kwargs):
+        raise RuntimeError('display cache unavailable')
+    monkeypatch.setattr(printer_display_facts, 'persist', fail)
+    report(monitor, gcode_state='FAILED', print_error=42)
+    assert get_printer(client, headers)['state_needs_attention']
+
+
+def test_cached_failed_evidence_only_applies_to_the_same_bambu_heartbeat(board, offline_store):
+    monitor, client, issue = board
+    report(monitor, gcode_state='FAILED', print_error=0)
+    headers = issue(['read:printers'])
+    assert not get_printer(client, headers)['state_needs_attention']
+    offline_store.execute(text("UPDATE printers SET api_type='prusalink' WHERE id=199"))
+    offline_store.commit()
+    assert get_printer(client, headers)['state_needs_attention']
+    offline_store.execute(text("UPDATE printers SET api_type='bambu', last_seen='2026-11-04 18:00:00' WHERE id=199"))
+    offline_store.commit()
+    assert get_printer(client, headers)['state_needs_attention']
+
+
 def test_monitor_feeding_chamber_binding_and_timeline_to_http(board, offline_store):
     monitor, client, issue = board
     report(monitor, chamber_temper=38, ams={'tray_now': '4', 'ams': [
