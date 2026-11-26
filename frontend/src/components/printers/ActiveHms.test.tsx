@@ -33,7 +33,7 @@ describe('active Bambu notices', () => {
   expect(needsYou({gcode_state:'RUNNING', hms_errors:JSON.stringify(entries)} as Printer)).toBe(false)
   expect(screen.getByText(entries[0].message)).toBeInTheDocument()
   expect(screen.queryByText('Active faults')).not.toBeInTheDocument()
-  expect(printerBadgeStatus({gcode_state:'RUNNING', hms_errors:entries}, true)).toBe('RUNNING')
+  expect(printerBadgeStatus({gcode_state:'RUNNING', hms_errors:entries}, true)).toBe('printing')
  })
  it('clears active notices without turning historical codes into faults', () => {
   const {rerender}=render(<ActiveHms printer={{api_type:'bambu',hms_errors:[notice]}} />)

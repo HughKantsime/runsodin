@@ -13,7 +13,7 @@ export function idleAfterFailure(printer: ReportedState) {
   return printer.gcode_state?.toUpperCase() === 'FAILED' && printer.state_needs_attention === false
 }
 
-export function needsYou(printer: Printer) {
+export function needsYou(printer: ReportedState & { hms_errors?: unknown }) {
   // HMS is a JSON string on HTTP and an array on websocket updates. '[]' is not an error.
   let errors: unknown = printer.hms_errors
   if (typeof errors === 'string') { try { errors = JSON.parse(errors) } catch { errors = [] } }

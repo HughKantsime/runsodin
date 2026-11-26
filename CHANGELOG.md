@@ -6,6 +6,7 @@ All notable changes to O.D.I.N. are documented here.
 
 ### Fixed
 
+- Foundry: a printer that reports a filament runout now shows Needs you on its card; before, the card showed a grey RUNOUT label while the header counted it as needing attention.
 - A printer that is idle but still reports a failed state from an earlier stopped or finished print is no longer shown as needing attention or left out of the ready count.
 - Classic and Fjord themes: a printer that reports an error, a failed print or a filament runout is now shown as Error on the dashboard and on its printer card; before, it read Idle or Online unless the printer also raised a health (HMS) fault.
 

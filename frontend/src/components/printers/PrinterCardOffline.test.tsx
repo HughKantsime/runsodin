@@ -7,6 +7,8 @@ import { MemoryRouter } from 'react-router-dom'
 import type { Printer } from '../../types/printer'
 import { ActiveJobPanel } from './PrinterPanels'
 import { printerStatusCases } from '../../test/printerStatusCases'
+import { needsYou } from '../../utils/fleetCounts'
+import { isOnline } from '../../utils/shared'
 vi.mock('../../permissions', () => ({ canDo: () => false, getCurrentUser: () => null }))
 beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-11T12:00:00Z')) })
 afterEach(() => { delete document.documentElement.dataset.themeFamily; cleanup(); vi.useRealTimers() })
@@ -26,22 +28,26 @@ it('shows persisted offline immediately and restores after a persisted valid rep
  expect(screen.getByTestId('printer-status')).toHaveTextContent('Online')
 })
 describe.each(['classic', 'fjord'])('%s printer card', family => {
- it.each(printerStatusCases)('shows $footer in the footer for $name', ({ report, footer }) => {
+ it.each(printerStatusCases)('shows $footer in the footer for $name', ({ report, footer, badgeState }) => {
   document.documentElement.dataset.themeFamily = family
   render(<PrinterCard printer={{ ...printer, ...report }} {...props} />)
   const label = screen.getByTestId('printer-status')
   expect(label).toHaveTextContent(footer)
-  expect(label.parentElement).toHaveAttribute('data-printer-state')
+  expect(label.parentElement).toHaveAttribute('data-printer-state', badgeState)
   if (footer === 'Error') {
    expect(label).toHaveClass('text-[var(--status-failed)]')
    expect(label.previousElementSibling).toHaveClass('bg-[var(--status-failed)]')
   }
  })
 })
-it.each(printerStatusCases)('keeps the Foundry footer badge for $name', ({ report, foundry }) => {
+it.each(printerStatusCases)('shows the Foundry label and fleet attention category for $name', ({ report, foundry }) => {
  document.documentElement.dataset.themeFamily = 'foundry'
- render(<PrinterCard printer={{ ...printer, ...report }} {...props} />)
- expect(screen.getByTestId('printer-status')).toHaveTextContent(foundry)
+ const current = { ...printer, ...report } as Printer
+ render(<PrinterCard printer={current} {...props} />)
+ const badge = screen.getByTestId('printer-status')
+ expect(badge).toHaveTextContent(foundry)
+ expect(badge.dataset.status === 'needsYou').toBe(isOnline(current) && needsYou(current))
+ if (foundry === report.gcode_state) expect(badge).toHaveAttribute('data-status', 'neutral')
 })
 it.each(['compact', 'full'] as const)('shows linked notices and restores the fault badge on the %s Foundry card', slotVariant => {
  document.documentElement.dataset.themeFamily = 'foundry'
