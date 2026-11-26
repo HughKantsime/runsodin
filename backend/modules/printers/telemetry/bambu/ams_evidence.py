@@ -3,6 +3,7 @@ from dataclasses import dataclass
 import re
 from typing import Literal
 
+from core.filament_color import hex_color
 from core.material_identity import canonical_reported_material
 
 from modules.printers.telemetry.bambu.ams_identity import (
@@ -19,6 +20,7 @@ class RawTrayFact:
     # Firmware material labels cannot establish actual filament occupancy.
     mechanically_ready: None = None
     extruder: int | None = None
+    color_hex: str | None = None
 
 
 def parse_raw_ams_facts(print_packet, *, h3c=False) -> tuple[RawTrayFact, ...]:
@@ -80,5 +82,6 @@ def parse_raw_ams_facts(print_packet, *, h3c=False) -> tuple[RawTrayFact, ...]:
             state = 'unknown'
         else:
             state = 'invalid'
-        result.append(RawTrayFact(slot, unit, tray_id, material, state, extruder=bindings.get(unit)))
+        result.append(RawTrayFact(slot, unit, tray_id, material, state, extruder=bindings.get(unit),
+                                  color_hex=hex_color(tray.get('tray_color')) if h3c else None))
     return tuple(sorted(result, key=lambda fact: fact.slot_number))

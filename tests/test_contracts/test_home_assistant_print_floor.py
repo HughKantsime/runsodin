@@ -156,6 +156,18 @@ def test_ams_check_match(ams, review_db):
     assert printer['bench'] is None
 
 
+def test_h3c_floor_flags_colour_without_blocking_the_job(ams, review_db):
+    client, issue = ams
+    _job(review_db, 552, 'Colour choice', printer=9, model_id=12, ams_mapping='[0, 1]')
+    review_db.execute(text("UPDATE printers SET model='H3C', machine_type='H3C' WHERE id=9"))
+    review_db.execute(text("UPDATE filament_slots SET color_hex='FF0000' WHERE printer_id=9 AND slot_number=1"))
+    review_db.commit()
+    check = _printers(_get(client, issue))[9]['next_job']['ams_check']
+    row = check['slots'][0]
+    assert check['status'] == 'match' and row['ok'] is True
+    assert (row['color_warning'], row['need']['color'], row['loaded']['color_hex']) == ('Colour differs', '#000000', 'FF0000')
+
+
 def test_ams_check_mismatch_names_the_slot_and_blocks_the_bench(ams, review_db):
     client, issue = ams
     _job(review_db, 553, 'Mismatch', printer=9, model_id=12, ams_mapping='[0, 1]')
@@ -738,3 +750,14 @@ def test_pause_times_and_count_exclude_invisible_jobs(ha_client, review_db, hidd
     bench = _printers(body)[9]['bench']
     assert bench['since'] is None and bench['paused_seconds'] is None and bench['paused_long'] is None
     assert body['fleet']['paused_long'] == 0
+
+
+def test_h3c_colour_note_preserves_material_mismatch(ams, review_db):
+    client, issue = ams
+    _job(review_db, 642, 'Bracket', printer=9, model_id=12, ams_mapping='[0,1]')
+    review_db.execute(text("UPDATE printers SET model='H3C', machine_type=NULL WHERE id=9"))
+    review_db.execute(text("UPDATE filament_slots SET color_hex='FF0000',filament_type='PETG' WHERE printer_id=9 AND slot_number=1"))
+    review_db.commit()
+    check = _printers(_get(client, issue))[9]['next_job']['ams_check']
+    assert check['status'] == 'mismatch'
+    assert check['slots'][0]['ok'] is False and check['slots'][0]['color_warning'] == 'Colour differs'

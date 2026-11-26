@@ -68,7 +68,7 @@ def claimed(engine, token, job):
     context['staged'].set()
 
 
-def progress(phase, *, message=None, ams_mapping_derived=False):
+def progress(phase, *, message=None, ams_mapping_derived=False, color_warnings=None):
     context = _context.get()
     if not context or not context.get('token'):
         return
@@ -81,6 +81,8 @@ def progress(phase, *, message=None, ams_mapping_derived=False):
         record['phase'] = phase
         if ams_mapping_derived:
             record['ams_mapping_derived'] = True
+        if color_warnings:
+            record['color_warnings'] = color_warnings
         if message is not None:
             record['message'] = message[:500]
         if phase in ('start_accepted', 'refused', 'needs_reconciliation'):

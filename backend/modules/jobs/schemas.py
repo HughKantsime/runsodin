@@ -74,6 +74,7 @@ class JobCreate(JobBase):
 
 
 class JobUpdate(BaseModel):
+    ams_file_revision: Optional[str] = Field(default=None, pattern=r"^[a-f0-9]{64}$")
     # Entries ({source_slot, target_slot}) or the stored vector GET serves; never coerced.
     ams_mapping: Optional[Union[list[dict[str, Any]], list[StrictInt]]] = None
     item_name: Optional[str] = None

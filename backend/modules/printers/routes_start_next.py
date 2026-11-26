@@ -44,6 +44,7 @@ class StartResult(BaseModel):
     request_id: str
     message: str | None = None
     code: str | None = None
+    color_warnings: list[dict[str, Any]] | None = None
     accepted: bool = False
     attempt_id: str | None = None
     status_url: str | None = None

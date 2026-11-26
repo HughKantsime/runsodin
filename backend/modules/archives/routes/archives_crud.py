@@ -502,10 +502,10 @@ def ams_preview(
         pf = accessible_preview_file(db, file_id, user)
         filaments_json = pf.filaments_json
         if printer_id:
-            # A Kobra S1 previews a reprint as it does a schedule; other printers are unchanged.
-            from modules.printers.services import is_kobra_s1
+            # Use the same hardware-aware picker for reprints and schedules.
+            from modules.printers.services import is_h3c_printer, is_kobra_s1
             target = db.execute(text("SELECT api_type,model,machine_type FROM printers WHERE id=:id"), {"id": printer_id}).mappings().first()
-            if target and is_kobra_s1(target):
+            if target and (is_kobra_s1(target) or is_h3c_printer(target)):
                 from core.ams_mapping import preview
                 return preview(db, filaments_json, printer_id, user, stored_path=pf.stored_path)
         if filaments_json:
@@ -611,7 +611,7 @@ def reprint_archive(
             raise HTTPException(400, "Original print file contents changed")
     validate_plate(file_path, body.plate_index, printer.api_type)
     from core.ams_mapping import validate_for_printer
-    mapping = validate_for_printer(db, body.ams_mapping, file['filaments_json'], printer.id, user, stored_path=file['stored_path'])
+    mapping = validate_for_printer(db, body.ams_mapping, file['filaments_json'], printer.id, user, stored_path=file['stored_path'], plate_index=body.plate_index)
     identity = user if isinstance(user, dict) else vars(user)
     new_job = Job(
         item_name=human_name(model_name=model.name, original_filename=file['original_filename']),

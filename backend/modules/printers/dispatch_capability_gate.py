@@ -17,6 +17,9 @@ def create_capability_gate(*, job, creds, staged_path, plate_number, target_hand
     read_ms = None
 
     def refuse(code, detail):
+        from core.h3c_plate import RackMessage
+        if isinstance(detail, RackMessage):
+            return record_refusal(checked, detail.code, detail)
         if read_ms is not None:
             detail += f'; report_read_ms={read_ms}'
         return record_refusal(checked, code, detail)

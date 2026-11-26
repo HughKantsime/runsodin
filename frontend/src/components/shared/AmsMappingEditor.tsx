@@ -11,18 +11,17 @@ export function useAmsMapping(preview: ArchiveAmsPreview | null | undefined, con
   const [choice, setChoice] = useState<{ context: string; mapping: AmsMapping; enabled: boolean } | null>(null)
   const saved = stored?.flatMap((target, source) => target < 0 ? [] : [{ source_slot: source + 1, target_slot: target + 1 }])
   const rack = preview?.rack_mapping
-  const savedRackMismatch = !!rack?.length && !!stored?.length && (saved?.length !== rack.length
-    || rack.some(({ source_slot, target_slot }) => stored[source_slot - 1] !== target_slot - 1))
-  const initial = rack ?? saved
+  const initial = saved ?? rack
     ?? preview?.suggested_mapping.map(({ source_slot, target_slot }) => ({ source_slot, target_slot })) ?? []
   const complete = (mapping: AmsMapping) => !!preview?.required.length
-    && preview.required.every(req => mapping.some(m => m.source_slot === req.slot && preview.available.some(s => s.slot === m.target_slot && !s.do_not_feed)))
+    && (!rack || mapping.length === preview.required.length)
+    && preview.required.every(req => mapping.some(m => m.source_slot === req.slot && preview.available.some(s => s.slot === m.target_slot && !s.do_not_feed && (!rack || req.eligible?.includes(s.slot)))))
     && new Set(mapping.map(m => m.target_slot)).size === mapping.length
   const needsConfirmation = !stored && !!preview?.confirm_suggestions && preview.suggested_mapping.some(s => s.confidence === 'material_only')
   const selection = choice?.context === context ? choice : { context, mapping: initial, enabled: complete(initial) && !needsConfirmation }
   const valid = complete(selection.mapping)
   return {
-    mapping: selection.mapping, enabled: selection.enabled, valid, savedRackMismatch,
+    mapping: selection.mapping, enabled: selection.enabled, valid,
     value: selection.enabled && valid ? selection.mapping : undefined,
     // Picking the slots is the confirmation a held-back suggestion was waiting for.
     onChange: (mapping: AmsMapping) => setChoice({ ...selection, mapping, enabled: selection.enabled || (!!preview?.confirm_suggestions && complete(mapping)) }),
@@ -38,35 +37,61 @@ function slotLabel(slot: ArchiveAmsSlot) {
   return [name, slot.material ? materialLabel(slot.material) : null, hex].filter(Boolean).join(' ')
 }
 
-export function RackSlotPreview({ preview }: { preview?: ArchiveAmsPreview | null }) {
+function rackHex(color?: string) {
+  if (!color || !/^#?(?:[\da-f]{6}|[\da-f]{8})$/i.test(color)) return undefined
+  return '#' + color.replace(/^#/, '')
+}
+
+function RackSwatch({ hex }: { hex?: string }) {
+  return hex ? <span aria-hidden="true" className="ml-2 inline-block h-3 w-3 rounded-full border border-[var(--brand-card-border)]"
+    style={{ backgroundColor: hex }} /> : null
+}
+
+export function RackSlotPreview({ preview, mapping = preview?.rack_mapping, onChange }: {
+  preview?: ArchiveAmsPreview | null; mapping?: AmsMapping; onChange?: (value: AmsMapping) => void
+}) {
   if (!preview?.rack_mapping) return null
-  if (!preview.rack_mapping.length) return <p role="status">The rack slots could not be read from this file.</p>
   return <section aria-label="Rack slot preview" className="space-y-2 my-3 text-sm">
-    <p>This file prints from the slots below; the colours in the file are labels.</p>
-    <ul>{preview.rack_mapping.map(({ source_slot, target_slot }) => {
-      const file = preview.required.find(row => row.slot === source_slot)
-      const tray = preview.available.find(row => row.slot === target_slot)
-      const colour = tray?.color_hex ? `#${tray.color_hex.replace(/^#/, '')}` : tray?.color || 'Colour unknown'
-      const loaded = !tray ? 'Contents unknown' : tray.material === 'empty' ? 'Empty' : `${materialLabel(tray.material) || 'Material unknown'} · ${colour}`
-      return <li key={source_slot} className="py-1">
-        Filament {source_slot} {file?.color} → Slot {target_slot} · {loaded}
-        {tray?.color_hex && tray.material !== 'empty' && <span aria-hidden="true"
-          className="ml-2 inline-block h-3 w-3 rounded-full border border-[var(--brand-card-border)]"
-          style={{ backgroundColor: colour }} />}
+    {preview.file_note && (!mapping?.length || !preview.required.some(file => file.tool)) && <p role="status">{preview.file_note}</p>}
+    <ul className="space-y-2">{preview.required.map(file => {
+      const position = mapping?.find(row => row.source_slot === file.slot)?.target_slot
+      const tray = preview.available.find(row => row.slot === position)
+      const fileHex = rackHex(file.color)
+      const trayHex = rackHex(tray?.color_hex || tray?.color)
+      return <li key={file.slot} className="min-w-0 break-words">
+        <div>Filament {file.slot} · {file.material ? materialLabel(file.material) : 'Material unknown'} · {fileHex || file.color || 'Colour unknown'}<RackSwatch hex={fileHex} /></div>
+        {file.diameter && <div>Sliced for a {file.diameter} mm {file.tool} tool</div>}
+        {position && <div>Position {position} · {tray ? materialLabel(tray.material) : 'Contents unknown'} · {trayHex || tray?.color || 'Colour unknown'}<RackSwatch hex={trayHex} /></div>}
+        {file.selection_note && preview.rack_mapping?.some(row => row.source_slot === file.slot && row.target_slot === position)
+          && <p>{file.selection_note}</p>}
+        {position && file.different_colors?.includes(position) && <strong>Colour differs</strong>}
+        {position && file.eligible && !file.eligible.includes(position) && <p>Position {position} is unavailable for this filament.</p>}
+        {onChange && file.eligible && <select aria-label={`Filament ${file.slot} position`} value={position ?? ''}
+          className="mt-1 w-full max-w-xs rounded border border-[var(--brand-card-border)] bg-[var(--brand-input-bg)] p-2"
+          onChange={e => {
+            const other = (mapping ?? []).filter(row => row.source_slot !== file.slot)
+            if (e.target.value) other.push({source_slot: file.slot, target_slot: Number(e.target.value)})
+            onChange(other.sort((a, b) => a.source_slot - b.source_slot))
+          }}>
+          <option value="">Choose a position</option>
+          {position && !file.eligible.includes(position) && <option disabled value={position}>Position {position} (unavailable)</option>}
+          {preview.available.filter(s => file.eligible?.includes(s.slot)).map(s =>
+            <option key={s.slot} value={s.slot}>Position {s.slot} · {materialLabel(s.material)} · {rackHex(s.color_hex || s.color) || s.color || 'Colour unknown'}</option>)}
+        </select>}
       </li>
     })}</ul>
   </section>
 }
 
-export default function AmsMappingEditor({ preview, loading, error, mapping, enabled, valid, onChange, onEnabledChange, planned = false, savedRackMismatch }: {
+export default function AmsMappingEditor({ preview, loading, error, mapping, enabled, valid, onChange, onEnabledChange, planned = false }: {
   planned?: boolean; preview?: ArchiveAmsPreview | null; loading?: boolean; error?: boolean;
-  mapping: AmsMapping; enabled: boolean; valid: boolean; savedRackMismatch?: boolean;
+  mapping: AmsMapping; enabled: boolean; valid: boolean;
   onChange: (value: AmsMapping) => void; onEnabledChange: (value: boolean) => void;
 }) {
   const foundry = useFoundry()
   if (preview?.rack_mapping && !loading && !error) return <>
-    <RackSlotPreview preview={preview} />
-    {savedRackMismatch && <p>This file sets the slots on this printer, so update or clear your conflicting saved choice before sending.</p>}
+    <RackSlotPreview preview={preview} mapping={mapping} onChange={onChange} />
+    {!valid && mapping.length > 0 && <p role="status">Choose a separate eligible position for each filament.</p>}
     {valid && <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={enabled} onChange={e => onEnabledChange(e.target.checked)} />Use this mapping</label>}
   </>
   const htLabel = (n: number) => !preview?.confirm_suggestions && n >= AMS_HT_FIRST_SLOT ? amsSlotGroup(n)?.label : undefined

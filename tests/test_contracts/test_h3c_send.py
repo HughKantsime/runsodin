@@ -157,14 +157,20 @@ def target(review_db, monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize('problem,reason', [
-    (None, None), ('missing', 'Filament 5 requires slot 5'), ('range', 'Filament 1 requires slot 9'), ('duplicate', 'Filament 1 requires slot 9'),
-    ('empty', 'slot'), ('wrong_material', 'slot'), ('absent', 'Position 9'),
-    ('diameter', 'Position 9'), ('standard_on_tpu', 'Position 9'), ('tpu_on_standard', 'Position 9'),
+    (None, None), ('missing', 'Choose a position for filament 5.'), ('range', 'Filament 1 needs an onboard tray in positions 1 to 9.'),
+    ('external_ht', 'Filament 1 needs an onboard tray in positions 1 to 9.'),
+    ('duplicate', 'Choose separate positions for the two filaments assigned to position 7.'),
+    ('empty', 'Position 9 is empty.'), ('wrong_material', 'Filament 1 needs PLA. Position 9 holds ABS.'),
+    ('absent', 'Position 9 needs a reported, installed tool.'),
+    ('diameter', 'Filament 1 was sliced for a 0.4 mm standard tool. Position 9 holds a 0.6 mm standard tool.'),
+    ('standard_on_tpu', 'Filament 1 was sliced for a 0.4 mm standard tool. Position 9 holds a TPU tool.'),
+    ('tpu_on_standard', 'Filament 1 was sliced for a 0.4 mm TPU tool. Position 9 holds a standard tool.'),
+    ('calibration', None),
     ('wrong_model', 'printer_model_mismatch'), ('bed', '330 x 320'),
 ])
 def test_offline_plate_checks_without_opt_in(target, review_db, problem, reason):
     from modules.printers.dispatch_capability_gate import static_refusal
-    path, _ = target
+    path, report = target
     creds, job = dispatch._get_printer_info(59), dispatch._load_job(53)
     if problem in ('wrong_model', 'bed'):
         member = 'project_settings.config'
@@ -185,12 +191,17 @@ def test_offline_plate_checks_without_opt_in(target, review_db, problem, reason)
     if problem == 'duplicate': mapping[0] = mapping[1]
     if problem == 'missing': mapping.pop()
     if problem == 'range': mapping[0] = 9
+    if problem == 'external_ht': mapping[0] = 128
     if problem in ('empty', 'wrong_material'):
         review_db.execute(text('UPDATE filament_slots SET filament_type=:m WHERE printer_id=59 AND slot_number=9'),
                           {'m': 'empty' if problem == 'empty' else 'ABS'})
         review_db.commit()
     tools = json.loads(creds['installed_nozzles'])
     tool = next(row for row in tools if row.get('position') == 9)
+    if problem == 'calibration':
+        assert all('calibration_clear' not in row for row in tools)
+        report['3D']['uncalibrated_nozzles'] = [16]
+        tools = installed_nozzles(report, include_rack=True)
     if problem == 'absent': tool['present'] = False
     if problem == 'diameter': tool['diameter'] = 0.6
     if problem == 'standard_on_tpu': tool['type'] = 'HT01'
@@ -206,13 +217,21 @@ def test_offline_plate_checks_without_opt_in(target, review_db, problem, reason)
     job['payload_sha256'] = hashlib.sha256(path.read_bytes()).hexdigest()
     options, error = dispatch._validated_print_options(job, creds, path, job['payload_sha256'])
     if reason:
-        assert options is None and reason in error, error
+        assert (options, error) == (None, reason)
+        codes = {'missing': 'ams_mapping_required', 'range': 'onboard_tray_required', 'external_ht': 'onboard_tray_required',
+                 'duplicate': 'duplicate_position',
+                 'empty': 'tray_material_unreported', 'wrong_material': 'material_mismatch', 'absent': 'nozzle_mismatch',
+                 'diameter': 'nozzle_mismatch',
+                 'standard_on_tpu': 'nozzle_mismatch', 'tpu_on_standard': 'nozzle_mismatch'}
+        assert error.code == codes[problem]
+    elif problem == 'calibration':
+        assert error is None and options['ams_mapping'] == MAPPING, 'an undecodable calibration list does not refuse'
     else:
         assert options['ams_mapping'] == MAPPING
 
 
 @pytest.mark.parametrize('protocol', ['legacy', 'v2'])
-@pytest.mark.parametrize('outcome', ['manual', 'auto', 'timeout', 'busy', 'lock_unavailable', 'transfer', 'refused_connection', 'tls', 'no_suback', 'mqtt_down', 'mqtt_lost', 'sub_refused', 'write_failed', 'upload_rejected', 'start_rejected', 'no_reply', 'empty_tray', 'changed_tool'])
+@pytest.mark.parametrize('outcome', ['manual', 'auto', 'farm_mapping', 'colour_changed', 'inventory_colour_changed', 'crossed', 'crossed_empty_tray', 'uncalibrated', 'timeout', 'busy', 'lock_unavailable', 'transfer', 'refused_connection', 'tls', 'no_suback', 'mqtt_down', 'mqtt_lost', 'sub_refused', 'write_failed', 'upload_rejected', 'start_rejected', 'no_reply', 'empty_tray', 'changed_tool'])
 def test_one_checked_dispatch(target, review_db, monkeypatch, caplog, protocol, outcome):
     from modules.printers.telemetry.bambu import ftp_upload, project_reply
     from tests.test_contracts.test_multi_source_ams_dispatch import transport
@@ -221,8 +240,29 @@ def test_one_checked_dispatch(target, review_db, monkeypatch, caplog, protocol, 
     if outcome == 'auto':
         review_db.execute(text('UPDATE jobs SET ams_mapping=NULL WHERE id=53'))
         review_db.commit()
+    selection = MAPPING.copy()
+    if outcome == 'inventory_colour_changed':
+        review_db.execute(text("UPDATE filament_slots SET color_hex='0000FF' WHERE printer_id=59 AND slot_number=9"))
+        review_db.commit()
+    if outcome == 'farm_mapping':
+        from tests.test_contracts.test_h3c_position_mapping import plate, IDENTITY
+        files = plate(path)
+        review_db.execute(text('UPDATE print_files SET filaments_json=:f WHERE id=52'), {'f': json.dumps(files)})
+        review_db.execute(text('UPDATE jobs SET payload_sha256=:sha,ams_mapping=:m WHERE id=53'),
+                          {'sha': hashlib.sha256(path.read_bytes()).hexdigest(), 'm': json.dumps(IDENTITY)})
+        review_db.commit()
+    if outcome in ('crossed', 'crossed_empty_tray'):
+        selection[0], selection[1] = selection[1], selection[0]
+        review_db.execute(text('UPDATE jobs SET ams_mapping=:m WHERE id=53'), {'m': json.dumps(selection)})
+        review_db.commit()
     # Reuse the offline upload and MQTT boundary. Exercise the real reply parser.
     def after_upload():
+        if outcome == 'crossed_empty_tray':
+            report['ams']['tray_exist_bits'] = hex((511 ^ (1 << selection[0])) << 28)
+        if outcome == 'uncalibrated':
+            report['3D']['uncalibrated_nozzles'] = [16]
+        if outcome in ('colour_changed', 'write_failed', 'no_reply'):
+            report['ams']['ams'][0]['tray'][MAPPING[0]]['tray_color'] = 'FFFFFF00'
         if outcome == 'empty_tray':
             report['ams']['tray_exist_bits'] = hex(255 << 28)
         if outcome == 'changed_tool':
@@ -289,14 +329,58 @@ def test_one_checked_dispatch(target, review_db, monkeypatch, caplog, protocol, 
                 raise RuntimeError('failed-state write unavailable')
             return original_transition(conn, job_id, status, *args, **kwargs)
         monkeypatch.setattr(services, 'transition_job', fail_write)
+    if outcome in ('write_failed', 'farm_mapping'):
         from modules.printers import dispatch_background
+        if outcome == 'farm_mapping':
+            # Poll after the accepted claim, before the worker publishes its terminal record.
+            progress = dispatch_background.progress
+            before_result = []
+            def poll_before_result(phase, **kwargs):
+                if phase == 'start_accepted':
+                    with Session(review_db.get_bind()) as reader:
+                        status = dispatch.read_dispatch_progress(reader, dispatch_background.attempt_token(), 53)
+                        before_result.append(status)
+                progress(phase, **kwargs)
+            monkeypatch.setattr(dispatch_background, 'progress', poll_before_result)
         handle = dispatch_background.stage(59, 53)
         deadline = time.monotonic() + 10
         while dispatch_background.active(handle['attempt_id']) and time.monotonic() < deadline:
             time.sleep(0.01)
         saved = dispatch_background.load(review_db, dispatch_background.result_key(53))
-        assert saved['attempt_id'] == handle['attempt_id'] and saved['phase'] == 'needs_reconciliation'
-        ok, message = False, saved['message']
+        ok = outcome == 'farm_mapping'
+        assert saved['attempt_id'] == handle['attempt_id']
+        assert saved['phase'] == ('start_accepted' if ok else 'needs_reconciliation')
+        message = saved['message']
+    elif outcome in ('colour_changed', 'no_reply'):
+        from modules.jobs.routes.jobs_lifecycle import dispatch_job_to_printer
+        if outcome == 'no_reply':
+            # An unconfirmed start answers with the plain error; colour notes ride only on an accepted start.
+            from fastapi import HTTPException
+            with pytest.raises(HTTPException) as refused:
+                dispatch_job_to_printer(53, {'id': 3, 'role': 'admin'}, review_db, wait=True)
+            ok, message = False, refused.value.detail
+            assert refused.value.status_code == 400
+        else:
+            response = dispatch_job_to_printer(53, {'id': 3, 'role': 'admin'}, review_db, wait=True)
+            body = json.loads(response.body)
+            ok = response.status_code == 200
+            assert ok and body['color_warnings'][0]['loaded_color'] == '#FFFFFF'
+            message = body['message']
+    elif outcome == 'inventory_colour_changed':
+        from modules.printers import start_next
+        from modules.printers.models import Printer
+        from tests.test_contracts.test_completion_summary import request
+        review_db.execute(text("UPDATE jobs SET status='pending' WHERE id=53"))
+        review_db.commit()
+        suggestion = {'job_id': 53, 'fingerprint': 'f' * 64}
+        monkeypatch.setattr(start_next, 'next_suggestion', lambda *a, **kw: suggestion)
+        data = request(suggestion)
+        user = {'id': 3, 'role': 'admin'}
+        printer = review_db.get(Printer, 59)
+        result = start_next.start(review_db, printer, user, data)
+        assert start_next.start(review_db, printer, user, data) == result
+        assert result['color_warnings'][0]['previous_color'] == '#0000FF'
+        ok, message = result['success'], result['message']
     else:
         ok, message = dispatch.dispatch_job(59, 53)
     if contention:
@@ -304,6 +388,8 @@ def test_one_checked_dispatch(target, review_db, monkeypatch, caplog, protocol, 
         assert review_db.execute(text('SELECT status FROM jobs WHERE id=53')).scalar_one() in ('pending', 'scheduled')
         assert not review_db.execute(text('SELECT 1 FROM printer_dispatch_claims WHERE job_id=53')).first()
     elif outcome == 'write_failed':
+        assert saved['color_warnings'][0]['loaded_color'] == '#FFFFFF'
+        assert 'colour differs' not in message
         assert not ok and 'FAIL (code 42)' in message and 'reconciliation' in message
         assert 'confirmed no-start: H3C start reply: FAIL (code 42)' in caplog.text
         assert review_db.execute(text('SELECT state FROM printer_dispatch_claims WHERE job_id=53')).scalar_one() == 'uncertain'
@@ -319,11 +405,14 @@ def test_one_checked_dispatch(target, review_db, monkeypatch, caplog, protocol, 
         assert not ok and 'subscri' in message and events == ['upload']
         row = review_db.execute(text('SELECT status,fail_notes FROM jobs WHERE id=53')).one()
         assert row.status == 'failed' and 'subscription was refused (code 128)' in row.fail_notes
+    elif outcome == 'crossed_empty_tray':
+        assert not ok and f'Position {selection[0] + 1} is empty.' in message and events == ['upload']
     elif outcome == 'changed_tool':
         assert not ok and 'Position 9' in message and events == ['upload']
     elif outcome == 'empty_tray':
         assert not ok and 'empty' in message and events == ['upload']
     elif outcome == 'no_reply':
+        assert 'colour differs' not in message
         assert not ok and 'reconciliation' in message and len(sent) == 1
         assert not dispatch.dispatch_job(59, 53)[0]
         assert events == ['upload', 'start']
@@ -335,9 +424,40 @@ def test_one_checked_dispatch(target, review_db, monkeypatch, caplog, protocol, 
         assert len(sent) == int(outcome == 'start_rejected')
         assert not dispatch.dispatch_job(59, 53)[0] and events.count('upload') == 1
     else:
+        if outcome == 'uncalibrated':
+            assert ok and len(sent) == 1, 'an undecodable calibration list does not refuse'
         assert ok, message
         assert events == ['upload', 'start']
         assert len(sent) == 1 and sent[0]['use_ams'] is True and sent[0]['command'] == 'project_file'
+        if outcome == 'inventory_colour_changed':
+            detail = review_db.execute(text("SELECT details FROM audit_logs WHERE entity_id=53 AND action='job.dispatched'")).scalar_one()
+            warning, = json.loads(detail)['color_warnings']
+            assert warning['message'] not in message
+            assert (warning['previous_color'], warning['loaded_color']) == ('#0000FF', '#FF6A13')
+        if outcome == 'farm_mapping':
+            detail = review_db.execute(text("SELECT details FROM audit_logs WHERE entity_id=53 AND action='job.dispatched'")).scalar_one()
+            warnings = json.loads(detail)['color_warnings']
+            status, = before_result
+            assert status['phase'] == 'start_accepted'
+            assert status['color_warnings'] == saved['color_warnings'] == warnings
+            assert len(warnings) == 8 and all(w['message'] not in message for w in warnings)
+            assert sent[0]['ams_mapping'] == [28, 29, 30, 31, 32, 33, 34, -1, 36]
+            assert sent[0]['ams_mapping2'] == [dict(ams_id=32, slot_id=i) for i in range(7)] + [
+                dict(ams_id=255, slot_id=255), dict(ams_id=32, slot_id=8)]
+            return
+        if outcome == 'colour_changed':
+            detail = review_db.execute(text("SELECT details FROM audit_logs WHERE entity_id=53 AND action='job.dispatched'")).scalar_one()
+            sentence = 'Filament 1 colour differs at position 9 (file #FF6A13, loaded #FFFFFF).'
+            assert sentence not in message
+            assert json.loads(detail)['color_warnings'] == [
+                dict(filament=1, position=9, file_color='#FF6A13', loaded_color='#FFFFFF', message=sentence)]
+        if outcome == 'crossed':
+            assert sent[0]['ams_mapping'] == [28 + n for n in selection]
+            assert sent[0]['ams_mapping2'] == [dict(ams_id=32, slot_id=n) for n in selection]
+            assert set(sent[0]) == {'sequence_id', 'command', 'param', 'subtask_name', 'url', 'bed_type', 'timelapse',
+                                    'bed_leveling', 'flow_cali', 'vibration_cali', 'layer_inspect', 'use_ams',
+                                    'profile_id', 'project_id', 'subtask_id', 'task_id', 'ams_mapping', 'ams_mapping2'}
+            return
         for key in ('ams_mapping', 'ams_mapping2'):
             assert json.dumps(sent[0][key]) == json.dumps(ECHO[key][:5])
 
@@ -372,7 +492,10 @@ def test_job_detail_previews_file_rack_positions_and_current_colours(target, rev
     def preview():
         return detail_view(review_db, job, actor)['ams_preview']
     facts = preview()
-    assert facts['rack_mapping'] == [dict(source_slot=n + 1, target_slot=5 - n) for n in range(5)]
+    # Two indistinguishable grey trays are equally good for the remaining file colours.
+    assert facts['rack_mapping'] == [] and 'Choose a mapping' in facts['file_note']
+    assert facts['required'][0]['tool'] == 'standard' and facts['required'][0]['diameter'] == 0.4
+    assert 5 in facts['required'][0]['different_colors'] and 8 not in facts['required'][0]['eligible']
     assert facts['suggested_mapping'] == []
     tray = next(row for row in facts['available'] if row['slot'] == 5)
     assert (tray['material'], tray['color_hex']) == ('PLA', '123456')
@@ -380,6 +503,47 @@ def test_job_detail_previews_file_rack_positions_and_current_colours(target, rev
     review_db.execute(text("UPDATE filament_slots SET color_hex='AABBCC' WHERE printer_id=59 AND slot_number=5"))
     review_db.commit()
     assert next(row['color_hex'] for row in preview()['available'] if row['slot'] == 5) == 'AABBCC'
+
+
+def test_legacy_job_binds_only_the_reviewed_rack_file(target, review_db, token_client):
+    from modules.jobs.routes import jobs_crud
+    path, _ = target
+    review_db.execute(text("UPDATE jobs SET print_file_id=NULL,ams_mapping=NULL WHERE id=53"))
+    review_db.commit()
+    client, issue = token_client
+    client.app.include_router(jobs_crud.router)
+    headers = issue(['read', 'write'])
+    def plan():
+        response = client.get('/jobs/53', headers=headers)
+        assert response.status_code == 200
+        detail = response.json()
+        assert detail['ams_mapping_editable']
+        return dict(ams_mapping=detail['ams_preview']['rack_mapping'],
+                    ams_file_revision=detail['ams_preview']['ams_file_revision'])
+    choice = plan()
+    path.write_bytes(path.read_bytes())
+    stale = client.patch('/jobs/53', headers=headers, json=choice)
+    assert (stale.status_code, stale.json()['detail']) == (409, 'The file has changed. Review the mapping again.')
+    saved = client.patch('/jobs/53', headers=headers, json=plan())
+    assert saved.status_code == 200, saved.text
+    assert saved.json()['ams_mapping'] == MAPPING
+    assert review_db.execute(text('SELECT print_file_id,plate_index,payload_sha256 FROM jobs WHERE id=53')).one() == (
+        52, 0, hashlib.sha256(path.read_bytes()).hexdigest())
+
+
+def test_job_mapping_checks_selected_plate(target, review_db, token_client):
+    from modules.jobs.routes import jobs_crud
+    client, issue = token_client
+    client.app.include_router(jobs_crud.router)
+    headers = issue(['read', 'write'])
+    response = client.get('/jobs/53', headers=headers)
+    assert response.status_code == 200
+    mapping = response.json()['ams_preview']['rack_mapping']
+    assert [row['target_slot'] for row in mapping] == [n + 1 for n in MAPPING]
+    review_db.execute(text('UPDATE jobs SET plate_index=1 WHERE id=53'))
+    review_db.commit()
+    response = client.patch('/jobs/53', headers=headers, json=dict(ams_mapping=mapping))
+    assert (response.status_code, response.json().get('detail')) == (400, 'This mapping needs a verified H3C rack slice.')
 
 
 def test_unidentified_rack_stays_refused_with_saved_opt_in(target, review_db):
@@ -615,7 +779,7 @@ def test_swapped_gcode_tools():
     (SLICE, [4, 3, 2, 0, 1]), (FIXTURES / 'h3c-cli-two.3mf', [1, 0]),
     (FIXTURES / 'h3c-cli-five.3mf', [4, 3, 2, 1, 0]), (FIXTURES / 'h3c-cli-single.3mf', [0]),
 ])
-def test_cli_mapping_is_bound_to_slice(target, review_db, fixture, expected):
+def test_cli_mapping_accepts_compatible_crossed_positions(target, review_db, fixture, expected):
     from modules.models_library.threemf_parser import parse_3mf
     path, _ = target
     data = fixture.read_bytes()
@@ -625,23 +789,35 @@ def test_cli_mapping_is_bound_to_slice(target, review_db, fixture, expected):
     creds, job = dispatch._get_printer_info(59), dispatch._load_job(53)
     job.update(ams_mapping=None, payload_sha256=sha, filaments_json=json.dumps(
         [dict(slot=f.slot, type=f.type, color=f.color) for f in filaments]))
+    # Load each colour into its planned tray for the derived mapping.
+    for f, target_slot in zip(filaments, expected):
+        review_db.execute(text('UPDATE filament_slots SET color_hex=:color WHERE printer_id=59 AND slot_number=:n'),
+                          {'color': f.color, 'n': target_slot + 1})
+    # Keep unused trays empty on the CLI fixtures.
+    for n in set(range(9)) - set(expected):
+        review_db.execute(text("UPDATE filament_slots SET filament_type='empty' WHERE printer_id=59 AND slot_number=:n"),
+                          {'n': n + 1})
+    review_db.commit()
     options, reason = dispatch._validated_print_options(job, creds, path, sha)
     assert reason is None and options['ams_mapping'] == expected
-    job['ams_mapping'] = MAPPING[:len(expected)]
-    options, reason = dispatch._validated_print_options(job, creds, path, sha)
-    assert options is None and 'Filament 1' in reason and f'slot {expected[0] + 1}' in reason and 'PLA' in reason
-    job['ams_mapping'] = None
-    if fixture == SLICE:
-        review_db.execute(text("UPDATE filament_slots SET filament_type='empty' "
-                               "WHERE printer_id=59 AND slot_number NOT IN (9,7,2,4,5)"))
+    from modules.printers.telemetry.bambu.ams_identity import print_mapping_fields
+    crossed = expected.copy()
+    if len(crossed) > 1:
+        crossed[0], crossed[1] = crossed[1], crossed[0]
+    else:
+        crossed[0] = 1
+        review_db.execute(text("UPDATE filament_slots SET filament_type='PLA' WHERE printer_id=59 AND slot_number=2"))
         review_db.commit()
-        options, reason = dispatch._validated_print_options(job, dispatch._get_printer_info(59), path, sha)
-        assert options is None and 'Filament 3 requires slot 3' in reason and 'empty' in reason
+    job['ams_mapping'] = crossed
+    options, reason = dispatch._validated_print_options(job, creds, path, sha)
+    assert reason is None and print_mapping_fields(options['ams_mapping'], h3c=True) == {
+        'ams_mapping': [28 + n for n in crossed], 'ams_mapping2': [dict(ams_id=32, slot_id=n) for n in crossed]}
+    job['ams_mapping'] = expected
     review_db.execute(text('UPDATE filament_slots SET filament_type=:m WHERE printer_id=59 AND slot_number=:s'),
                       {'m': 'ABS', 's': expected[0]+1})
     review_db.commit()
-    options, reason = dispatch._validated_print_options(job, dispatch._get_printer_info(59), path, sha)
-    assert options is None and 'Filament 1' in reason and f'slot {expected[0] + 1}' in reason and 'ABS' in reason
+    options, reason = dispatch._validated_print_options(job, creds, path, sha)
+    assert options is None and reason == f'Filament 1 needs PLA. Position {expected[0] + 1} holds ABS.'
 
 
 @pytest.mark.parametrize('model', ['H3C', 'P1S'])
@@ -982,3 +1158,31 @@ def test_reconnected_client_cannot_acknowledge_previous_start(monkeypatch, proto
     report({'print': {'gcode_state': 'RUNNING'}})
     if protocol == 'legacy':
         assert sender._status.raw_data['print']['gcode_state'] == 'RUNNING'
+
+
+def test_pre_upload_rack_refusal_identifies_the_gate(target, review_db, monkeypatch):
+    seen = []
+    monkeypatch.setattr(dispatch, '_notify_start_outcome', lambda job, reason, **kw: seen.append((reason, kw)))
+    selection = MAPPING.copy()
+    selection[0] = selection[1]
+    review_db.execute(text('UPDATE jobs SET ams_mapping=:m WHERE id=53'), {'m': json.dumps(selection)})
+    review_db.commit()
+    message = 'Choose separate positions for the two filaments assigned to position 7.'
+    assert dispatch.dispatch_job(59, 53) == (False, message)
+    (reason, info), = seen
+    assert (reason, info['gate_refusal'].code, info['message']) == (
+        'gate_refused', 'duplicate_position', message)
+
+
+def test_pre_upload_gate_without_refusal_keeps_its_fallback(target, monkeypatch):
+    from modules.printers import dispatch_capability_gate
+
+    class SilentGate:
+        __slots__ = ()
+
+        def prepare(self):
+            return False
+
+    gate = SilentGate()
+    monkeypatch.setattr(dispatch_capability_gate, 'create_capability_gate', lambda **kw: gate)
+    assert dispatch.dispatch_job(59, 53) == (False, dispatch._gate_refusal_message(gate))

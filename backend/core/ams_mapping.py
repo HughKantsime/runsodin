@@ -2,6 +2,7 @@
 import json
 import logging
 import os
+from dataclasses import asdict
 from functools import lru_cache
 from fastapi import HTTPException
 from sqlalchemy import text
@@ -28,7 +29,7 @@ def s1_filaments_json(filaments_json, stored_path):
     return json.dumps(stored_or_file_materials(filaments_json, stored_path))
 
 
-def validate_for_printer(db, mapping, filaments_json, printer_id, actor, *, stored_path=None, check_material=True):
+def validate_for_printer(db, mapping, filaments_json, printer_id, actor, *, stored_path=None, plate_index=0, check_material=True):
     if mapping is None:
         return None
     printer = accessible_printer(db, printer_id, actor)
@@ -45,6 +46,32 @@ def validate_for_printer(db, mapping, filaments_json, printer_id, actor, *, stor
         except S1Refusal as refusal:
             raise HTTPException(400, str(refusal)) from None
     slots = mapping_materials(db, printer_id, printer.api_type)
+    from modules.printers.services import is_h3c_printer
+    h3c = is_h3c_printer(printer._mapping)
+    if h3c:
+        from modules.printers.services import rack_tool_refusal, rack_material_refusal
+        from core.print_payload import MappingMaterialMismatch, MappingSlotUnavailable
+        try:
+            result = validate_mapping(mapping, filaments_json, slots, protocol, check_material=False)
+        except MappingSlotUnavailable as exc:
+            if exc.target_slot > 9:
+                raise HTTPException(400, 'Choose an onboard tray in positions 1 to 9.') from None
+            raise
+        sources = read_rack_sources(stored_path, plate_index)
+        if not sources or {s['source_index'] for s in sources} != {i for i, n in enumerate(result) if n >= 0}:
+            raise HTTPException(400, 'This mapping needs a verified H3C rack slice.')
+        from modules.printers.models import Printer
+        detail = rack_tool_refusal(sources, result, db.get(Printer, printer_id).installed_nozzles)
+        if detail:
+            raise HTTPException(400, detail)
+        if check_material:
+            for source in sources:
+                position = result[source['source_index']] + 1
+                detail = rack_material_refusal(source, position, slots.get(position))
+                if detail:
+                    refusal = MappingMaterialMismatch(position)
+                    refusal.detail = detail
+                    raise refusal
     result = validate_mapping(mapping, filaments_json, slots, protocol, check_material=check_material)
     from modules.printers.slot_feed_policy import flagged_mapping_reason
     reason = flagged_mapping_reason(db, printer_id, result)
@@ -88,7 +115,7 @@ def selectable_slots(db, printer_id, api_type, available):
 
 
 @lru_cache(maxsize=64)
-def _rack_mapping(path, identity, plate_index):
+def _rack_sources(path, identity, plate_index):
     """Cache only file assignments. Current tray contents are read on every preview."""
     from core.ams_source_inspection import inspect_ams_sources, VerifiedRackSource
     from core.print_payload_snapshot import _regular_source
@@ -98,10 +125,21 @@ def _rack_mapping(path, identity, plate_index):
         facts = inspect_ams_sources(stream, plate_index)
     if not facts.sources or not all(isinstance(source, VerifiedRackSource) for source in facts.sources):
         return ()
-    return tuple((source.source_index + 1, source.group_id + 1) for source in facts.sources)
+    return facts.sources
 
 
-def preview(db, filaments_json, printer_id, actor, *, stored_path=None, plate_index=0):
+def read_rack_sources(path, plate_index):
+    if path:
+        try:
+            info = os.stat(path, follow_symlinks=False)
+            identity = info.st_dev, info.st_ino, info.st_size, info.st_ctime_ns
+            return [asdict(source) for source in _rack_sources(path, identity, plate_index)]
+        except Exception as exc:
+            log.warning('Could not read rack tools (%s)', type(exc).__name__)
+    return []
+
+
+def preview(db, filaments_json, printer_id, actor, *, stored_path=None, plate_index=0, stored_mapping=None):
     printer = accessible_printer(db, printer_id, actor)
     from modules.printers.dispatch_support import is_kobra_s1
     if printer.api_type != 'bambu' and not is_kobra_s1(printer._mapping):
@@ -127,19 +165,16 @@ def preview(db, filaments_json, printer_id, actor, *, stored_path=None, plate_in
             return {'required': [], 'available': available, 'suggested_mapping': [], 'file_note': refusal.detail}
         # Real S1 headers carry the slicer's default green, so a material match says nothing about the slot.
         return {**preview_for_slots(filaments_json, available), 'confirm_suggestions': True}
-    result = preview_for_slots(filaments_json, selectable_slots(db, printer_id, printer.api_type, available))
     from modules.printers.printer_models import identified_h3c
-    if identified_h3c(printer._mapping) and len(result['required']) > 1:
-        mapping = ()
-        if stored_path:
-            try:
-                info = os.stat(stored_path, follow_symlinks=False)
-                mapping = _rack_mapping(stored_path, (info.st_dev, info.st_ino, info.st_size, info.st_ctime_ns), plate_index)
-            except Exception as exc:
-                log.warning('Could not read rack slots for preview (%s)', type(exc).__name__)
-        result['rack_mapping'] = [{'source_slot': source, 'target_slot': target} for source, target in mapping]
-        result['suggested_mapping'] = []
-    return result
+    if identified_h3c(printer._mapping):
+        from modules.printers.services import rack_preview
+        available = [tray for tray in available if 1 <= tray['slot'] <= 9]
+        sources = read_rack_sources(stored_path, plate_index)
+        if sources:
+            return rack_preview(sources, available, db.get(Printer, printer_id).installed_nozzles, stored_mapping)
+        return {**preview_for_slots(filaments_json, available), 'rack_mapping': [], 'suggested_mapping': [],
+                'file_note': 'The rack tools could not be read from this file.'}
+    return preview_for_slots(filaments_json, selectable_slots(db, printer_id, printer.api_type, available))
 
 
 def preview_for_slots(filaments_json, available):

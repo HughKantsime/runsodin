@@ -50,7 +50,7 @@ def experimental_refusal(engine, printer_id, *, expected_h3c=None):
 
 def report(job, reason):
     from modules.printers.dispatch import _notify_start_outcome
-    _notify_start_outcome(job, 'adapter_rejected',
+    _notify_start_outcome(job, 'gate_refused',
         gate_refusal=GateRefusal('printer_maintenance_hold', reason), message=reason)
 
 
@@ -60,7 +60,7 @@ def report_experimental(job, reason):
     code, separator, message = reason.partition(': ')
     if not separator or not re.fullmatch(r'[a-z][a-z0-9_]{2,60}', code):
         code, message = EXPERIMENTAL_NOT_ENABLED, reason
-    _notify_start_outcome(job, 'adapter_rejected',
+    _notify_start_outcome(job, 'gate_refused',
         gate_refusal=GateRefusal(code or EXPERIMENTAL_NOT_ENABLED, message or EXPERIMENTAL_MESSAGE), message=message)
 
 

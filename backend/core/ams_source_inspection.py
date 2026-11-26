@@ -113,6 +113,7 @@ class VerifiedRackSource(VerifiedSource):
     nozzle_diameter: float
     volume_type: str
     group_id: int
+    color: str | None
 
 
 @dataclass(frozen=True)
@@ -502,7 +503,10 @@ def inspect_ams_sources(payload: bytes, plate_index: int = 0, *, single_source=F
                     if not math.isfinite(grams) or grams < 0:
                         raise ValueError(refusal)
                 if h3c:
-                    sources.append(VerifiedRackSource(index, material, None, grams, *h3c.tools[index]))
+                    from core.filament_color import hex_color
+                    color = hex_color(filament.get('color'))
+                    sources.append(VerifiedRackSource(index, material, None, grams, *h3c.tools[index],
+                                                      '#' + color.upper() if color else None))
                     continue
                 sources.append(VerifiedSource(index, material,
                     proof.extruders[index] if proof else

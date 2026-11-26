@@ -4,6 +4,10 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- H3C jobs are no longer refused when a filament prints from a different rack position than the slicer's own grouping. Any position with a matching tool and material can be chosen, ODIN picks positions by loaded colour when none is saved, and the mapping view shows the tool each filament was sliced for and flags colour differences.
+
 ## [2.7.0] - 2026-11-24
 
 

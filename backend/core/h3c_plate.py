@@ -87,3 +87,14 @@ class RackPlate:
                 or self.headers.get('extruder_nozzle_count') != '9'
                 or any(indices != self.tools.keys() for indices in self.seen.values())):
             raise RackPlateError('The H3C G-code and the sliced tool assignments disagree.')
+
+
+class RackMessage(str):
+    """A plain dispatch refusal with its machine-readable timeline code."""
+    def __new__(cls, code, detail):
+        message = super().__new__(cls, detail)
+        message.code = code
+        return message
+
+    def __getnewargs__(self):
+        return self.code, str(self)

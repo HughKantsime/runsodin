@@ -352,7 +352,7 @@ def _report_hold(job, refusal, detail) -> None:
     from modules.printers import dispatch
     from modules.printers.dispatch_ams_gate import GateRefusal
     try:
-        dispatch._notify_start_outcome(job, 'adapter_rejected',
+        dispatch._notify_start_outcome(job, 'gate_refused',
                                        gate_refusal=GateRefusal(REFUSAL_CODE, detail), message=detail)
     except Exception as error:
         log.warning('[dispatch] job_id=%s filament hold could not be reported (%s)', job.get('id'), type(error).__name__)

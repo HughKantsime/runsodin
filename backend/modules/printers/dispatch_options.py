@@ -80,21 +80,29 @@ def _validated_print_options(job,creds,stored_path,payload_sha256):
                     if h3c:
                         from modules.printers.dispatch_ams_gate import rack_sources
                         sources = rack_sources(job, facts)
+                        from core.db import engine
+                        from modules.printers.h3c_mapping import onboard_inventory, rack_candidates, derive_mapping
+                        with engine.connect() as conn:
+                            trays = onboard_inventory(conn, printer_id)
                         if derived:
-                            mapping = [-1] * (max(s['source_index'] for s in sources) + 1)
-                            for source in sources:
-                                mapping[source['source_index']] = source['group_id']
+                            candidates = rack_candidates(sources, trays, creds.get('installed_nozzles'))
+                            mapping = derive_mapping(sources, candidates)
+                        facts['inventory_colors'] = {t['slot']: t['color_hex'] for t in trays}
                     else:
                         source = facts['source_index']
                         mapping = [-1] * source + [source]
                 except (ValueError, OSError, PayloadUnavailable) as exc:
                     if h3c:
+                        from core.h3c_plate import RackMessage
+                        if exc.args and isinstance(exc.args[0], RackMessage):
+                            return None, exc.args[0]
                         return None, str(exc) if isinstance(exc, ValueError) else 'H3C plate inspection unavailable.'
                     return None, _missing_mapping(job)
             if mapping is None and requires_mapping:
                 return None, _missing_mapping(job)
             if mapping is not None:
-                error = _mapping_error(job, mapping, rack_sources=facts['sources'] if h3c else ())
+                error = _mapping_error(job, mapping, rack_sources=facts['sources'] if h3c else (),
+                                       installed=creds.get('installed_nozzles'))
                 if error:
                     return None, _missing_mapping(job) if derived and not h3c else error
                 # No transaction remains open during inspection. Derived mappings
@@ -105,14 +113,10 @@ def _validated_print_options(job,creds,stored_path,payload_sha256):
                     print_options.source_facts = preflight_ams_source(job, mapping=mapping,
                         staged_path=stored_path, payload_sha256=payload_sha256,
                         derived=derived, inspected_facts=facts, h3c=h3c)
-                    if h3c:
-                        from modules.printers.nozzle_capability import rack_tool_refusal
-                        sources = print_options.source_facts['sources']
-                        detail = rack_tool_refusal(sources, mapping, creds.get('installed_nozzles'))
-                        if detail:
-                            return None, detail
                 except (ValueError, OSError, PayloadUnavailable) as exc:
                     detail = str(exc) if isinstance(exc, ValueError) else 'Payload inspection unavailable'
+                    if h3c:
+                        return None, detail
                     error = f"Explicit AMS source or plate is unsupported: {detail}; no command was sent"
                     return None, _missing_mapping(job) if derived and not h3c else error
                 print_options["ams_mapping"] = mapping
@@ -122,28 +126,34 @@ def _validated_print_options(job,creds,stored_path,payload_sha256):
     return print_options,None
 
 
-def _mapping_error(job, mapping, *, slot_details=False, rack_sources=()):
+def _mapping_error(job, mapping, *, slot_details=False, rack_sources=(), installed=None):
     from core.print_payload import MappingMaterialMismatch, MappingSlotUnavailable, validate_mapping
     from fastapi import HTTPException
     # Stored targets are physical slot minus one; -1 is an unused file source.
     if (not isinstance(mapping, list) or not mapping or len(mapping) > 16
-            or any(type(slot) is not int or not -1 <= slot < 24 for slot in mapping)):
+            or any(type(slot) is not int or slot < -1 or (not rack_sources and slot >= 24) for slot in mapping)):
         return "Stored AMS mapping is invalid; no command was sent"
+    if rack_sources:
+        used = {source['source_index'] for source in rack_sources}
+        if any(slot != -1 and index not in used for index, slot in enumerate(mapping)):
+            return "Stored AMS mapping is invalid; no command was sent"
+        from modules.printers.nozzle_capability import rack_tool_refusal
+        detail = rack_tool_refusal(rack_sources, mapping, installed)
+        if detail:
+            return detail
     from core.db import engine
     from core.ams_mapping import mapping_materials
     from modules.printers.slot_feed_policy import flagged_mapping_reason
     with engine.connect() as conn:
         slots = mapping_materials(conn, job['printer_id'], 'bambu')
         reason = flagged_mapping_reason(conn, job['printer_id'], mapping)
-    if rack_sources:
-        from core.material_identity import canonical_reported_material
-        for source in rack_sources:
-            index, group = source['source_index'], source['group_id']
-            loaded = slots.get(group + 1) or 'empty or unreported'
-            if (index >= len(mapping) or mapping[index] != group
-                    or canonical_reported_material(loaded) != source['material']):
-                return (f"Filament {index + 1} requires slot {group + 1} with {source['material']}. "
-                        f"Loaded there: {loaded}.")
+        if rack_sources:
+            from modules.printers.h3c_mapping import material_refusal
+            for source in rack_sources:
+                position = mapping[source['source_index']] + 1
+                detail = material_refusal(source, position, slots.get(position))
+                if detail:
+                    return detail
     if reason:
         return reason
     try:
@@ -194,7 +204,7 @@ def _missing_mapping(job):
     refusal = GateRefusal('ams_mapping_required', detail)
     # Diagnostics must not turn a known no-upload refusal into an uncertain one.
     try:
-        dispatch._notify_start_outcome(job, 'adapter_rejected', gate_refusal=refusal, message=detail)
+        dispatch._notify_start_outcome(job, 'gate_refused', gate_refusal=refusal, message=detail)
     except Exception:
         pass
     try:

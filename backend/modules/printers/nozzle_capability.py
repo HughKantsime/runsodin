@@ -5,6 +5,7 @@ second character = flow; suffix 00/01/05 = stainless/hardened/tungsten carbide.
 The prefix is NOT a material code. Diameter always comes from its own field.
 """
 import math
+from core.h3c_plate import RackMessage
 from datetime import datetime, timezone
 
 
@@ -150,33 +151,54 @@ def compare_nozzles(requirements, installed):
     return None, incomplete
 
 
-def rack_tool_refusal(sources, mapping, installed):
-    """A selected AMS 3H tray feeds the tool at the same numbered position."""
+def rack_tools(installed):
     if isinstance(installed, str):
         import json
         try:
             installed = json.loads(installed)
         except ValueError:
             installed = None
+    return installed if isinstance(installed, (list, tuple)) else ()
+
+
+def position_refusal(source, position, installed):
+    tools = [row for row in installed if isinstance(row, dict) and row.get('side') == 'rack'
+             and row.get('position') == position]
+    if len(tools) != 1 or tools[0].get('present') is not True:
+        return RackMessage('nozzle_mismatch', f'Position {position} needs a reported, installed tool.')
+    tool = tools[0]
+    diameter = number(tool.get('diameter'), positive=True)
+    prefix = str(tool.get('type') or '')[:2]
+    actual = {'HS': 'standard', 'HH': 'standard', 'HT': 'TPU'}.get(prefix)
+    required = {'Standard': 'standard', 'TPU285': 'TPU'}.get(source.get('volume_type'))
+    need = source.get('nozzle_diameter')
+    if not need or not required:
+        return RackMessage('nozzle_mismatch', 'Slice the plate for the H3C.')
+    # No capture maps a nonempty 3D.uncalibrated_nozzles entry to a rack position for refusal.
+    if actual == required and diameter == need:
+        return None
+    reason = f"Filament {source['source_index'] + 1} was sliced for a {need:g} mm {required} tool."
+    if not actual or not diameter:
+        return RackMessage('nozzle_mismatch', f'{reason} The tool specification at position {position} is unknown.')
+    size = '' if diameter == need else f'{diameter:g} mm '
+    return RackMessage('nozzle_mismatch', f'{reason} Position {position} holds a {size}{actual} tool.')
+
+
+def rack_tool_refusal(sources, mapping, installed):
+    """A selected onboard tray feeds the tool at the same numbered position."""
+    tools = rack_tools(installed)
     used = set()
     for source in sources:
         index = source['source_index']
-        if index >= len(mapping) or type(mapping[index]) is not int or not 0 <= mapping[index] < 9:
-            return f'Choose a position from 1 to 9 for filament {index + 1}.'
+        if index >= len(mapping) or type(mapping[index]) is not int or mapping[index] < 0:
+            return RackMessage('ams_mapping_required', f'Choose a position for filament {index + 1}.')
         position = mapping[index] + 1
+        if position > 9:
+            return RackMessage('onboard_tray_required', f'Filament {index + 1} needs an onboard tray in positions 1 to 9.')
         if position in used:
-            return f'Position {position} is selected for two filaments. Choose a separate position for each.'
+            return RackMessage('duplicate_position', f'Choose separate positions for the two filaments assigned to position {position}.')
         used.add(position)
-        tools = [row for row in installed or () if isinstance(row, dict) and row.get('side') == 'rack'
-                 and row.get('position') == position]
-        if len(tools) != 1 or tools[0].get('present') is not True:
-            return f'Position {position} needs a reported, installed tool.'
-        tool = tools[0]
-        diameter = source.get('nozzle_diameter')
-        if not diameter or number(tool.get('diameter'), positive=True) != diameter:
-            return f'Position {position} needs a {diameter:g} mm nozzle.' if diameter else 'Slice the plate for the H3C.'
-        volume = source.get('volume_type')
-        prefixes = ('HS', 'HH') if volume == 'Standard' else ('HT',) if volume == 'TPU285' else ()
-        if not (tool.get('type') or '').startswith(prefixes):
-            return f'Position {position} needs a {volume} tool.'
+        detail = position_refusal(source, position, tools)
+        if detail:
+            return detail
     return None

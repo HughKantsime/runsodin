@@ -26,6 +26,21 @@ test('actual job detail shows saved mapping and saves an explicit change', async
   await waitFor(() => expect(api.update).toHaveBeenCalledWith(wire.job.id, { ams_mapping: [{ source_slot: 1, target_slot: 3 }] }))
 })
 
+test('labels the saved tray as a position for a rack job', () => {
+  mount(<JobAmsMapping job={{ ...wire.job, ams_preview: { ...wire.preview, rack_mapping: [{ source_slot: 1, target_slot: 4 }] } }} />)
+  expect(screen.getByText(/Saved AMS mapping:/)).toHaveTextContent('Filament 1 → Position 4')
+})
+
+test('saves the reviewed file revision with a model-selected rack job', async () => {
+  const row = wire.preview.required[0]
+  const preview = { ...wire.preview, required: [{ ...row, eligible: [4], diameter: 0.4, tool: 'standard' }],
+    rack_mapping: [{source_slot: 1, target_slot: 4}], ams_file_revision: 'a'.repeat(64) }
+  mount(<JobAmsMapping job={{ ...wire.job, ams_mapping: null, ams_preview: preview }} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Save AMS mapping' }))
+  await waitFor(() => expect(api.update).toHaveBeenCalledWith(wire.job.id,
+    { ams_mapping: preview.rack_mapping, ams_file_revision: preview.ams_file_revision }))
+})
+
 test('clear sends explicit null, failures remain visible', async () => {
   api.update.mockRejectedValue(new Error('Job has an active dispatch claim'))
   mount(); fireEvent.click(screen.getByRole('button', { name: 'Clear AMS mapping' }))
