@@ -6,7 +6,6 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [2.8.0] - 2026-11-26
 
-<!-- release-date placeholder: set by ops/bump-version.sh -->
 
 <!-- summary: Printer cards now show a printer that needs attention in every theme, and an idle printer that still reports an old failed print is no longer flagged. Bulk actions say how many items changed and why others were skipped. Organization members can no longer change printers, jobs or files that belong to another organization. Education submissions count toward the student's print quota. If the IP allowlist locks you out, you can turn it off from the Docker host. -->
 
