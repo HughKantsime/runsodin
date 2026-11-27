@@ -129,11 +129,22 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
     identity=build_identity(creds,key)
     if identity is None:
         return False,'Dispatch configuration identity could not be verified; no command was sent'
+    capability_cache = {}
     if creds['api_type'] == 'bambu':
-        from modules.printers.dispatch_capability_gate import static_refusal
+        from core.print_payload_snapshot import _copy_hash, open_regular_payload, _signature
+        from modules.printers.dispatch_capability_gate import inspect_payload as _inspect_capability, static_refusal
+        initial_plate = (job.get('plate_index') or 0) + 1
+        target_model = creds.get('machine_type') or creds.get('model')
         try:
-            refusal = static_refusal(source_path, (job.get('plate_index') or 0) + 1, creds)
-        except (ValueError, OSError, zipfile.BadZipFile) as exc:
+            with open_regular_payload(source_path) as (stream, info):
+                digest = _copy_hash(stream, info)
+                stream.seek(0)
+                initial_facts = _inspect_capability(stream, initial_plate, target_model)
+                if _signature(os.fstat(stream.fileno())) != _signature(info):
+                    raise ValueError('Print payload changed during capability inspection')
+            capability_cache[(digest, initial_plate, target_model)] = initial_facts
+            refusal = static_refusal(source_path, initial_plate, creds, facts=initial_facts)
+        except (PayloadUnavailable, ValueError, OSError, zipfile.BadZipFile) as exc:
             from modules.printers.dispatch_options import _requires_ams_mapping, _missing_mapping
             if _requires_ams_mapping(creds) and job.get('ams_mapping') is None:
                 return False, _missing_mapping(job)
@@ -159,6 +170,20 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
         if camera_refusal:
             raise CapabilityRefused(camera_refusal)
         with stage_payload(source_path,payload_sha256) as staged:
+            from core.print_payload_snapshot import _signature as _payload_sig
+            staged_sig = _payload_sig(os.stat(staged.path, follow_symlinks=False))
+            def _staged_capability_facts(plate_number):
+                from modules.printers.dispatch_capability_gate import inspect_payload as _inspect_capability
+                model = creds.get('machine_type') or creds.get('model')
+                key = (staged.sha256, plate_number, model)
+                if _payload_sig(os.stat(staged.path, follow_symlinks=False)) != staged_sig:
+                    capability_cache.pop(key, None)
+                    raise PayloadUnavailable('Staged print payload changed during preparation; no command was sent')
+                cached = capability_cache.get(key)
+                if cached is None:
+                    cached = _inspect_capability(staged.path, plate_number, model)
+                    capability_cache[key] = cached
+                return cached
             options,error=dispatch._validated_print_options(job,creds,staged.path,staged.sha256)
             if error:
                 from core.h3c_plate import RackMessage
@@ -205,8 +230,10 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
                     else:
                         if creds['api_type'] == 'bambu':
                             from modules.printers.dispatch_capability_gate import create_capability_gate
+                            plate_num = options.get('plate_num', 1)
                             preflight = create_capability_gate(job=job, creds=creds,
-                                staged_path=staged.path, plate_number=options.get('plate_num', 1), target_handle=target_handle, **rack_options)
+                                staged_path=staged.path, plate_number=plate_num, target_handle=target_handle,
+                                capability_facts=_staged_capability_facts(plate_num), **rack_options)
                             if not preflight.prepare():
                                 result = (False, dispatch._gate_refusal_message(preflight))
                                 from modules.printers.dispatch_ams_gate import GateRefusal
@@ -250,9 +277,11 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
                             ams_gate = before_start
                             if creds['api_type'] == 'bambu':
                                 from modules.printers.dispatch_capability_gate import create_capability_gate
+                                plate_num = options.get('plate_num', 1)
                                 before_start = create_capability_gate(job=job, creds=creds,
-                                    staged_path=staged.path, plate_number=options.get('plate_num', 1),
-                                    target_handle=target_handle, previous=before_start, **rack_options)
+                                    staged_path=staged.path, plate_number=plate_num,
+                                    target_handle=target_handle, previous=before_start,
+                                    capability_facts=_staged_capability_facts(plate_num), **rack_options)
                             if is_kobra_s1(creds):
                                 options.s1_gate = before_start
                             # License admission is last: it runs after every other

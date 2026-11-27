@@ -17,6 +17,16 @@ SHAPES = ['h2c_single', 'multi_plate_1', 'multi_plate_2', 'unknown_command',
           'archive_over_ams_limit', 'gcode_over_ams_limit', 'plate_7', 'h2d_pro']
 
 
+@pytest.fixture
+def small_ams_limits(monkeypatch):
+    # Exercise the independent capability reader beyond the AMS thresholds
+    # with a fixture larger than its settings window.
+    from core import ams_source_inspection as ams
+    from core.print_file_limits import MIB
+    monkeypatch.setattr(ams, 'MAX_GCODE_BYTES', 4 * MIB)
+    monkeypatch.setattr(ams, 'MAX_ARCHIVE_BYTES', 4 * MIB)
+
+
 def scope_payload(tmp_path, shape):
     from core.ams_source_inspection import MAX_ARCHIVE_BYTES, MAX_GCODE_BYTES
     model = 'H2C' if shape == 'h2c_single' else 'H2D Pro' if shape == 'h2d_pro' else 'H2D'
@@ -67,7 +77,7 @@ def head_facts(model):
 
 
 @pytest.mark.parametrize('shape', SHAPES)
-def test_capability_preserves_head_non_ams_shapes(tmp_path, monkeypatch, shape):
+def test_capability_preserves_head_non_ams_shapes(tmp_path, monkeypatch, shape, small_ams_limits):
     import core.ams_source_inspection as ams
     monkeypatch.setattr(ams, 'inspect_ams_sources', lambda *a, **kw: pytest.fail('AMS parser in capability gate'))
     path, plate_number, model = scope_payload(tmp_path, shape)
@@ -82,7 +92,7 @@ def test_capability_preserves_head_non_ams_shapes(tmp_path, monkeypatch, shape):
     assert static_refusal(path, plate_number, {'model': model, 'slot_count': 1}) is None
 
 
-def test_settings_reader_reads_bounded_windows_without_parsing_commands(tmp_path, monkeypatch):
+def test_settings_reader_reads_bounded_windows_without_parsing_commands(tmp_path, monkeypatch, small_ams_limits):
     from core.ams_source_inspection import MAX_GCODE_LINE_BYTES
     path, plate, model = scope_payload(tmp_path, 'gcode_over_ams_limit')
     original = zipfile.ZipExtFile.read
@@ -111,3 +121,11 @@ def test_older_trailing_settings_block_is_supported(tmp_path):
     payload = fixture(code=lambda c: c.replace('; CONFIG_BLOCK_START', 'G1 X1\n' * 400000 + '; CONFIG_BLOCK_START'))
     path = tmp_path / 'trailing.3mf'; path.write_bytes(payload)
     assert inspect_payload(path, 1, 'H2D')['filament_map'] == {0: 0, 1: 1}
+
+
+@pytest.mark.slow
+def test_capability_enforces_the_production_gcode_limit(tmp_path):
+    from core.zip_bounds import ArchiveRefused
+    path, plate, model = scope_payload(tmp_path, 'gcode_over_ams_limit')
+    with pytest.raises(ArchiveRefused, match='^gcode_too_large$'):
+        inspect_payload(path, plate, model)

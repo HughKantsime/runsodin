@@ -143,26 +143,46 @@ def retire_ams_read(db,*,operation):
     return _fail_owned_read(db,started=operation._started,runtime=operation._runtime)
 
 
-def inspect_ams_payload(path,*,expected_sha256,expected_bytes,plate_index,multi_source=False):
+def inspect_ams_payload(path,*,expected_sha256,expected_bytes,plate_index,multi_source=False,already_staged=False):
     """Verify an owned immutable snapshot outside approval authority locks.
 
     Caller first authorizes the exact committed file graph; this service does
     not authorize a pathname. No bytes or filesystem paths are returned.
+    When ``already_staged=True`` the caller already owns a private staged copy
+    (from ``stage_payload``); verify its hash and size in place instead of
+    copying the file a second time.
     """
+    import hmac
     import os
-    from core.ams_source_inspection import inspect_single_source_ams,inspect_ams_sources,MAX_ARCHIVE_BYTES
+    from core.ams_source_inspection import inspect_single_source_ams, inspect_ams_sources
+    from core.print_file_limits import MAX_COMPRESSED_BYTES
+    from core.print_payload_snapshot import PayloadChanged,_copy_hash,open_regular_payload,_signature,validate_payload_identity
     from modules.printers.dispatch_payload_snapshot import stage_payload
     if type(expected_bytes) is not int or expected_bytes <= 0:
         raise ValueError('AMS payload size unavailable')
-    if expected_bytes > MAX_ARCHIVE_BYTES:
-        raise ValueError(f'AMS payload is too large ({expected_bytes} bytes; limit {MAX_ARCHIVE_BYTES} bytes)')
-    with stage_payload(path,expected_sha256) as snapshot:
-        with open(snapshot.path,'rb') as source:
-            if os.fstat(source.fileno()).st_size != expected_bytes:
+    if expected_bytes > MAX_COMPRESSED_BYTES:
+        raise ValueError(f'AMS payload is too large ({expected_bytes} bytes; limit {MAX_COMPRESSED_BYTES} bytes)')
+    if already_staged:
+        validate_payload_identity(path, expected_sha256)
+        with open_regular_payload(path) as (source, info):
+            if info.st_size != expected_bytes:
                 raise ValueError('AMS payload changed')
-            # stage_payload already verified the hash while copying bounded chunks.
+            digest = _copy_hash(source, info)
+            if not hmac.compare_digest(digest, expected_sha256):
+                raise PayloadChanged('Print payload changed before inspection; no command was sent')
+            source.seek(0)
             verified=(inspect_ams_sources(source,plate_index) if multi_source
                       else inspect_single_source_ams(source,plate_index))
+            if _signature(os.fstat(source.fileno())) != _signature(info):
+                raise PayloadChanged('Print payload changed during inspection; no command was sent')
+    else:
+        with stage_payload(path,expected_sha256) as snapshot:
+            with open(snapshot.path,'rb') as source:
+                if os.fstat(source.fileno()).st_size != expected_bytes:
+                    raise ValueError('AMS payload changed')
+                # stage_payload already verified the hash while copying bounded chunks.
+                verified=(inspect_ams_sources(source,plate_index) if multi_source
+                          else inspect_single_source_ams(source,plate_index))
     if multi_source:
         from dataclasses import asdict
         facts = {'payload_sha256':expected_sha256,'storage_bytes':expected_bytes,'plate_index':verified.plate_index,
@@ -176,6 +196,7 @@ def inspect_ams_payload(path,*,expected_sha256,expected_bytes,plate_index,multi_
 
 def validate_current_ams_selection(db,*,printer_id,expected_org_id,generation_id,mapping,verified_payload):
     """Approval-only evidence consumption; never command admission or IO."""
+    from core.print_file_limits import SINGLE_SOURCE_APPROVAL_BYTES
     import re
     from core.runtime_identity import read_runtime_identity,revalidate_runtime_identity
     from core.material_identity import canonical_reported_material
@@ -188,7 +209,7 @@ def validate_current_ams_selection(db,*,printer_id,expected_org_id,generation_id
                 or type(generation_id) is not str or not re.fullmatch('[0-9a-f]{32}',generation_id)):raise ValueError()
         if (type(verified_payload) is not dict or set(verified_payload)!={'payload_sha256','storage_bytes','plate_index','source_index','material'}
                 or type(verified_payload['payload_sha256']) is not str or not re.fullmatch('[0-9a-f]{64}',verified_payload['payload_sha256'])
-                or type(verified_payload['storage_bytes']) is not int or not 0<verified_payload['storage_bytes']<=64*1024*1024
+                or type(verified_payload['storage_bytes']) is not int or not 0<verified_payload['storage_bytes']<=SINGLE_SOURCE_APPROVAL_BYTES
                 or type(verified_payload['material']) is not str or canonical_reported_material(verified_payload['material'])!=verified_payload['material']):raise ValueError()
         if (type(mapping) is not list or len(mapping)!=1 or type(mapping[0]) is not dict
                 or set(mapping[0])!={'source_slot','target_slot'}

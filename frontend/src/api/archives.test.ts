@@ -37,3 +37,28 @@ test('CSV export rejects an empty 204 response rather than a null file',async()=
  vi.spyOn(globalThis,'fetch').mockResolvedValue(new Response(null,{status:204}))
  await expect(archives.logExport()).rejects.toThrow('Unexpected export response')
 })
+
+test('project ZIP exposes each omission returned with the download', async () => {
+ const { projects } = await import('./archives')
+ const omitted = {count:12, names:['plate.3mf', 'part.3mf', 'third.3mf', 'fourth.3mf', 'fifth.3mf']}
+ vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(new Blob(['zip']), {
+   headers: { 'X-Odin-Export-Omitted': JSON.stringify(omitted) },
+ }))
+ vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+ vi.stubGlobal('URL', class extends URL {
+   static createObjectURL() { return 'blob:project' }
+   static revokeObjectURL() {}
+ })
+ try {
+   expect(await projects.exportZip(7, 'Large')).toEqual(omitted)
+ } finally { vi.unstubAllGlobals() }
+})
+
+test('unreadable project omission list is surfaced to the operator', async () => {
+ const transport = await import('./client')
+ vi.spyOn(transport, 'downloadBlobWithHeaders').mockResolvedValue(new Headers({
+   'X-Odin-Export-Omitted': 'invalid',
+ }))
+ const { projects } = await import('./archives')
+ await expect(projects.exportZip(7, 'Large')).rejects.toThrow('Check project.json in the downloaded ZIP')
+})

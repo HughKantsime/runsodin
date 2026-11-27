@@ -60,7 +60,10 @@ _BACKEND = Path(__file__).resolve().parents[2]
 _POLL_SECONDS = 0.02
 # Test hooks the parent forwards; nothing else from its environment reaches the child.
 _FORWARDED_TEST_VARIABLES = ("ODIN_MESH_WORKER_TEST_SLEEP", "ODIN_MESH_WORKER_TEST_GRANDCHILD")
-_STATUSES = frozenset({"ok", "too_large", "too_many_members", "bad_zip", "unparsed", "no_plate", "plate_json_too_large"})
+_STATUSES = frozenset({
+    "ok", "too_large", "too_many_members", "bad_zip", "unparsed", "no_plate",
+    "plate_json_too_large", "safety_member_too_large", "member_too_large", "gcode_too_large",
+})
 
 # The only executor 3MF work runs on: every admitted caller (one wait slot) has a thread.
 EXECUTOR = ThreadPoolExecutor(max_workers=MAX_WORKERS + MAX_WAITERS, thread_name_prefix="odin-3mf")
@@ -567,6 +570,30 @@ def analyze_blocking(path, *, mode: str = "upload", timeout: float = TIMEOUT_SEC
                      name: Optional[str] = None, memory_limit: int = MEMORY_LIMIT_BYTES) -> Analysis:
     """Blocking entry for code already on the 3MF executor (or tests). Raises Busy."""
     return run_admitted(path, ticket or reserve(timeout), mode=mode, name=name, memory_limit=memory_limit)
+
+
+def inspect_on_executor(function, *args):
+    """Bound both entry to the 3MF pool and the preview caller's wait."""
+    ticket = reserve(TIMEOUT_SECONDS)
+
+    def inspect():
+        try:
+            slot = _acquire_run_slot(ticket)
+        finally:
+            ticket.release()
+        try:
+            if time.monotonic() >= ticket.deadline:
+                raise Busy()
+            return function(*args)
+        finally:
+            _release_run_slot(slot)
+
+    try:
+        future = EXECUTOR.submit(inspect)
+    except BaseException:
+        ticket.release()
+        raise
+    return future.result(timeout=max(0, ticket.deadline - time.monotonic()))
 
 
 async def run_on_executor(function, *args, **kwargs):

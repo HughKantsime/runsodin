@@ -38,8 +38,11 @@ def _analyze_3mf_isolated(path, ticket):
                             headers={"Retry-After": str(busy.retry_after)}) from None
 
 CHUNK_BYTES = 1024 * 1024
-from core.print_upload_limits import MAX_UPLOAD_BYTES, size_refusal
-MAX_UNCOMPRESSED_BYTES = 500 * 1024 * 1024
+from core.print_file_limits import (
+    EDUCATION_UPLOAD_BYTES as MAX_UPLOAD_BYTES, EDUCATION_MEMBER_BYTES, EDUCATION_TOTAL_BYTES,
+    MAX_PLATE_JSON_BYTES, MIB,
+)
+from core.print_upload_limits import size_refusal
 USER_STORAGE_CAP_BYTES = 2 * 1024 * 1024 * 1024
 TENANT_STORAGE_CAP_BYTES = 50 * 1024 * 1024 * 1024
 UPLOAD_ROOT = Path(os.environ.get("EDUCATION_UPLOAD_ROOT", "/data/education_uploads"))
@@ -330,7 +333,7 @@ def hash_upload_source(source: BinaryIO) -> tuple[int, str]:
         total += len(chunk)
         if total > MAX_UPLOAD_BYTES:
             raise OdinError(
-                ErrorCode.quota_exceeded, size_refusal(total), status=413
+                ErrorCode.quota_exceeded, size_refusal(total, MAX_UPLOAD_BYTES), status=413
             )
         digest.update(chunk)
     return total, digest.hexdigest()
@@ -423,9 +426,13 @@ def finalize_staged_3mf_submission(
         # The package is opened and parsed only by the bounded 3MF child process.
         status, metadata = _analyze_3mf_isolated(staging_path, threemf_ticket)
         if status == "too_large":
-            raise OdinError(ErrorCode.validation_failed, "Expanded .3mf exceeds 500 MiB", status=400)
+            raise OdinError(ErrorCode.validation_failed,
+                            f"Expanded .3mf exceeds {EDUCATION_TOTAL_BYTES // MIB} MiB "
+                            f"or {EDUCATION_MEMBER_BYTES // MIB} MiB per member", status=400)
         if status == "plate_json_too_large":
-            raise OdinError(ErrorCode.validation_failed, "A plate description in the .3mf exceeds 4 MB", status=400)
+            raise OdinError(ErrorCode.validation_failed, f"A plate description in the .3mf exceeds {MAX_PLATE_JSON_BYTES // MIB} MiB", status=400)
+        if status == "safety_member_too_large":
+            raise OdinError(ErrorCode.validation_failed, "Metadata in this .3mf file is too large to check", status=400)
         if status in ("bad_zip", "too_many_members"):
             raise OdinError(ErrorCode.validation_failed, "Invalid .3mf container", status=400)
         if status == "no_plate":
@@ -560,7 +567,7 @@ def process_sliced_3mf_submission(
                 if total + len(chunk) > MAX_UPLOAD_BYTES:
                     raise OdinError(
                         ErrorCode.quota_exceeded,
-                        size_refusal(total + len(chunk)),
+                        size_refusal(total + len(chunk), MAX_UPLOAD_BYTES),
                         status=413,
                     )
                 reserve_storage_chunk(

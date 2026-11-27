@@ -4,6 +4,14 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- Print-file uploads accept up to 512 MiB. A 3MF package can contain up to 2 GiB unpacked, with up to 1 GiB per model part and 512 MiB per sliced G-code member. Education submissions retain their 160 MiB limit.
+
+### Fixed
+
+- Project ZIP exports report how many files exceeded 128 MiB and show up to five filenames. The full list and reasons are in project.json. Importing a ZIP with omitted files requires this version or later.
+
 ## [2.8.0] - 2026-11-26
 
 

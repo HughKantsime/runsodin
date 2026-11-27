@@ -119,7 +119,7 @@ export async function fetchAPI<T = unknown>(endpoint: string, options: RequestIn
 }
 
 // Generic blob download helper (for exports)
-export const downloadBlob = async (endpoint: string, filename: string): Promise<void> => {
+export const downloadBlobWithHeaders = async (endpoint: string, filename: string): Promise<Headers> => {
   const res = await fetch(`${API_BASE}${endpoint}`, { credentials: 'include' })
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
@@ -135,4 +135,9 @@ export const downloadBlob = async (endpoint: string, filename: string): Promise<
   a.click()
   document.body.removeChild(a)
   URL.revokeObjectURL(url)
+  return res.headers
+}
+
+export const downloadBlob = async (endpoint: string, filename: string): Promise<void> => {
+  await downloadBlobWithHeaders(endpoint, filename)
 }

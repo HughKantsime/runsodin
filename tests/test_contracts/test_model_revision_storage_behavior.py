@@ -23,10 +23,21 @@ def test_missing_revision_file_does_not_create_false_revert(revision_storage,rev
  assert review_db.execute(text('SELECT COUNT(*) FROM model_revisions')).scalar_one()==before
 
 
-def test_oversize_revision_does_not_leave_empty_final_file(revision_storage,review_db):
+def test_oversize_revision_does_not_leave_empty_final_file(revision_storage,review_db,tmp_path,monkeypatch):
+ from modules.models_library import upload_stream
+ monkeypatch.setattr(upload_stream,"MAX_UPLOAD_BYTES",1024)
  client,issue,storage=revision_storage
  before=review_db.execute(text('SELECT COUNT(*) FROM model_revisions')).scalar_one()
- response=client.post('/models/101/revisions',headers=issue(['write:models']),files={'file':('synthetic-large.3mf',b'x'*(160*1024*1024+1),'application/octet-stream')})
+ # ASGITransport feeds the multipart file in chunks. TestClient buffers it all.
+ import asyncio
+ import httpx
+ async def send():
+  async with httpx.AsyncClient(transport=httpx.ASGITransport(app=client.app),base_url="http://testserver") as http:
+   with (tmp_path/'large.3mf').open('w+b') as oversized:
+    oversized.truncate(upload_stream.MAX_UPLOAD_BYTES + 1)
+    return await http.post('/models/101/revisions',headers=issue(['write:models']),
+                           files={'file':('synthetic-large.3mf',oversized,'application/octet-stream')})
+ response=asyncio.run(send())
  assert response.status_code==413,response.text
  assert review_db.execute(text('SELECT COUNT(*) FROM model_revisions')).scalar_one()==before
  assert not [path for path in storage.rglob('*') if path.is_file()]

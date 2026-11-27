@@ -29,10 +29,12 @@ from core.rbac import AGENT_WRITE_SCOPE, check_org_access, check_org_write, requ
 from core.responses import build_next_actions, next_action
 from modules.models_library.printer_fit import uploaded_file_fit
 from modules.models_library.upload_storage import _studio_print_notes, _normalize_model_name, _fresh_upload_actor, _visible_upload_duplicate, _own_upload_model, _new_upload_path
+from core.print_file_limits import MAX_PLATE_JSON_BYTES, MIB, UPLOAD_EXPANSION_REFUSALS
+from modules.models_library.upload_stream import UploadPrecheckRoute
 
 log = logging.getLogger("odin.api")
 
-router = APIRouter(tags=["Print Files"])
+router = APIRouter(tags=["Print Files"], route_class=UploadPrecheckRoute)
 
 ALLOWED_PRINT_FILE_EXTENSIONS = {".3mf", ".gcode", ".bgcode"}
 
@@ -142,7 +144,7 @@ async def upload_3mf(
         raise HTTPException(status_code=400, detail="Only .3mf, .gcode, and .bgcode files are supported")
 
     from modules.models_library.upload_stream import write_upload
-    tmp_path, file_hash = await write_upload(file, ext)
+    tmp_path, file_hash = await write_upload(file, ext, disk_checked_bytes=getattr(request.state, "disk_checked_bytes", 0))
     duplicate_info = None
     stored_path = None
     file_id = None
@@ -155,12 +157,14 @@ async def upload_3mf(
             # XML, plate JSON and preview mesh are read by a bounded child process.
             # The user's filename names the model when the 3MF has no Title (cert-fix-D F04-4.2-06).
             analysis = await _analyze_3mf_upload(tmp_path, name=os.path.basename(file.filename or "") or None)
-            if analysis.status == "too_large":
-                raise HTTPException(status_code=400, detail="File rejected: decompressed size exceeds the 500 MB limit (400 MB per member).")
+            if analysis.status in UPLOAD_EXPANSION_REFUSALS:
+                raise HTTPException(status_code=400, detail=UPLOAD_EXPANSION_REFUSALS[analysis.status])
             if analysis.status == "too_many_members":
                 raise HTTPException(status_code=400, detail="File rejected: the .3mf has too many archive members.")
             if analysis.status == "plate_json_too_large":
-                raise HTTPException(status_code=400, detail="File rejected: a plate description (Metadata/plate_N.json) exceeds 4 MB.")
+                raise HTTPException(status_code=400, detail=f"File rejected: a plate description (Metadata/plate_N.json) exceeds {MAX_PLATE_JSON_BYTES // MIB} MiB.")
+            if analysis.status == "safety_member_too_large":
+                raise HTTPException(status_code=400, detail="File rejected: metadata in this .3mf file is too large to check.")
             if analysis.status == "bad_zip":
                 raise HTTPException(status_code=400, detail="Invalid .3mf file (bad zip structure).")
             if analysis.status != "ok" or not analysis.metadata:
@@ -390,7 +394,11 @@ async def upload_3mf(
                            {"mid": model_id, "fid": file_id})
 
             # Extract bed/compatibility metadata and persist
-            meta = pfm.extract_print_file_meta(stored_path, ext)
+            from modules.models_library.threemf_parser import FileTooLargeError
+            try:
+                meta = pfm.extract_print_file_meta(stored_path, ext)
+            except (FileTooLargeError, MemoryError):
+                raise HTTPException(status_code=400, detail="The file is too large to check.") from None
             db.execute(text(
                 "UPDATE print_files SET bed_x_mm = :x, bed_y_mm = :y, "
                 "compatible_api_types = :types, compatibility_facts_json = :facts WHERE id = :id"

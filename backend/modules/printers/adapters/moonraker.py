@@ -424,12 +424,19 @@ class MoonrakerPrinter:
             headers["X-Api-Key"] = self.api_key
 
         try:
+            from modules.printers.adapters.multipart_stream import MultipartFileStream
             with open(local_path, "rb") as f:
+                stream = MultipartFileStream(
+                    fields=(("root", "gcodes"),),
+                    file_field="file",
+                    filename=remote_filename,
+                    fileobj=f,
+                    file_content_type="application/octet-stream",
+                )
                 resp = device_request(
                     "POST", url,
-                    files={"file": (remote_filename, f, "application/octet-stream")},
-                    data={"root": "gcodes"},
-                    headers=headers,
+                    data=stream,
+                    headers={**headers, "Content-Type": stream.content_type},
                     timeout=120,
                 )
             if resp.status_code in (200, 201):

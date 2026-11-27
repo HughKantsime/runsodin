@@ -183,7 +183,6 @@ export default function ModelViewer({ modelId, fileId, modelName, onClose }: { m
         if (cancelled) return
         
         if (!meshData || !meshData.vertices || !meshData.triangles) {
-          setError('No 3D data available for this model')
           setLoading(false)
           return
         }
@@ -301,11 +300,12 @@ export default function ModelViewer({ modelId, fileId, modelName, onClose }: { m
         setLoading(false)
         
       } catch (err: any) {
-        console.error('3D viewer error:', err)
-        if (!cancelled) {
+        if (cancelled) return
+        if (err.status !== 404) {
+          console.error('3D viewer error:', err)
           setError(err.message || 'Failed to load 3D model')
-          setLoading(false)
         }
+        setLoading(false)
       }
     }
     
@@ -398,12 +398,11 @@ export default function ModelViewer({ modelId, fileId, modelName, onClose }: { m
               </div>
             </div>
           )}
-          {error && (
+          {!loading && (error || !meshInfo) && (
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="text-center">
                 <Box size={48} className="text-[var(--brand-muted)] mx-auto mb-3" />
-                <p className="text-[var(--brand-muted)] text-sm">{error}</p>
-                <p className="text-[var(--brand-muted)] text-xs mt-1">3D preview requires a re-upload of the .3mf file</p>
+                <p className="text-[var(--brand-muted)] text-sm">{error || 'No 3D preview available'}</p>
               </div>
             </div>
           )}

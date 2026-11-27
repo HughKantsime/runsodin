@@ -68,7 +68,9 @@ def _analysis(path: str, name: str, mode: str) -> dict:
     import re
     import zipfile
     from core.zip_bounds import ArchiveRefused, check_expansion, open_bounded
-    from modules.models_library.threemf_parser import parse_3mf, extract_objects_from_plate, plate_json_too_large
+    from modules.models_library.threemf_parser import (
+        FileTooLargeError, parse_3mf, extract_objects_from_plate, plate_json_too_large,
+    )
     from modules.models_library.print_file_meta import extract_print_file_meta
     try:
         with open_bounded(path) as package:
@@ -76,11 +78,14 @@ def _analysis(path: str, name: str, mode: str) -> dict:
             names = [entry.filename for entry in entries]
             if plate_json_too_large(package):  # every plate, not only plate_1
                 return {"status": "plate_json_too_large"}
-            check_expansion(package)
             if mode == "education":
+                from core.print_file_limits import EDUCATION_MEMBER_BYTES, EDUCATION_TOTAL_BYTES
+                check_expansion(package, member_limit=EDUCATION_MEMBER_BYTES, total_limit=EDUCATION_TOTAL_BYTES)
                 printable = [entry for entry in entries if entry.filename == "Metadata/plate_1.gcode"]
                 if len(printable) != 1 or printable[0].is_dir() or printable[0].file_size <= 0:
                     return {"status": "no_plate"}
+            else:
+                check_expansion(package)
             plate_objects = extract_objects_from_plate(package)
             # Plate 1 G-code the schedule path needs (core.print_payload.validate_plate):
             # exactly one nonempty Metadata/plate_1.gcode member.
@@ -89,16 +94,22 @@ def _analysis(path: str, name: str, mode: str) -> dict:
     except ArchiveRefused as refused:
         if refused.reason == "compression_ratio":
             return {"status": "bad_zip"}
-        return {"status": "too_large" if refused.reason in ("too_large", "member_too_large") else "too_many_members"}
+        if mode == "upload" and refused.reason in ("member_too_large", "gcode_too_large"):
+            return {"status": refused.reason}
+        return {"status": "too_large" if refused.reason in ("too_large", "member_too_large", "gcode_too_large") else "too_many_members"}
     except zipfile.BadZipFile:
         return {"status": "bad_zip"}
-    metadata = parse_3mf(path, name)
-    if not metadata:
-        return {"status": "unparsed"}
+    try:
+        metadata = parse_3mf(path, name)
+        if not metadata:
+            return {"status": "unparsed"}
+        file_meta = extract_print_file_meta(path, ".3mf")
+    except (FileTooLargeError, MemoryError):
+        return {"status": "safety_member_too_large"}
     plate_count = len({n for n in names if re.fullmatch(r"Metadata/plate_[1-9][0-9]*\.gcode", n)}) or 1
     return {"status": "ok", "metadata": dataclasses.asdict(metadata), "plate_objects": plate_objects,
             "plate_count": plate_count, "plate1_gcode": plate1_gcode,
-            "file_meta": extract_print_file_meta(path, ".3mf")}
+            "file_meta": file_meta}
 
 
 def _plates(path: str) -> dict:
@@ -115,7 +126,7 @@ def _plates(path: str) -> dict:
     except ArchiveRefused as refused:
         if refused.reason == "compression_ratio":
             return {"status": "bad_zip"}
-        return {"status": "too_large" if refused.reason in ("too_large", "member_too_large") else "too_many_members"}
+        return {"status": "too_large" if refused.reason in ("too_large", "member_too_large", "gcode_too_large") else "too_many_members"}
     except zipfile.BadZipFile:
         return {"status": "bad_zip"}
 
@@ -133,7 +144,7 @@ def _plate_facts(path: str, *, objects=False) -> dict:
     except ArchiveRefused as refused:
         if refused.reason == "compression_ratio":
             return {"status": "bad_zip"}
-        return {"status": "too_large" if refused.reason in ("too_large", "member_too_large") else "too_many_members"}
+        return {"status": "too_large" if refused.reason in ("too_large", "member_too_large", "gcode_too_large") else "too_many_members"}
     except zipfile.BadZipFile:
         return {"status": "bad_zip"}
 

@@ -47,7 +47,7 @@ class _ReservedUploadFile(UploadFile):
         for offset in range(0, len(data), CHUNK_BYTES):
             chunk = data[offset : offset + CHUNK_BYTES]
             if self.byte_count + len(chunk) > MAX_UPLOAD_BYTES:
-                raise MultiPartException(size_refusal(self.byte_count + len(chunk)))
+                raise MultiPartException(size_refusal(self.byte_count + len(chunk), MAX_UPLOAD_BYTES))
             if self.retain:
                 reserve_storage_chunk(
                     self.db,
@@ -145,19 +145,19 @@ async def create_education_submission(
     db: Session = Depends(get_db),
 ):
     """Stream one sliced 3MF into a durable, reviewable Education submission."""
-    content_length = request.headers.get("content-length")
-    if content_length:
-        try:
-            if int(content_length) > MAX_UPLOAD_BYTES + 1024 * 1024:
-                raise OdinError(
-                    ErrorCode.quota_exceeded,
-                    f'Multipart upload too large ({content_length} bytes; limit {MAX_UPLOAD_BYTES + 1024 * 1024} bytes including framing)',
-                    status=413,
-                )
-        except ValueError as exc:
-            raise OdinError(
-                ErrorCode.validation_failed, "Invalid Content-Length", status=400
-            ) from exc
+    from core.print_upload_limits import (
+        InvalidContentLengthError,
+        UploadContentLengthExceeded,
+        check_upload_content_length,
+    )
+    try:
+        check_upload_content_length(
+            request.headers.get("content-length"), max_upload_bytes=MAX_UPLOAD_BYTES
+        )
+    except UploadContentLengthExceeded as exc:
+        raise OdinError(ErrorCode.quota_exceeded, str(exc), status=413) from None
+    except InvalidContentLengthError as exc:
+        raise OdinError(ErrorCode.validation_failed, str(exc), status=400) from None
     parser = _DurableMultipartParser(
         request.headers,
         request.stream(),

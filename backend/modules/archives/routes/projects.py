@@ -33,6 +33,7 @@ from modules.archives.project_zip_admission import MAX_COMPRESSED_BYTES, validat
 from modules.archives.project_zip_io import (
     ProjectZipExportError,
     build_project_zip,
+    build_project_zip_with_report,
     discard_import_dir,
     stage_import_files,
 )
@@ -325,16 +326,30 @@ def export_project(
         for archive in export_rows:
             if not path_allowed(db, archive.get('file_path'), user):
                 archive['file_path'] = None
-        payload = build_project_zip(project, export_rows)
+        payload, omitted_files = build_project_zip_with_report(project, export_rows)
     except ProjectZipExportError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
 
     audit_download(db, "project.exported", "project", project_id)
     safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in project["name"])[:50]
+    headers = {"Content-Disposition": f"attachment; filename=project_{safe_name}.zip"}
+    if omitted_files:
+        names = []
+        for item in omitted_files[:5]:
+            name = item["original_name"][:80]
+            # JSON escapes can take 12 ASCII bytes per character. Budget each
+            # serialized name separately so all five fit in a 1 KiB header.
+            while len(json.dumps(name, ensure_ascii=True)) > 192:
+                name = name[:-1]
+            names.append(name)
+        headers["X-Odin-Export-Omitted"] = json.dumps(
+            {"count": len(omitted_files), "names": names}, separators=(",", ":")
+        )
+        headers["Access-Control-Expose-Headers"] = "Content-Disposition, X-Odin-Export-Omitted"
     return StreamingResponse(
         io.BytesIO(payload),
         media_type="application/zip",
-        headers={"Content-Disposition": f"attachment; filename=project_{safe_name}.zip"},
+        headers=headers,
     )
 
 

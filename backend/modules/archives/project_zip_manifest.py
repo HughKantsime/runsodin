@@ -60,6 +60,21 @@ class ArchiveFile(_Closed):
         return value
 
 
+class OmittedArchiveFile(_Closed):
+    archive_key:str
+    print_name:str=Field(max_length=255)
+    original_name:str=Field(min_length=1,max_length=255)
+    size:StrictInt=Field(gt=MAX_FILE_BYTES)
+    reason:str=Field(min_length=1,max_length=255)
+
+    @field_validator('original_name')
+    @classmethod
+    def safe_basename(cls,value):
+        if value in ('.','..') or '/' in value or '\\' in value or any(ord(char)<32 or ord(char)==127 for char in value):
+            raise ValueError('Invalid omitted filename')
+        return value
+
+
 class ImportedArchive(_Closed):
     archive_key:str
     display:ArchiveDisplay
@@ -71,6 +86,7 @@ class ProjectZipManifest(_Closed):
     version:Literal[2]
     project:ProjectDisplay
     archives:list[ImportedArchive]=Field(max_length=MAX_ARCHIVES)
+    omitted_files:list[OmittedArchiveFile]=Field(default_factory=list,max_length=MAX_ARCHIVES)
 
     @field_validator('version',mode='before')
     @classmethod
@@ -81,12 +97,21 @@ class ProjectZipManifest(_Closed):
     @model_validator(mode='after')
     def exact_members(self):
         total=0
+        by_key={}
         for index,archive in enumerate(self.archives):
             if archive.archive_key!=str(index):raise ValueError('Invalid archive index')
+            by_key[archive.archive_key]=archive
             if archive.file is not None:
                 prefix=f'files/{index:03d}.'
                 if not archive.file.member.startswith(prefix):raise ValueError('Archive member differs')
                 total+=archive.file.size
+        seen_omitted=set()
+        for omitted in self.omitted_files:
+            if omitted.archive_key not in by_key or omitted.archive_key in seen_omitted:
+                raise ValueError('Invalid omitted archive index')
+            if by_key[omitted.archive_key].file is not None:
+                raise ValueError('Omitted archive also includes a file')
+            seen_omitted.add(omitted.archive_key)
         if total>MAX_TOTAL_BYTES:raise ValueError('Project ZIP total exceeds bound')
         return self
 

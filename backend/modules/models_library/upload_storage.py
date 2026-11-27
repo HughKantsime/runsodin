@@ -96,8 +96,12 @@ def _own_upload_model(db, normalized_name, raw_name, org_id):
     return rows[0] if len(rows) == 1 else None
 
 
+def print_file_storage_root():
+    return Path(os.environ.get("PRINT_FILE_STORAGE_ROOT") or "/data/print_files")
+
+
 def _new_upload_path(file_id, filename):
-    root = Path(os.environ.get("PRINT_FILE_STORAGE_ROOT") or "/data/print_files")
+    root = print_file_storage_root()
     if not root.is_absolute():
         raise HTTPException(status_code=400, detail="Print file storage root must be an absolute path")
     root = root.resolve()

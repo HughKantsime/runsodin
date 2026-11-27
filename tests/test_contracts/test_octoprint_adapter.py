@@ -223,15 +223,22 @@ def test_upload_success_on_201_done_true_with_the_documented_request(octo, gcode
     sent = []
 
     def upload(request):
-        name, handle, mime = request.kwargs['files']['file']
-        sent.append((name, handle.read(), mime))
+        stream = request.kwargs['data']
+        sent.append((stream.filename, stream.fields, stream.file_content_type, stream.read()))
         return Reply(201, CREATED)
     octo.routes[('POST', '/api/files/local')] = upload
     assert client().upload_and_print(str(gcode), 'gear.gcode') is True
     request = octo.requests[0]
-    assert request.headers == {'X-Api-Key': KEY} and request.url == f'http://{HOST}:80/api/files/local'
-    assert request.kwargs['data'] == {'select': 'true', 'print': 'true'}
-    assert sent == [('gear.gcode', b'G28\nG1 X10\n', 'application/octet-stream')]
+    assert set(request.headers) == {'X-Api-Key', 'Content-Type'}
+    assert request.headers['X-Api-Key'] == KEY
+    assert request.headers['Content-Type'].startswith('multipart/form-data; boundary=')
+    assert request.url == f'http://{HOST}:80/api/files/local'
+    assert sent[0][:3] == ('gear.gcode', (('select', 'true'), ('print', 'true')), 'application/octet-stream')
+    from urllib3.filepost import encode_multipart_formdata
+    expected, _ = encode_multipart_formdata(
+        [('select', 'true'), ('print', 'true'), ('file', ('gear.gcode', b'G28\nG1 X10\n', 'application/octet-stream'))],
+        boundary=request.headers['Content-Type'].split('boundary=')[1])
+    assert sent[0][3] == expected
 
 
 @pytest.mark.parametrize('reply', [
@@ -257,7 +264,7 @@ def test_upload_with_no_answer_is_unknown_not_refused(octo, gcode, failure):
 def test_upload_name_is_a_basename_and_control_characters_are_refused(octo, gcode):
     octo.routes[('POST', '/api/files/local')] = lambda request: Reply(201, CREATED)
     assert client().upload_and_print(str(gcode), '../../etc/x.gcode') is True
-    assert octo.requests[0].kwargs['files']['file'][0] == 'x.gcode'
+    assert octo.requests[0].kwargs['data'].filename == 'x.gcode'
     octo.requests.clear()
     assert client().upload_and_print(str(gcode), 'a\nb.gcode') is False
     assert client().upload_and_print(str(gcode), '') is False  # falls back to nothing usable only if empty path

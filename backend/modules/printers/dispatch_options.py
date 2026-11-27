@@ -8,7 +8,7 @@ class ValidatedPrintOptions(dict):
     source_facts = None
 
 
-def _validated_print_options(job,creds,stored_path,payload_sha256):
+def _validated_print_options(job,creds,staged_path,payload_sha256):
     printer_id=job['printer_id']
     if job.get("upload_target_printer_id") not in (None, printer_id):
         return None, "Print file is bound to another printer; no command was sent"
@@ -24,11 +24,11 @@ def _validated_print_options(job,creds,stored_path,payload_sha256):
             from core.print_payload import validate_plate
             from fastapi import HTTPException
             try:
-                validate_plate(stored_path, job.get('plate_index'), api_type)
+                validate_plate(staged_path, job.get('plate_index'), api_type)
             except HTTPException as exc:
                 return None, str(exc.detail)
         try:
-            result = options(job, stored_path)
+            result = options(job, staged_path)
             from core.db import engine
             from modules.printers.slot_feed_policy import flagged_mapping_reason
             with engine.connect() as conn:
@@ -53,7 +53,7 @@ def _validated_print_options(job,creds,stored_path,payload_sha256):
                 return None, "Archived payload changed; no command was sent"
         plate_index = _ams_plate_index(job) if requires_mapping else job.get("plate_index")
         try:
-            plate = validate_plate(stored_path, plate_index, api_type)
+            plate = validate_plate(staged_path, plate_index, api_type)
         except HTTPException as exc:
             if requires_mapping and not h3c and job.get("ams_mapping") is None:
                 return None, _missing_mapping(job)
@@ -73,8 +73,9 @@ def _validated_print_options(job,creds,stored_path,payload_sha256):
                 from modules.printers.dispatch_payload_snapshot import PayloadUnavailable
                 import os
                 try:
-                    facts = inspect_ams_payload(stored_path, expected_sha256=payload_sha256,
-                        expected_bytes=os.stat(stored_path).st_size, plate_index=plate_index,
+                    facts = inspect_ams_payload(staged_path, expected_sha256=payload_sha256,
+                        expected_bytes=os.stat(staged_path).st_size, plate_index=plate_index,
+                        already_staged=True,
                         **({'multi_source': True} if h3c else {}))
                     derived = job.get('ams_mapping') is None
                     if h3c:
@@ -111,7 +112,7 @@ def _validated_print_options(job,creds,stored_path,payload_sha256):
                 from modules.printers.dispatch_payload_snapshot import PayloadUnavailable
                 try:
                     print_options.source_facts = preflight_ams_source(job, mapping=mapping,
-                        staged_path=stored_path, payload_sha256=payload_sha256,
+                        staged_path=staged_path, payload_sha256=payload_sha256,
                         derived=derived, inspected_facts=facts, h3c=h3c)
                 except (ValueError, OSError, PayloadUnavailable) as exc:
                     detail = str(exc) if isinstance(exc, ValueError) else 'Payload inspection unavailable'

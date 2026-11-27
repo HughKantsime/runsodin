@@ -1,4 +1,5 @@
 """Bambu capability preflight and fresh post-upload recheck."""
+import copy
 import time
 from threading import Lock
 from modules.printers.dispatch_ams_gate import record_refusal
@@ -6,10 +7,14 @@ from modules.printers.nozzle_capability import installed_nozzles, compare_nozzle
 from modules.printers.dispatch_capability_payload import inspect_payload, geometry_refusal
 
 
-def create_capability_gate(*, job, creds, staged_path, plate_number, target_handle, previous=None, rack_selection=None):
+def create_capability_gate(*, job, creds, staged_path, plate_number, target_handle, previous=None, rack_selection=None, capability_facts=None):
     from modules.printers.printer_models import identified_h3c
     h3c = identified_h3c(creds)
-    facts = inspect_payload(staged_path, plate_number, creds.get('machine_type') or creds.get('model'))
+    facts = (
+        copy.deepcopy(capability_facts)
+        if capability_facts is not None
+        else inspect_payload(staged_path, plate_number, creds.get('machine_type') or creds.get('model'))
+    )
     lock = Lock()
     prepared = used = False
     ready = False
@@ -116,11 +121,15 @@ def create_capability_gate(*, job, creds, staged_path, plate_number, target_hand
     return checked
 
 
-def static_refusal(path, plate_number, creds):
+def static_refusal(path, plate_number, creds, *, facts=None):
     """Model and geometry are local facts, checked before creating a claim."""
     from modules.printers.printer_models import bambu_model_name
     from modules.printers.dispatch_ams_gate import GateRefusal
-    facts = inspect_payload(path, plate_number, creds.get('machine_type') or creds.get('model'))
+    facts = (
+        copy.deepcopy(facts)
+        if facts is not None
+        else inspect_payload(path, plate_number, creds.get('machine_type') or creds.get('model'))
+    )
     required = bambu_model_name(facts.get('printer_model'))
     actual = bambu_model_name(creds.get('machine_type') or creds.get('model'))
     from modules.printers.printer_models import identified_h3c

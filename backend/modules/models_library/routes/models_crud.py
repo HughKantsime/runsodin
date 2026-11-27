@@ -468,7 +468,8 @@ async def create_model_revision(
         if file is None:
             yield None
         else:
-            async with staged_upload(file, os.path.splitext(file.filename or "")[1]) as (path, _):
+            async with staged_upload(file, os.path.splitext(file.filename or "")[1],
+                                     storage_root=_revision_directory(model_id)) as (path, _):
                 yield path
 
     async with optional_upload() as staged_path:

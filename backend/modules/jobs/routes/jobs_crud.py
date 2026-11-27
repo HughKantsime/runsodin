@@ -599,7 +599,8 @@ async def update_job(job_id: int, updates: JobUpdate, request: Request, current_
             and updates.model_id != job.model_id):
         raise HTTPException(409, "Archived payload jobs cannot change their source model")
     assert_generic_model_reference_allowed(db, updates.model_id)
-    changes = checked_changes(db, current_user, job, _pin_checked_changes(db, current_user, job, updates))
+    from fastapi.concurrency import run_in_threadpool
+    changes = await run_in_threadpool(checked_changes, db, current_user, job, _pin_checked_changes(db, current_user, job, updates))
     previous_mapping = job.ams_mapping
     for field, value in changes.items():
         setattr(job, field, value)
@@ -675,8 +676,9 @@ async def repeat_job(job_id: int, current_user: dict = Depends(require_action("j
         from modules.jobs.repeat import verify_repeat_file
         from fastapi.concurrency import run_in_threadpool
         await run_in_threadpool(verify_repeat_file, original.payload_sha256, payload)
+    from fastapi.concurrency import run_in_threadpool
     from modules.jobs.ams_mapping import checked_repeat_mapping, mapping_audit_details
-    mapping, held_for_planned_load = checked_repeat_mapping(db, current_user, original)
+    mapping, held_for_planned_load = await run_in_threadpool(checked_repeat_mapping, db, current_user, original)
     from modules.jobs.repeat import build_repeated_job
     new_job = build_repeated_job(original, current_user, mapping, held_for_planned_load)
 

@@ -11,12 +11,12 @@ limit already used by the AMS inspection path.
 """
 import zipfile
 
+from core.print_file_limits import MAX_GCODE_BYTES, MAX_MEMBER_BYTES, MAX_TOTAL_BYTES
+
 MAX_COMPRESSION_RATIO = 200
 MIN_RATIO_MEMBER_BYTES = 1024 * 1024
 MAX_MEMBERS = 512
 MAX_CENTRAL_DIRECTORY_BYTES = 4 * 2**20
-MAX_MEMBER_BYTES = 400 * 2**20       # one decompressed member (sliced G-code is the largest)
-MAX_TOTAL_BYTES = 500 * 2**20        # the whole package, decompressed
 
 
 class ArchiveRefused(zipfile.BadZipFile):
@@ -59,15 +59,19 @@ def open_bounded(source, *, max_members: int = MAX_MEMBERS) -> zipfile.ZipFile:
     return package
 
 
-def check_expansion(package: zipfile.ZipFile) -> None:
+def check_expansion(package: zipfile.ZipFile, *, member_limit=None, total_limit=None) -> None:
     """Per-member/total decompressed caps and a bounded compression ratio."""
+    member_limit = MAX_MEMBER_BYTES if member_limit is None else member_limit
+    total_limit = MAX_TOTAL_BYTES if total_limit is None else total_limit
     total = 0
     for member in package.infolist():
-        if member.file_size > MAX_MEMBER_BYTES:
+        if member.file_size > MAX_GCODE_BYTES and member.filename.lower().endswith(".gcode"):
+            raise ArchiveRefused("gcode_too_large")
+        if member.file_size > member_limit:
             raise ArchiveRefused("member_too_large")
         if (member.file_size >= MIN_RATIO_MEMBER_BYTES
                 and member.file_size > max(1, member.compress_size) * MAX_COMPRESSION_RATIO):
             raise ArchiveRefused("compression_ratio")
         total += member.file_size
-    if total > MAX_TOTAL_BYTES:
+    if total > total_limit:
         raise ArchiveRefused("too_large")
