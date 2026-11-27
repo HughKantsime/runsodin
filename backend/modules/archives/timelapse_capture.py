@@ -82,7 +82,7 @@ def get_or_create_timelapse(session, printer_id: int, job_id: int, *, return_tic
     """Create media and its capture-time ownership in one confirmed transaction."""
     import uuid
     from core.timelapse_ownership_schema import anchors
-    from modules.archives.ownership import capture_content_owner
+    from modules.archives.ownership import capture_content_owner, capture_sharing
     try:
         # Lock the selected job before its printer and recheck stale selection.
         job_lock = session.execute(text("UPDATE jobs SET id=id WHERE id=:jid"), {"jid":job_id})
@@ -111,10 +111,7 @@ def get_or_create_timelapse(session, printer_id: int, job_id: int, *, return_tic
                 session.execute(text("UPDATE print_files SET id=id WHERE job_id=:jid"), {"jid":job_id})
         source = capture_content_owner(session.connection(),job_id)
         printer = session.execute(text("SELECT org_id,shared FROM printers WHERE id=:pid"), {"pid":printer_id}).one()
-        value = printer[1]
-        if type(value) is bool:shared = value
-        elif type(value) is int and value in (0,1):shared = value == 1
-        else:raise RuntimeError("Capture visibility unavailable")
+        shared = capture_sharing(printer[1])
         # capture_printer_shared records the printer's install-wide audience at
         # capture time: shared, or org-less on an install without organizations
         # (single-tenant: the install owns it). Multi-org installs are unchanged.

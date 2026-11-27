@@ -28,6 +28,21 @@ def test_first_education_capture_retains_immutable_owner_and_submission(review_d
     assert review_db.execute(text('SELECT COUNT(*) FROM timelapse_ownership_anchors')).scalar_one()==1
 
 
+def test_known_private_capture_treats_null_sharing_as_private(review_db, owner_capture):
+    from modules.archives.timelapse_frame_capture import _camera_authority
+    from tests.test_contracts.test_timelapse_content_audience import capture_plain
+    tid = capture_plain(review_db, org=1, shared=None)
+    nonce, owner, shared = review_db.execute(text(
+        "SELECT operation_id,owner_org_id,capture_printer_shared FROM timelapse_ownership_anchors WHERE timelapse_id=:id"
+    ), {"id": tid}).one()
+    assert owner == 1 and not shared
+    review_db.execute(text("UPDATE printers SET timelapse_enabled=1,is_active=1 WHERE id=77"))
+    _camera_authority(review_db, nonce, 77, 444)
+    review_db.execute(text("UPDATE printers SET timelapse_enabled=NULL WHERE id=77"))
+    with pytest.raises(ValueError, match="Capture authority changed"):
+        _camera_authority(review_db, nonce, 77, 444)
+
+
 def test_existing_legacy_capture_is_not_assigned_owner_from_current_printer(review_db,owner_capture):
     review_db.execute(text("INSERT INTO timelapses(id,printer_id,print_job_id,filename,status) VALUES(199,9,13,'legacy.mp4','capturing')"));review_db.commit()
     assert owner_capture.get_or_create_timelapse(review_db,9,13)==199
@@ -35,7 +50,7 @@ def test_existing_legacy_capture_is_not_assigned_owner_from_current_printer(revi
     assert review_db.execute(text('SELECT COUNT(*) FROM timelapse_ownership_anchors')).scalar_one()==0
 
 
-@pytest.mark.parametrize('shared,expected',[(False,'unresolved'),(True,'shared')])
+@pytest.mark.parametrize('shared,expected',[(False,'unresolved'),(None,'unresolved'),(True,'shared')])
 def test_global_content_needs_explicit_capture_time_camera_sharing(review_db,owner_capture,shared,expected):
     review_db.execute(text("INSERT INTO print_files(id,filename,original_filename,stored_path,org_id) VALUES(111,'global.3mf','global.3mf','/owned/global.3mf',NULL)"))
     review_db.execute(text("INSERT INTO jobs(id,item_name,printer_id,print_file_id,status) VALUES(444,'Global print',9,111,'printing')"))
@@ -46,7 +61,7 @@ def test_global_content_needs_explicit_capture_time_camera_sharing(review_db,own
     tid=owner_capture.get_or_create_timelapse(review_db,9,444)
     captured=review_db.execute(text('SELECT a.owner_state,a.owner_org_id,a.capture_printer_org_id,a.capture_printer_shared FROM timelapses t JOIN timelapse_ownership_anchors a ON a.operation_id=t.ownership_operation_id WHERE t.id=:id'),{'id':tid}).first()
     assert captured is not None
-    assert tuple(captured)==(expected,None,1,int(shared))
+    assert tuple(captured)==(expected,None,1,bool(shared))
 
 
 @pytest.mark.parametrize('fault',['anchor_write','commit','acknowledgment'])
@@ -92,7 +107,7 @@ def test_existing_capture_owner_does_not_follow_reassigned_printer(review_db,own
     assert tuple(row)==(1,1,0)
 
 
-@pytest.mark.parametrize('stored',[2,-1,'false',None])
+@pytest.mark.parametrize('stored',[2,-1,'false'])
 def test_stored_malformed_sharing_never_grants_global_media(review_db,owner_capture,stored):
     review_db.execute(text("INSERT INTO print_files(id,filename,original_filename,stored_path,org_id) VALUES(111,'global.3mf','global.3mf','/owned/global.3mf',NULL)"))
     review_db.execute(text("INSERT INTO jobs(id,item_name,printer_id,print_file_id,status) VALUES(444,'Global print',9,111,'printing')"))

@@ -43,8 +43,10 @@ def _visible(db, principal):
     return db.execute(text("SELECT id FROM timelapses WHERE " + condition), params).scalars().all()
 
 
-def test_single_tenant_capture_is_owned_by_the_install_only_while_no_organization_exists(review_db, capture):
+@pytest.mark.parametrize("shared", [False, None])
+def test_single_tenant_capture_is_owned_by_the_install_only_while_no_organization_exists(review_db, capture, shared):
     no_organizations(review_db)
+    review_db.execute(text("UPDATE printers SET shared=:shared WHERE id=31"), {"shared": shared})
     ticket = capture.get_or_create_timelapse(review_db, 31, 431, return_ticket=True)
     # 'shared' at capture (the printer was install-wide; the pinned publication contract
     # admits only known/shared), but the audience is re-decided at every read.
@@ -66,6 +68,15 @@ def test_single_tenant_capture_is_owned_by_the_install_only_while_no_organizatio
     with pytest.raises(ValueError, match="Capture authority changed"):
         _capture_authority(review_db, nonce=ticket.nonce, timelapse_id=ticket.timelapse_id, printer_id=31, job_id=431)
     review_db.rollback()
+
+
+@pytest.mark.parametrize("shared", [False, None])
+@pytest.mark.parametrize("content_org,state,owner", [(1, "known", 1), (2, "unresolved", None)])
+def test_private_printer_capture_in_multi_org_install(review_db, capture, shared, content_org, state, owner):
+    review_db.execute(text("UPDATE printers SET org_id=1,shared=:shared WHERE id=31"), {"shared": shared})
+    review_db.execute(text("UPDATE print_files SET org_id=:org WHERE id=131"), {"org": content_org})
+    tid = capture.get_or_create_timelapse(review_db, 31, 431)
+    assert _anchor(review_db, tid)[:4] == (state, owner, 1, 0)
 
 
 def test_capture_of_an_explicitly_shared_printer_keeps_its_audience(review_db, capture):

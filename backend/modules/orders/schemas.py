@@ -3,10 +3,11 @@ modules/orders/schemas.py — Pydantic schemas for the orders domain.
 """
 
 from datetime import datetime
-from typing import Optional, List, Any
-from pydantic import BaseModel, Field, ConfigDict, StrictInt
+from typing import Annotated, Optional, List, Any
+from pydantic import BaseModel, BeforeValidator, Field, ConfigDict, StrictInt, field_validator
 
 from core.base import OrderStatus
+from core.schemas import read_null_as_default, reject_explicit_null
 
 
 # ============== Product Schemas ==============
@@ -102,6 +103,7 @@ class OrderItemCreate(OrderItemBase):
 
 
 class OrderItemUpdate(BaseModel):
+    _require_quantity = field_validator('quantity')(reject_explicit_null)
     quantity: Optional[int] = None
     unit_price: Optional[float] = None
 
@@ -111,6 +113,7 @@ class OrderProductionConfirmation(BaseModel):
 
 
 class OrderItemResponse(OrderItemBase):
+    _legacy_quantity = field_validator('quantity', mode='before')(read_null_as_default)
     model_config = ConfigDict(from_attributes=True)
 
     id: int
@@ -151,6 +154,7 @@ class OrderCreate(OrderBase):
 
 
 class OrderUpdate(BaseModel):
+    _require_status = field_validator('status')(reject_explicit_null)
     order_number: Optional[str] = None
     platform: Optional[str] = None
     customer_name: Optional[str] = None
@@ -170,12 +174,15 @@ class OrderUpdate(BaseModel):
     labor_minutes: Optional[int] = None
 
 
+StoredOrderStatus = Annotated[OrderStatus, BeforeValidator(lambda value: OrderStatus.PENDING if value is None else value)]
+
+
 class OrderResponse(OrderBase):
     has_show_fulfillment: bool = False
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    status: OrderStatus
+    status: StoredOrderStatus
     shipped_date: Optional[datetime] = None
     tracking_number: Optional[str] = None
     created_at: datetime
@@ -206,7 +213,7 @@ class OrderSummary(BaseModel):
     order_number: Optional[str] = None
     platform: Optional[str] = None
     customer_name: Optional[str] = None
-    status: OrderStatus
+    status: StoredOrderStatus
     revenue: Optional[float] = None
     order_date: Optional[datetime] = None
     item_count: int = 0
@@ -237,6 +244,7 @@ class ConsumableCreate(BaseModel):
 
 
 class ConsumableUpdate(BaseModel):
+    _require_value = field_validator('name', 'unit', 'current_stock', 'min_stock', 'status')(reject_explicit_null)
     name: Optional[str] = None
     sku: Optional[str] = None
     unit: Optional[str] = None
@@ -249,6 +257,7 @@ class ConsumableUpdate(BaseModel):
 
 
 class ConsumableResponse(BaseModel):
+    _legacy_defaults = field_validator('unit', 'current_stock', 'min_stock', 'status', mode='before')(read_null_as_default)
     managed_material: bool = False
     model_config = ConfigDict(from_attributes=True)
 

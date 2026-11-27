@@ -7,6 +7,7 @@ from typing import Literal, Optional, List
 from pydantic import StrictBool, StrictInt, BaseModel, Field, ConfigDict, computed_field, field_validator, field_serializer, model_serializer, model_validator
 
 from core.base import FilamentType
+from core.schemas import read_null_as_default, reject_explicit_null
 from modules.printers.dispatch_readiness import state_needs_attention
 from modules.printers.services import check_bambu_create_count
 
@@ -204,6 +205,10 @@ class PrinterCreate(PrinterBase):
 
 
 class PrinterUpdate(BaseModel):
+    _require_value = field_validator(
+        'name', 'slot_count', 'is_active', 'tags', 'timelapse_enabled', 'shared'
+    )(reject_explicit_null)
+
     name: Optional[str] = None
     model: Optional[str] = None
     slot_count: Optional[int] = Field(default=None, ge=1, le=256)
@@ -254,6 +259,8 @@ class PendingControl(BaseModel):
 
 
 class PrinterResponse(PrinterBase):
+    _legacy_defaults = field_validator('tags', 'timelapse_enabled', 'shared', mode='before')(read_null_as_default)
+
     state_needs_attention: bool = Field(default_factory=lambda data: state_needs_attention(data.get('gcode_state')))
     mc_percent: Optional[float] = None
     mc_remaining_time: Optional[float] = None

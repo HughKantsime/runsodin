@@ -65,3 +65,11 @@ def capture_content_owner(connection, scheduled_job_id):
     return {'state': 'known' , 'org_id': org, 'source': 'job_file',
             'scheduled_job_id': scheduled_job_id, 'print_file_id': file[0],
             'education_submission_id': marker}
+
+
+def capture_sharing(value):
+    if value is None:
+        return False
+    if type(value) is bool or (type(value) is int and value in (0, 1)):
+        return bool(value)
+    raise ValueError('Capture visibility unavailable')

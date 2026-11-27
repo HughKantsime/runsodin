@@ -105,6 +105,20 @@ def test_tenant_roles_and_tokens(world):
     assert client.put('/api/jobs/1/inspection',json={'result':'pass'}).status_code==403
 
 
+def test_null_printer_tags_have_no_inspection_policy_or_metadata_drift(world):
+    client, engine, *_ = world
+    with engine.begin() as connection:
+        connection.execute(text("UPDATE printers SET tags='null' WHERE id=1"))
+    policy = {'org_id': 1, 'target_kind': 'printer_tag', 'target_key': 'QA', 'required': True}
+    assert client.put('/api/jobs/traceability/policies', json=policy).status_code == 200
+    record = client.get('/api/jobs/1/traceability').json()
+    assert record['policy_scope']['printer_tags'] == []
+    assert record['inspection_required'] is False
+    with engine.begin() as connection:
+        connection.execute(text("UPDATE printers SET tags='[]' WHERE id=1"))
+    assert 'Printer metadata changed or printer deleted' not in client.get('/api/jobs/1/traceability').json()['warnings']
+
+
 def test_required_inspection_and_failed_inspection_refuse_delivery(world):
     client,engine,*_=world
     body={'org_id':1,'target_kind':'printer_tag','target_key':'QA','required':True}

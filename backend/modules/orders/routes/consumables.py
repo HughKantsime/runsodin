@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import update
+from sqlalchemy import func, update
 from sqlalchemy.exc import DataError
 import sys
 import math
@@ -27,7 +27,7 @@ def list_consumables(status: str = None, current_user: dict = Depends(require_ro
     """List all consumables with low-stock flag."""
     query = db.query(Consumable)
     if status:
-        query = query.filter(Consumable.status == status)
+        query = query.filter(func.coalesce(Consumable.status, "active") == status)
     items = query.order_by(Consumable.name).all()
     result = []
     for c in items:
@@ -37,7 +37,7 @@ def list_consumables(status: str = None, current_user: dict = Depends(require_ro
             raise
         resp = ConsumableResponse.model_validate(c)
         resp.managed_material=bool(managed)
-        resp.is_low_stock = c.current_stock < c.min_stock if c.min_stock and c.min_stock > 0 else False
+        resp.is_low_stock = resp.min_stock > 0 and resp.current_stock < resp.min_stock
         result.append(resp)
     return result
 
@@ -52,7 +52,7 @@ def create_consumable(data: ConsumableCreate, current_user: dict = Depends(requi
     managed=material_store.access(db,item,current_user)
     resp = ConsumableResponse.model_validate(item)
     resp.managed_material=bool(managed)
-    resp.is_low_stock = item.current_stock < item.min_stock if item.min_stock and item.min_stock > 0 else False
+    resp.is_low_stock = resp.min_stock > 0 and resp.current_stock < resp.min_stock
     return resp
 
 
@@ -60,9 +60,9 @@ def create_consumable(data: ConsumableCreate, current_user: dict = Depends(requi
 def low_stock_consumables(current_user: dict = Depends(require_role("viewer", scope="read")), db: Session = Depends(get_db)):
     """Get consumables below their minimum stock threshold."""
     items = db.query(Consumable).filter(
-        Consumable.status == "active",
+        func.coalesce(Consumable.status, "active") == "active",
         Consumable.min_stock > 0,
-        Consumable.current_stock < Consumable.min_stock
+        func.coalesce(Consumable.current_stock, 0) < Consumable.min_stock
     ).all()
     result = []
     for c in items:
@@ -86,7 +86,7 @@ def get_consumable(consumable_id: int, current_user: dict = Depends(require_role
     managed=material_store.access(db,item,current_user)
     resp = ConsumableResponse.model_validate(item)
     resp.managed_material=bool(managed)
-    resp.is_low_stock = item.current_stock < item.min_stock if item.min_stock and item.min_stock > 0 else False
+    resp.is_low_stock = resp.min_stock > 0 and resp.current_stock < resp.min_stock
     # Include recent usage
     usage = db.query(ConsumableUsage).filter(
         ConsumableUsage.consumable_id == consumable_id
@@ -115,7 +115,7 @@ def update_consumable(consumable_id: int, data: ConsumableUpdate, current_user: 
     managed=material_store.access(db,item,current_user)
     resp = ConsumableResponse.model_validate(item)
     resp.managed_material=bool(managed)
-    resp.is_low_stock = item.current_stock < item.min_stock if item.min_stock and item.min_stock > 0 else False
+    resp.is_low_stock = resp.min_stock > 0 and resp.current_stock < resp.min_stock
     return resp
 
 
