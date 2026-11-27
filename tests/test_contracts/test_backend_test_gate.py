@@ -44,6 +44,15 @@ def test_every_backend_test_reaches_the_gate(monkeypatch, entrypoint, future_fil
         assert structured_targets.contracts() == 0
         command = calls[0]['command']
         assert command[:3] == [str(interpreter), '-m', 'ops.release_control.contract_batches']
+        assert structured_targets.CONTRACT_BATCH_TIMEOUT_SECONDS == 3600
+        assert structured_targets.CONTRACT_BATCH_STALL_SECONDS == 900
+        assert structured_targets.CONTRACT_SUITE_TIMEOUT_SECONDS == 14400
+        assert structured_targets.CONTRACT_TIMEOUT_SECONDS == 14700
+        assert calls[0]['timeout'] == structured_targets.CONTRACT_TIMEOUT_SECONDS
+        pairs = list(zip(command, command[1:]))
+        assert ('--batch-timeout', '3600') in pairs
+        assert ('--stall-seconds', '900') in pairs
+        assert ('--suite-timeout', '14400') in pairs
         start = command.index('--tests') + 1
         end = next(i for i in range(start, len(command)) if command[i].startswith('--'))
         roots = command[start:end]

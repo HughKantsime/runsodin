@@ -52,10 +52,21 @@ def _pytest_target(target: str, tests: str, timeout: int) -> int:
 # the PostgreSQL and broker fixtures the batches start.
 CONTRACT_BATCH_JOBS = 8
 CONTRACT_BATCH_FILES = 10
-CONTRACT_BATCH_TIMEOUT_SECONDS = 1800
-# 2026-11-18 (2.4.0 RC1): 25,430 cases and 41,345 s of test time on 8 jobs.
-# Five of 112 batches were unfinished at the 5,400 s limit.
-CONTRACT_TIMEOUT_SECONDS = 7200
+# 2026-11-27 (hotfix 2.7.2 validation run 3 on odin-ci, 8 jobs, 116 batches, 1,154 files,
+# 28,188 tests, 50,512 s sum of test time): slowest batch (batch-067) took 1,604 s
+# (test_monitor_restart_reconciliation.py 837 s, test_moonraker_controls.py 253 s; longest
+# single test 279 s). Silence stall detection (900 s) + faulthandler (600 s) catch stuck
+# tests; because faulthandler's stack dump at 600 s writes to the log and resets the
+# silence timer, a silently stuck test is killed about 600 + 900 s after its last line,
+# not 900 s. The 3,600 s batch limit stays as a backstop only.
+CONTRACT_BATCH_STALL_SECONDS = 900
+CONTRACT_BATCH_TIMEOUT_SECONDS = 3600
+# 2026-11-18 (2.4.0 RC1): 25,430 cases and 41,345 s of test time on 8 jobs; five of 112
+# batches were unfinished at 5,400 s. 2026-11-27 (2.7.2 run 3): 6,576 s wall of 7,200 s
+# (91 %). Suite deadline inside the runner is 14,400 s (2.2x measured 6,576 s); outer
+# execute timeout adds 300 s so the runner always merges JUnit and reports before kill.
+CONTRACT_SUITE_TIMEOUT_SECONDS = 14400
+CONTRACT_TIMEOUT_SECONDS = CONTRACT_SUITE_TIMEOUT_SECONDS + 300
 
 
 def contracts() -> int:
@@ -76,6 +87,8 @@ def contracts() -> int:
                  "--work", str(directory / "batches"), "--jobs", str(CONTRACT_BATCH_JOBS),
                  "--batch-size", str(CONTRACT_BATCH_FILES),
                  "--batch-timeout", str(CONTRACT_BATCH_TIMEOUT_SECONDS),
+                 "--stall-seconds", str(CONTRACT_BATCH_STALL_SECONDS),
+                 "--suite-timeout", str(CONTRACT_SUITE_TIMEOUT_SECONDS),
                  # Live-environment suites leave this gate only by the committed inventory.
                  "--exclude-marker", "live_environment",
                  "--inventory", "tests/test_contracts/live_environment_inventory.txt"],
