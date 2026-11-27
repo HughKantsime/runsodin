@@ -108,6 +108,20 @@ def test_live_plan_uses_exact_material_and_physical_slot(held, loaded, expected)
     assert planned_loads(job, facts) == expected
 
 
+def test_held_support_plan_tracks_loaded_spool(mapping_client, review_db):
+    client, auth = mapping_client
+    review_db.execute(text('UPDATE print_files SET filaments_json=:filaments WHERE id=501'),
+                      {'filaments': json.dumps([{'slot': 1, 'type': 'PLA-S'}])})
+    load(review_db, 'PLA_SUPPORT')
+    response = schedule(client, auth)
+    assert response.status_code == 200, response.text
+    url = f"/api/jobs/{response.json()['job_id']}"
+    assert client.get(url, headers=auth()).json()['ams_preview']['planned_loads'] == []
+
+    load(review_db, 'PLA')
+    assert client.get(url, headers=auth()).json()['ams_preview']['planned_loads'] == ['load PLA-S in AMS 1 slot 4']
+
+
 def test_held_schedule_still_checks_printer_ownership(mapping_client, review_db):
     client, auth = mapping_client
     review_db.execute(text("INSERT INTO printers(id,name,org_id,api_type,is_active,shared) VALUES(99,'Foreign synthetic',2,'bambu',1,0)"))

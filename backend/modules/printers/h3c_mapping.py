@@ -6,7 +6,7 @@ from sqlalchemy import text
 
 from core.h3c_plate import RackMessage
 from core.filament_color import color_distance, hex_color, same_color
-from core.material_identity import canonical_reported_material
+from core.print_payload import canonical_loaded_material
 from modules.printers.nozzle_capability import position_refusal, rack_tools
 
 
@@ -20,7 +20,7 @@ def onboard_inventory(db, printer_id):
 def material_refusal(source, position, loaded):
     if loaded == 'empty':
         return RackMessage('tray_material_unreported', f'Position {position} is empty.')
-    actual = canonical_reported_material(loaded)
+    actual = canonical_loaded_material(loaded)
     if actual is None:
         return RackMessage('tray_material_unreported', f'The material at position {position} is unreported.')
     if actual != source['material']:

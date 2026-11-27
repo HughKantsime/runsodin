@@ -6,7 +6,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 from core.ams_mapping import validate_for_printer, preview
 from core.ams_mapping import mapping_audit_details
-from core.print_payload import MappingMaterialMismatch
+from core.print_payload import MappingMaterialMismatch, canonical_loaded_material
 from core.rbac import check_org_access
 from modules.jobs.education_guard import assert_generic_job_mutation_allowed
 from modules.jobs.pinning import job_pin, pin_columns, pinned_printer_id
@@ -239,7 +239,7 @@ def planned_loads(job, facts):
             loads.append(f"remap filament {source['slot']} to an available tray")
         elif material is None:
             loads.append(f"verify source material for filament {source['slot']}")
-        elif material != canonical_reported_material(available[target]):
+        elif material != canonical_loaded_material(available[target]):
             label = f"AMS HT {target - 16}" if 17 <= target <= 24 else f"AMS {(target - 1) // 4 + 1} slot {(target - 1) % 4 + 1}"
             loads.append(f"load {material} in {label}")
     return list(dict.fromkeys(loads))

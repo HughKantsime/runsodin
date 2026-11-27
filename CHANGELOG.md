@@ -36,6 +36,16 @@ All notable changes to O.D.I.N. are documented here.
 
 - PostgreSQL backups made with ODIN 2.5.0, 2.6.0, 2.7.0 or 2.7.1 can be restored after a later update changes the database schema.
 
+## [2.7.2] - 2026-11-26
+
+
+<!-- summary: Fix for Bambu Lab H3C jobs: ODIN 2.7.0 and 2.7.1 refused ordinary slices that use a support filament such as Support for PLA, or that do not use filament 1. No migration and no setting to change. -->
+
+### Fixed
+
+- Bambu Lab H3C jobs are no longer refused with 'This mapping needs a verified H3C rack slice.' when the slice uses a support filament such as Support for PLA, or does not use filament 1. Affected 2.7.0 and 2.7.1.
+- A slice's support filament (Bambu Support for PLA) is now matched to a loaded Support for PLA spool on Bambu printers instead of being reported as a material mismatch.
+
 ## [2.7.1] - 2026-11-25
 
 
