@@ -85,6 +85,16 @@ def canonical_material(value):
     return canonical_reported_material(value)
 
 
+def canonical_loaded_material(value):
+    """Canonical label for a loaded inventory slot.
+
+    The inventory enum stores Bambu's PLA-S as PLA_SUPPORT (core/base.py FilamentType).
+    """
+    if isinstance(value, str) and value.strip().upper() == 'PLA_SUPPORT':
+        return 'PLA-S'
+    return canonical_material(value)
+
+
 def material_match(source, target):
     """The single material-equivalence rule (AMS gate and scheduler).
 
@@ -134,7 +144,7 @@ def validate_mapping(mapping, filaments_json, slots, api_type, *, check_material
         if not 1 <= target <= 24 or result[source - 1] != -1:
             raise HTTPException(400, 'Invalid or duplicate AMS slot')
         if check_material:
-            match = material_match(by_id[source].get('type'), slots[target])
+            match = material_match(by_id[source].get('type'), canonical_loaded_material(slots[target]))
             if match is not True:
                 raise MappingMaterialMismatch(target, confirmed=match is False or slots[target] == 'empty')
         result[source - 1] = target - 1

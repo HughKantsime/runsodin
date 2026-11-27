@@ -45,6 +45,7 @@ class RackPlate:
             rf'M620 (?:M|[OQ][0-9]+|T{source})|M620\.29 P|M620\.35 S1'
             rf'|M620\.10 (?:A[01] F{number}(?: L{number})? H{number} T{number} P{number} S[01](?: V{number})?|R{number})'
             rf'|M620\.11 (?:P0 I{source} E{number}|K0 I{source} R{number})'
+            rf'|M620\.13 W{number} L{number} T{number} R{number}'
             rf'|M620\.6 I{source} H-1 W[01]|M620\.15 C{number}')
         self.seen = {'T': set(), 'M620': set(), 'M621': set()}
         self.headers = {}
@@ -60,8 +61,9 @@ class RackPlate:
                 self.headers[key] = value.strip()
         if not command.startswith(('T', 'M620', 'M621')):
             return
-        # Studio's startup "get hotend map" query is also present on one-filament files.
-        if command == 'M620 T3' and not self.seen['M620']:
+        # Studio's startup queries (e.g. reset status M620 T0, get hotend map M620 T3)
+        # precede the first source block even when those indices are unused.
+        if not self.seen['M620'] and re.fullmatch(r'M620 T[0-8]', command):
             return
         if self.active_source is None and command in ('M620 S65535', 'T65535', 'M621 S65535'):
             return

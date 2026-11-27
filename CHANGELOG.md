@@ -4,6 +4,10 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Bambu Lab H3C jobs are no longer refused with 'This mapping needs a verified H3C rack slice.' when the slice uses a support filament such as Support for PLA, or does not use filament 1. Affected 2.7.0 and 2.7.1.
+
 ## [2.7.1] - 2026-11-25
 
 

@@ -492,10 +492,16 @@ def inspect_ams_sources(payload: bytes, plate_index: int = 0, *, single_source=F
             rack = settings.get('printer_model') in ('Bambu Lab H2C', 'H2C')
             h3c = RackPlate(settings, plates[0], by_source) if settings.get('printer_model') in ('H3C', 'Bambu Lab H3C') else None
             proof = PlateExtruders(settings, plates[0], used) if not h3c and requires_extruder_proof(settings) else None
+            support_flags = settings.get('filament_is_support')
             sources = []
             for index, filament in sorted(by_source.items()):
                 material = canonical_reported_material(filament.get('type'))
-                if material is None or canonical_reported_material(materials[index]) != material:
+                project_material = canonical_reported_material(materials[index])
+                is_support = (isinstance(support_flags, list) and index < len(support_flags)
+                              and (support_flags[index] == '1'
+                                   or type(support_flags[index]) is int and support_flags[index] == 1))
+                if material is None or project_material is None or (
+                        project_material != material and not (is_support and material == f'{project_material}-S')):
                     raise ValueError(refusal)
                 grams = filament.get('used_g')
                 if grams is not None:
