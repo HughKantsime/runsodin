@@ -6,7 +6,6 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [2.7.2] - 2026-11-26
 
-<!-- release-date placeholder: set by ops/bump-version.sh -->
 
 <!-- summary: Fix for Bambu Lab H3C jobs: ODIN 2.7.0 and 2.7.1 refused ordinary slices that use a support filament such as Support for PLA, or that do not use filament 1. No migration and no setting to change. -->
 
