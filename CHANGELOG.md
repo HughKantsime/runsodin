@@ -28,6 +28,7 @@ All notable changes to O.D.I.N. are documented here.
 - Classic and Fjord themes: a printer that reports an error, a failed print or a filament runout is now shown as Error on the dashboard and on its printer card; before, it read Idle or Online unless the printer also raised a health (HMS) fault.
 - Editing a printer through the API with an empty (null) value for tags, timelapse or sharing no longer saves it; before, the printer list then failed to load for everyone. Printers already affected load again.
 - The API now rejects an empty (null) status, quantity, unit or stock value when editing an order, an order line or a consumable. Previously, saving an empty value could prevent the list from loading. Lists with affected rows load again.
+- Interrupted PostgreSQL backup checks now clean up temporary databases even when the check stops while a database is being created.
 
 ### Security
 

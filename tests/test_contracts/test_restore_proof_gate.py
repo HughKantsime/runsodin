@@ -35,6 +35,32 @@ def output(kind):
         '(?:jobs|printers|jobs-printers)', 'jobs-printers') for pattern in support.expected_facts(kind))
 
 
+def test_native_kill_checkpoint_requires_the_childs_journal_rename(tmp_path):
+    from ops.database_parity.post027_restore_native import KILL_AT_JOURNAL_CONFIRMATION
+    child = tmp_path / 'runner.py'
+    child.write_text(
+        "from pathlib import Path\n"
+        "import sys\n"
+        "for root in map(Path, sys.argv[1:]):\n"
+        "    name = root / ('odin_validate_' + 'c' * 20)\n"
+        "    name.with_suffix('.intent').touch()\n"
+        "    name.with_suffix('.intent').replace(name)\n"
+    )
+    journal = tmp_path / '.odin-stage-journal' / ('.odin-preserved029-' + 'a' * 20)
+    journal.mkdir(parents=True)
+    read_fd, write_fd = os.pipe()
+    with os.fdopen(read_fd, 'rb') as receipt:
+        with os.fdopen(write_fd, 'wb') as writer:
+            result = subprocess.run([sys.executable, '-I', '-c', KILL_AT_JOURNAL_CONFIRMATION,
+                                     str(writer.fileno()), str(child), str(tmp_path), str(journal)],
+                                    start_new_session=True, pass_fds=(writer.fileno(),), timeout=10)
+        assert result.returncode == -signal.SIGKILL
+        name = 'odin_validate_' + 'c' * 20
+        assert receipt.read() == name.encode()
+    assert (tmp_path / name).is_file()
+    assert (journal / (name + '.intent')).is_file() and not (journal / name).exists()
+
+
 def test_offline_root_imports_and_fact_contract():
     result = subprocess.run([sys.executable, '-c',
         'import ops.database_parity.run_post027_restore; import ops.database_parity.post027_restore_native; '
