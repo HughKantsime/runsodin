@@ -29,6 +29,11 @@ def decoded(value, default=None):
         return default
 
 
+def _printer_tags(tags):
+    # A stored JSON null also appears in older retained policy snapshots.
+    return [] if tags is None else tags
+
+
 def lock_policy_scope(db, owner):
     if owner:
         return db.execute(text('UPDATE groups SET id=id WHERE id=:id'), {'id':owner}).rowcount == 1
@@ -95,7 +100,7 @@ def capture(db, job, seq, *, completed_now=False):
         FROM print_files WHERE id=:id''', id=job['print_file_id']) or {}
     printer = one(db, '''SELECT id,name,model,api_type,api_key,nozzle_type,nozzle_diameter,installed_nozzles,tags,org_id,shared
         FROM printers WHERE id=:id''', id=job['printer_id']) or {}
-    policy_tags = decoded(printer.get('tags'), [])
+    policy_tags = _printer_tags(decoded(printer.get('tags'), []))
     if printer and not printer['shared'] and printer['org_id'] not in (None, job['charged_to_org_id']):
         printer = {}
     serial = None
@@ -168,7 +173,7 @@ def record(db, job, *, attempt=None, completed_now=False):
 def inspection_required(db, job, retained=None):
     policies = rows(db, 'SELECT target_kind,target_key FROM traceability_policies WHERE owner_id=:owner AND required=1', owner=job['charged_to_org_id'] or 0)
     scope = decoded((retained or record(db, job))['snapshot'], {}).get('policy_scope', {})
-    return any((p['target_kind'] == 'printer_tag' and p['target_key'] in scope.get('printer_tags', [])) or
+    return any((p['target_kind'] == 'printer_tag' and p['target_key'] in _printer_tags(scope.get('printer_tags'))) or
                (p['target_kind'] == 'product' and p['target_key'] == str(scope.get('product_id'))) for p in policies)
 
 
@@ -189,7 +194,8 @@ def render_record(db, job, retained):
     if retained['attempt'] != attempt_seq(sqlalchemy_runner(db), job['id']):
         result['warnings'].append('Historical attempt; job has been reset')
     current_printer = one(db, 'SELECT name,tags FROM printers WHERE id=:id', id=result.get('printer', {}).get('id'))
-    if not current_printer or current_printer['name'] != result.get('printer', {}).get('name') or decoded(current_printer['tags'], []) != result.get('policy_scope', {}).get('printer_tags', []):
+    captured_tags = _printer_tags(result.get('policy_scope', {}).get('printer_tags'))
+    if not current_printer or current_printer['name'] != result.get('printer', {}).get('name') or _printer_tags(decoded(current_printer['tags'], [])) != captured_tags:
         result['warnings'].append('Printer metadata changed or printer deleted')
     # Export only curated lifecycle events; raw audit details may contain other
     # users' identifiers and are available through their own authorized surface.

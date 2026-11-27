@@ -8,7 +8,7 @@ from core.timelapse_manifest import _root
 from core.timelapse_publication_schema import bindings
 from core.timelapse_ownership_schema import anchors
 from modules.archives.timelapse_frame_namespace import bind_or_open_namespace
-from modules.archives.ownership import capture_content_owner
+from modules.archives.ownership import capture_content_owner, capture_sharing
 
 MAX_BYTES=16*1024*1024
 MAX_PIXELS=4096*4096
@@ -90,7 +90,7 @@ def _lock_camera_graph(db, job_id):
 def _camera_authority(db,nonce,printer_id,job_id):
     _lock_camera_graph(db, job_id)
     owner=db.execute(select(anchors).where(anchors.c.operation_id==nonce)).mappings().one()
-    printer=db.execute(text('SELECT org_id,shared,is_active,timelapse_enabled FROM printers WHERE id=:id'),{'id':printer_id}).mappings().one()
+    printer=db.execute(text('SELECT org_id,shared,is_active,COALESCE(timelapse_enabled,FALSE) AS timelapse_enabled FROM printers WHERE id=:id'),{'id':printer_id}).mappings().one()
     def truth(value):
         if type(value) is bool:return value
         if type(value) is int and value in (0,1):return value==1
@@ -99,7 +99,8 @@ def _camera_authority(db,nonce,printer_id,job_id):
     from core.tenancy_mode import printer_visible_install_wide
     # Same audience rule as capture creation; an organization created mid-print
     # changes it and stops capture (fail-closed).
-    audience=printer_visible_install_wide(db.connection(),printer['org_id'],truth(printer['shared']))
+    shared = capture_sharing(printer['shared'])
+    audience=printer_visible_install_wide(db.connection(),printer['org_id'],shared)
     if (not truth(printer['is_active']) or not truth(printer['timelapse_enabled'])
         or printer['org_id']!=owner['capture_printer_org_id'] or audience!=bool(owner['capture_printer_shared'])
         or current['state']!='known' or current['org_id']!=owner['owner_org_id']

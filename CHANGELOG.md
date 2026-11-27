@@ -4,6 +4,11 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Editing a printer through the API with an empty (null) value for tags, timelapse or sharing no longer saves it; before, the printer list then failed to load for everyone. Printers already affected load again.
+- The API now rejects an empty (null) status, quantity, unit or stock value when editing an order, an order line or a consumable. Previously, saving an empty value could prevent the list from loading. Lists with affected rows load again.
+
 ## [2.8.0] - 2026-11-26
 
 

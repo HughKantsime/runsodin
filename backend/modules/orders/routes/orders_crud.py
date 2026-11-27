@@ -64,28 +64,27 @@ def _enrich_order_response(order: Order, db: Session) -> OrderResponse:
     resp.has_show_fulfillment=has_record(db,order)
 
     # Enrich items
-    enriched_items = []
     total_items = 0
     fulfilled_items = 0
 
     modes = dict(db.execute(text('SELECT order_item_id,mode FROM order_production_items WHERE order_id=:id'), {'id': order.id}).all())
-    for item in order.items:
-        item_resp = OrderItemResponse.model_validate(item)
-        product = db.query(Product).filter(Product.id == item.product_id).first()
+    for item, item_resp in zip(order.items, resp.items):
+        product = db.query(Product).filter(Product.id == item_resp.product_id).first()
         if product:
             item_resp.product_name = product.name
             item_resp.product_sku = product.sku
-        item_resp.subtotal = item.unit_price * item.quantity if item.unit_price is not None else None
-        item_resp.is_fulfilled = item.fulfilled_quantity >= item.quantity
-        item_resp.production_mode = modes.get(item.id)
-        item_resp.can_confirm_production = (item.quantity > 0 and modes.get(item.id) not in ('printed', 'mixed')
+        item_resp.subtotal = item_resp.unit_price * item_resp.quantity if item_resp.unit_price is not None else None
+        item_resp.is_fulfilled = item_resp.fulfilled_quantity >= item_resp.quantity
+        item_resp.production_mode = modes.get(item_resp.id)
+        # A stored NULL quantity shows as 1 but takes no part in production until the line is edited:
+        # the production ledger works on the stored value.
+        item_resp.can_confirm_production = (item.quantity is not None and item.quantity > 0
+                                            and item_resp.production_mode not in ('printed', 'mixed')
                                             and order.status not in ('shipped', 'cancelled'))
-        enriched_items.append(item_resp)
 
-        total_items += item.quantity
-        fulfilled_items += min(item.fulfilled_quantity, item.quantity)
+        total_items += item_resp.quantity
+        fulfilled_items += min(item_resp.fulfilled_quantity, item_resp.quantity)
 
-    resp.items = enriched_items
     resp.total_items = total_items
     resp.fulfilled_items = fulfilled_items
 
@@ -144,7 +143,11 @@ def list_orders(
         query = query.filter((Order.org_id == org) | (Order.org_id == None))
 
     if status_filter:
-        query = query.filter(Order.status == enum_filter(status_filter, OrderStatus, "status_filter"))
+        selected = enum_filter(status_filter, OrderStatus, "status_filter")
+        matches = Order.status == selected
+        if selected == OrderStatus.PENDING:
+            matches = matches | Order.status.is_(None)
+        query = query.filter(matches)
     if platform:
         query = query.filter(Order.platform == platform)
 
@@ -170,7 +173,9 @@ def list_orders(
             revenue=o.revenue,
             order_date=o.order_date,
             item_count=len(o.items),
-            fulfilled=all(item.fulfilled_quantity >= item.quantity for item in o.items) if o.items else False
+            fulfilled=bool(o.items) and all(
+                item.fulfilled_quantity >= (1 if item.quantity is None else item.quantity) for item in o.items
+            )
         )
         result.append(summary)
     return result
@@ -366,8 +371,8 @@ def update_order_item(order_id: int, item_id: int, data: OrderItemUpdate, curren
     if product:
         resp.product_name = product.name
         resp.product_sku = product.sku
-    resp.subtotal = item.unit_price * item.quantity if item.unit_price is not None else None
-    resp.is_fulfilled = item.fulfilled_quantity >= item.quantity
+    resp.subtotal = resp.unit_price * resp.quantity if resp.unit_price is not None else None
+    resp.is_fulfilled = item.fulfilled_quantity >= resp.quantity
     return resp
 
 
