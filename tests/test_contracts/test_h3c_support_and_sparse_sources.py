@@ -169,6 +169,11 @@ def test_h3c_support_filament_sparse_sources_and_m620_13_verify(support_flag):
     ]
 
 
+def test_h3c_accepts_t8_query_before_first_source_block():
+    payload = _build_h3c_support_slice(startup_queries=('M620 T8',))
+    assert [source.source_index for source in inspect_ams_sources(payload).sources] == [2, 3, 5]
+
+
 def test_validate_for_printer_accepts_h3c_support_slot_and_refuses_plain_pla(review_db, tmp_path):
     engine = review_db.get_bind()
     report = json.loads((FIXTURES / 'h3c-ams3h-loaded-2026-11-21.json').read_bytes())['message']['print']
