@@ -34,7 +34,7 @@ All notable changes to O.D.I.N. are documented here.
 
 ### Changed
 
-- PostgreSQL backups made with ODIN 2.5.0, 2.6.0, 2.7.0 or 2.7.1 can be restored after a later update changes the database schema.
+- PostgreSQL backups made with ODIN 2.5.0, 2.6.0, 2.7.0, 2.7.1 or 2.7.2 can be restored after a later update changes the database schema.
 
 ## [2.7.2] - 2026-11-26
 
