@@ -35,27 +35,31 @@ def journal_dir(backups: Path) -> Path:
     return path
 
 
-def journal_entries(backups: Path, *, confirmed_only: bool = False) -> dict[str, float]:
-    """Journaled names and their age, including preserved029 children's directories.
-
-    A child's ``<name>.intent`` (CREATE DATABASE was about to run) is included unless
-    ``confirmed_only``: the sweep cannot prove such a database is this code's.
-    """
+def _journal_records(backups: Path):
+    """Yield name, mtime, parent (empty for an unknown child parent), and confirmation."""
     folder = journal_dir(backups)
-    entries = {}
     for entry in folder.iterdir():
-        if _NAME.fullmatch(entry.name) and entry.is_file():
-            entries[entry.name] = entry.lstat().st_mtime
+        name, separator, parent = entry.name.partition(".")
+        if _NAME.fullmatch(name) and (not separator or _NAME.fullmatch(parent)) and entry.is_file():
+            yield name, entry.lstat().st_mtime, parent or None, True
         elif _STALE_DIR.fullmatch(entry.name) and entry.is_dir() and not entry.is_symlink():
             for child in entry.iterdir():
                 intent = child.name.endswith(".intent")
                 name = child.name[:-7] if intent else child.name
-                if _NAME.fullmatch(name) and child.is_file() and not (intent and confirmed_only):
-                    entries[name] = min(entries.get(name, child.lstat().st_mtime), child.lstat().st_mtime)
+                if _NAME.fullmatch(name) and child.is_file():
+                    yield name, child.lstat().st_mtime, "", not intent
+
+
+def journal_entries(backups: Path, *, confirmed_only: bool = False, children_only: bool = False) -> dict[str, float]:
+    """Journaled names and their mtimes. An intent alone never confirms ownership."""
+    entries = {}
+    for name, mtime, parent, confirmed in _journal_records(backups):
+        if (confirmed or not confirmed_only) and (parent is not None or not children_only):
+            entries[name] = min(entries.get(name, mtime), mtime)
     return entries
 
 
-def _sweep_child_journals(backups: Path, cutoff: float) -> None:
+def _sweep_child_journals(backups: Path, cutoff: float, deferred: set[str]) -> None:
     """Forget stale intent-only entries (never dropped) and remove stale empty child journals.
 
     A child journal is touched only when it and everything in it are older than ``cutoff``,
@@ -69,17 +73,19 @@ def _sweep_child_journals(backups: Path, cutoff: float) -> None:
         if entry.lstat().st_mtime >= cutoff or any(child.lstat().st_mtime >= cutoff for child in children):
             continue
         for child in children:
-            if child.name.endswith(".intent") and child.is_file():
+            if child.name.endswith(".intent") and child.name[:-7] not in deferred and child.is_file():
                 child.unlink(missing_ok=True)
         if not any(entry.iterdir()):
             entry.rmdir()
 
 
-def record(backups: Path, name: str) -> None:
-    if not _NAME.fullmatch(name):
+def record(backups: Path, name: str, *, parent: str | None = None) -> None:
+    if not _NAME.fullmatch(name) or (parent is not None and not _NAME.fullmatch(parent)):
         raise ValueError("unsafe stage database name")
     folder = journal_dir(backups)
-    descriptor = os.open(folder / name, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+    # A single directory entry records both ownership and the creating stage.
+    filename = name if parent is None else f"{name}.{parent}"
+    descriptor = os.open(folder / filename, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
     try:
         os.fsync(descriptor)
     finally:
@@ -97,7 +103,10 @@ def forget(backups: Path, name: str) -> None:
     folder = journal_dir(backups)
     (folder / name).unlink(missing_ok=True)
     for child in folder.iterdir():
-        if _STALE_DIR.fullmatch(child.name) and child.is_dir() and not child.is_symlink():
+        prefix, _, parent = child.name.partition(".")
+        if prefix == name and _NAME.fullmatch(parent) and child.is_file():
+            child.unlink(missing_ok=True)
+        elif _STALE_DIR.fullmatch(child.name) and child.is_dir() and not child.is_symlink():
             (child / name).unlink(missing_ok=True); (child / (name + ".intent")).unlink(missing_ok=True)
             if not any(child.iterdir()):
                 child.rmdir()
@@ -230,9 +239,37 @@ def sweep_stale(backups: Path, maintenance_url: str, maintenance_password_file: 
     if not backups.is_dir():
         return {"databases": [], "files": []}
     cutoff = (time.time() if now is None else now) - older_than
-    stale = [name for name, mtime in journal_entries(backups, confirmed_only=True).items() if mtime < cutoff]
-    _sweep_child_journals(backups, cutoff)  # before forgetting, which touches the directories
-    dropped = (drop or (lambda names: drop_databases(maintenance_url, maintenance_password_file, names)))(stale) if stale else []
+    records = list(_journal_records(backups))
+    parents = {name: parent for name, _, parent, _ in records if parent}
+    children = {name for name, _, parent, _ in records if parent is not None}
+    top_level = {name for name, _, parent, _ in records if parent is None}
+    # A legacy child journal has no parent ID. Every bare top-level entry is
+    # a possible stage, even if a different child's intent also names it.
+    possible_stages = top_level | set(parents.values())
+    stale = {name for name, mtime, _, confirmed in records if confirmed and mtime < cutoff}
+    drop_batch = drop or (lambda names: drop_databases(maintenance_url, maintenance_password_file, names))
+    attempted = (top_level - children) & stale
+    dropped = list(drop_batch(sorted(attempted))) if attempted else []
+    deferred = set()
+    if children and possible_stages and (attempted or children & stale):
+        # A partial drop is inconclusive. Even a reported success must be absent
+        # from pg_database before its child can be dropped and forgotten.
+        present = existing_databases(maintenance_url, maintenance_password_file)
+        blocked = (attempted - set(dropped)) | present
+        dropped = [name for name in dropped if name not in present]
+        blocked_stages = possible_stages.intersection(blocked)
+        for name in children:
+            if name in parents:
+                if parents[name] in blocked:
+                    deferred.add(name)
+            elif blocked_stages - {name}:
+                deferred.add(name)
+    pending = (children & stale) - deferred
+    if pending:
+        finished = drop_batch(sorted(pending))
+        dropped.extend(finished)
+        deferred.update(pending - set(finished))
+    _sweep_child_journals(backups, cutoff, deferred)
     for name in dropped:
         forget(backups, name)
     removed = []

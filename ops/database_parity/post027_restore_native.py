@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import secrets
+import signal
 import subprocess
 import sys
 import tempfile
@@ -154,6 +155,26 @@ def verify_released065_data(connection):
     rows = connection.execute(text("SELECT id, code_salt, code_hash, used_at IS NOT NULL "
                                    "FROM mfa_recovery_codes WHERE user_id=990650 ORDER BY id")).all()
     assert rows == [(1, 'a'*32, 'b'*64, False), (2, 'c'*32, 'd'*64, True)]
+
+
+# Run the unmodified isolated runner. Its first journal rename happens after
+# CREATE commits and before the intent becomes a confirmed entry.
+KILL_AT_JOURNAL_CONFIRMATION = """
+import os, re, runpy, signal, sys
+from pathlib import Path
+receipt = int(sys.argv.pop(1))
+sys.argv.pop(0)
+def kill_at_confirmation(event, args):
+    if event == 'os.rename' and isinstance(args[0], str) and args[0].endswith('.intent'):
+        source, target = map(Path, args[:2])
+        if (source == target.with_suffix('.intent') and
+                target.parent.parent.name == '.odin-stage-journal' and
+                re.fullmatch('odin_validate_[0-9a-f]{20}', target.name)):
+            os.write(receipt, target.name.encode('ascii'))
+            os.killpg(os.getpid(), signal.SIGKILL)
+sys.addaudithook(kill_at_confirmation)
+runpy.run_path(sys.argv[0], run_name='__main__')
+"""
 
 
 def main():
@@ -780,33 +801,51 @@ def main():
         for path in b.postgres_paths(root).backups.glob('failed_restore_*'):path.unlink()
         print('post027-native-failed-attempt-removes-its-rollback-dump-rolled-back-apply-keeps-archive-and-notice-pass', flush=True)
 
-        # 8. A preserved029 child killed mid-run leaves no validation database or working file.
-        import signal, threading
-        journal = restore_artifacts.journal_dir(b.postgres_paths(root).backups)
-        real_popen = preserved029.subprocess.Popen
-        killed = []
-        def killing_popen(argv, **kwargs):
-            process = real_popen(argv, **kwargs)
-            # The child journals into its own subdirectory: watch every journal file.
-            before = {str(entry) for entry in journal.rglob('*') if entry.is_file()}
-            def watch():
-                while process.poll() is None:
-                    if {str(entry) for entry in journal.rglob('*') if entry.is_file()} - before:
-                        os.killpg(process.pid, signal.SIGKILL); killed.append(True); return
-                    __import__('time').sleep(.05)
-            threading.Thread(target=watch, daemon=True).start()
-            return process
-        preserved029.subprocess.Popen = killing_popen
-        try:
-            for victim, pattern in ((Path(facts[26]['archive']), '.odin-preserved029-*'), (archive056, '.odin-preserved056-*')):
-                killed.clear()
-                try:b.validate_postgres_restore(victim, target, maintenance, **args)
-                except BackupValidationError as error:assert 'did not validate' in str(error) or 'refused' in str(error), str(error)
-                else:raise AssertionError('Killed child admitted')
-                assert killed and leftover() == 0 and not restore_artifacts.journal_entries(b.postgres_paths(root).backups)
-                assert not list(b.postgres_paths(root).backups.glob(pattern)) and not list(b.postgres_paths(root).backups.glob('.odin-*.dump'))
-        finally:
-            preserved029.subprocess.Popen = real_popen
+        # 8. Kill each real validator with an owned database and an unconfirmed intent.
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        backups = b.postgres_paths(root).backups
+        for module, victim in ((preserved029, Path(facts[26]['archive'])), (preserved056, archive056)):
+            label = module.__name__.split('.')[-1]
+            processes = []
+            refusal = None
+            started = time.monotonic()
+            read_fd, write_fd = os.pipe()
+            with os.fdopen(read_fd, 'rb') as receipt:
+                with os.fdopen(write_fd, 'wb') as writer:
+                    def killing_popen(argv, **kwargs):
+                        assert argv[1] == '-I' and kwargs['start_new_session'], label
+                        process = subprocess.Popen(
+                            [*argv[:2], '-c', KILL_AT_JOURNAL_CONFIRMATION, str(writer.fileno()), *argv[2:]],
+                            pass_fds=(writer.fileno(),), **kwargs)
+                        processes.append(process)
+                        return process
+                    with patch.object(module, 'subprocess', SimpleNamespace(Popen=killing_popen, PIPE=subprocess.PIPE)):
+                        try:
+                            b.validate_postgres_restore(victim, target, maintenance, **args)
+                        except Exception as error:
+                            # Driver errors can include connection details. Keep the type for diagnosis.
+                            refusal = str(error) if isinstance(error, BackupValidationError) else type(error).__name__
+                os.set_blocking(read_fd, False)
+                checkpoint = (receipt.read() or b'').decode('ascii')
+            elapsed = time.monotonic() - started
+            exit_codes = [p.returncode for p in processes]
+            killed = bool(checkpoint) and exit_codes == [-signal.SIGKILL]
+            with admin.connect() as c:
+                databases = c.execute(text("SELECT datname FROM pg_database WHERE datname LIKE 'odin_validate_%' ORDER BY datname")).scalars().all()
+            journal = restore_artifacts.journal_dir(backups)
+            entries = sorted(str(path.relative_to(journal)) for path in journal.rglob('*'))
+            work = sorted(p.name for p in backups.glob('.odin-preserved*-*'))
+            dumps = sorted(p.name for p in backups.glob('.odin-*.dump'))
+            evidence = (f'{label} ({victim.name}) killed={killed} exit_codes={exit_codes} checkpoint={checkpoint!r} '
+                        f'databases={databases} journal={entries} work={work} dumps={dumps} '
+                        f'elapsed={elapsed:.3f}s refusal={refusal!r}')
+            assert killed, f'Child missed the kill checkpoint: {evidence}'
+            assert refusal and 'did not validate' in refusal, f'Expected kill refusal: {evidence}'
+            assert not databases, f'Validation database remained: {evidence}'
+            assert not entries, f'Journal remained: {evidence}'
+            assert not work, f'Working directory remained: {evidence}'
+            assert not dumps, f'Working dump remained: {evidence}'
         print('post027-native-killed-child-no-stage-or-validation-database-or-dump-left-pass', flush=True)
 
         # The recorded previous release produced this native backup with its own

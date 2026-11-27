@@ -7,7 +7,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
-from time import monotonic
+from time import monotonic, time
 
 import pytest
 
@@ -449,6 +449,186 @@ def test_killed_child_drops_only_databases_it_created(tmp_path, monkeypatch):
     assert not work.exists() and not child_journal.exists()
     # The caller's own stage and the concurrent operation's database stay journaled.
     assert set(restore_artifacts.journal_entries(backups)) == {stage, concurrent}
+
+
+@pytest.mark.parametrize(("failed_drop", "deadline_expired"), [
+    (None, False), ("stage", False), ("child", False), ("stage", True),
+])
+def test_killed_child_create_finishes_before_cleanup(tmp_path, monkeypatch, caplog, failed_drop, deadline_expired):
+    from unittest.mock import MagicMock
+    from sqlalchemy.engine import make_url
+    from core import database_config
+    from modules.system import pre026_restore_stage as stage, postgres_backup_service as backup, restore_artifacts
+
+    archive = tmp_path / "archive.dump"
+    archive.touch()
+    maintenance = "postgresql://test@pg/maintenance?sslmode=require"
+    target = "postgresql://test@pg/target"
+    child_name = "odin_validate_" + "0" * 20  # sorts before its parent
+    preexisting = "odin_validate_" + "e" * 20
+    databases = {preexisting}
+    engine = MagicMock()
+    engine.execution_options.return_value = engine
+    monkeypatch.setattr(database_config, "create_database_engine", lambda *a, **kw: engine)
+    monkeypatch.setattr(stage, "identify_contract", lambda *a: stage.PRESERVED029)
+    monkeypatch.setattr(backup, "_require_distinct_maintenance_secret", lambda *a: None)
+    monkeypatch.setattr(restore_artifacts, "existing_databases", lambda *a: set(databases))
+
+    deadline_error = TimeoutError("stage deadline expired")
+
+    def killed(control, deadline):
+        journal = Path(json.loads(control.read_text())["journal"])
+        (journal / (child_name + ".intent")).touch()
+        (journal / (preexisting + ".intent")).touch()
+        if deadline_expired:
+            raise deadline_error
+        raise p.Preserved029Error("Preserved029 child did not validate")
+
+    monkeypatch.setattr(p, "_bounded_child", killed)
+
+    child_urls = []
+
+    def restore_into_stage(engine, name, **kwargs):
+        child_urls.append((make_url(kwargs["maintenance_url"]), make_url(maintenance).set(database=name)))
+        work = tmp_path / (".odin-preserved029-" + "a" * 20)
+        work.mkdir()
+        return p._supervised({}, kwargs["deadline"], journal=kwargs["journal"], work=work,
+                             keep={name}, drop=kwargs["drop"], existing=kwargs["existing"])
+
+    monkeypatch.setattr(p, "restore_into_stage", restore_into_stage)
+
+    drops = []
+
+    def execute_ddl(statement):
+        name = statement.split('"')[1]
+        if statement.startswith("CREATE DATABASE "):
+            databases.add(name)
+            return
+        assert statement.startswith("DROP DATABASE IF EXISTS ")
+        assert name != preexisting
+        kind = "child" if name == child_name else "stage"
+        if kind == failed_drop:
+            raise ConnectionError("maintenance interrupted")
+        databases.discard(name)
+        if not drops:
+            # The server-side CREATE was invisible when cleanup first tried DROP.
+            databases.add(child_name)
+        drops.append(kind)
+
+    engine.connect.return_value.__enter__.return_value.exec_driver_sql.side_effect = execute_ddl
+    expected = TimeoutError if deadline_expired else backup.RestoreEnvironmentError
+    message = "stage deadline expired" if deadline_expired else "Preserved029 child did not validate"
+    with pytest.raises(expected, match=message) as caught:
+        with stage.prepared_archive(archive, target, maintenance, None, None, tmp_path):
+            pytest.fail("Killed child admitted")
+    if deadline_expired:
+        assert caught.value is deadline_error
+    if failed_drop:
+        assert "ConnectionError" in caplog.text and "maintenance interrupted" not in caplog.text
+        warning, = [record.getMessage() for record in caplog.records if record.levelname == "WARNING"]
+        assert child_urls[0][0].database in warning and child_name in warning
+        assert "postgresql://" not in warning and preexisting not in warning
+        pending = (databases - {preexisting}) | {child_name}
+        assert len(pending) == (2 if failed_drop == "stage" else 1)
+        assert set(restore_artifacts.journal_entries(tmp_path, confirmed_only=True)) == pending
+        failed_drop = None
+        swept = restore_artifacts.sweep_stale(tmp_path, maintenance, None, older_than=0)
+        assert set(swept["databases"]) == pending
+    assert databases == {preexisting}
+    assert drops == ["stage", "child"]
+    assert len(child_urls) == 1 and child_urls[0][0] == child_urls[0][1]
+    assert not list(restore_artifacts.journal_dir(tmp_path).iterdir())
+    assert not list(tmp_path.glob(".odin-preserved029-*"))
+
+
+@pytest.mark.parametrize("outcome", ["raises", "partial", "unreported", "still present", "fresh stage"])
+def test_sweep_waits_for_stages_before_legacy_child(tmp_path, monkeypatch, outcome):
+    from modules.system import restore_artifacts as artifacts
+    stages = ["odin_validate_" + digit * 20 for digit in "ab"]
+    child = "odin_validate_" + "0" * 20
+    for name in stages:
+        artifacts.record(tmp_path, name)
+    journal = artifacts.journal_dir(tmp_path)
+    folder = journal / (".odin-preserved029-" + "f" * 20)
+    folder.mkdir()
+    (folder / child).touch()
+    cutoff = time() + 60
+    if outcome == "fresh stage":
+        os.utime(journal / stages[1], (cutoff + 1, cutoff + 1))
+    databases = {*stages, child}
+    monkeypatch.setattr(artifacts, "existing_databases", lambda *a: set(databases))
+
+    def incomplete(names):
+        assert child not in names
+        if outcome == "raises":
+            raise ConnectionError("interrupted")
+        databases.remove(stages[0])
+        if outcome == "unreported":
+            databases.remove(stages[1])
+        return names if outcome == "still present" else [stages[0]]
+
+    def sweep(drop, now):
+        return artifacts.sweep_stale(tmp_path, "unused", None, drop=drop, older_than=0, now=now)
+
+    if outcome == "raises":
+        with pytest.raises(ConnectionError):
+            sweep(incomplete, cutoff)
+    else:
+        sweep(incomplete, cutoff)
+    assert {stages[1], child} <= artifacts.journal_entries(tmp_path).keys()
+
+    def complete(names):
+        if child in names:
+            assert not databases.intersection(stages)
+        databases.difference_update(names)
+        return names
+
+    sweep(complete, cutoff + 2)
+    assert not databases and not artifacts.journal_entries(tmp_path)
+
+
+def test_sweep_top_level_child_checks_recorded_parent(tmp_path, monkeypatch):
+    from modules.system import restore_artifacts as artifacts
+    parent, child = ["odin_validate_" + digit * 20 for digit in "f0"]
+    artifacts.record(tmp_path, child, parent=parent)
+    databases = {parent, child}
+    monkeypatch.setattr(artifacts, "existing_databases", lambda *a: set(databases))
+
+    def drop(names):
+        assert parent not in databases and names == [child]
+        databases.difference_update(names)
+        return names
+
+    def sweep():
+        return artifacts.sweep_stale(tmp_path, "unused", None, older_than=0, now=time() + 60, drop=drop)
+
+    assert sweep()["databases"] == [] and child in artifacts.journal_entries(tmp_path)
+    databases.remove(parent)
+    assert sweep()["databases"] == [child]
+    assert not list(artifacts.journal_dir(tmp_path).iterdir())
+
+
+def test_maintenance_login_denied_on_owned_stage(tmp_path, monkeypatch):
+    from unittest.mock import MagicMock
+    from sqlalchemy.exc import OperationalError
+    from core import database_config
+    from modules.system import pre026_restore_stage as stage, postgres_backup_service as backup
+    maintenance = MagicMock()
+    maintenance.execution_options.return_value = maintenance
+    denied = MagicMock()
+    denied.connect.side_effect = OperationalError(None, None, RuntimeError("private driver detail"))
+    engines = iter([maintenance, denied])
+    monkeypatch.setattr(database_config, "create_database_engine", lambda *a, **kw: next(engines))
+    monkeypatch.setattr(stage, "identify_contract", lambda *a: stage.PRESERVED029)
+    monkeypatch.setattr(backup, "_require_distinct_maintenance_secret", lambda *a: None)
+    archive = tmp_path / "archive.dump"
+    archive.touch()
+    with pytest.raises(backup.BackupValidationError, match="maintenance role.*connect.*validation database") as refused:
+        with stage.prepared_archive(archive, "postgresql://app@pg/target", "postgresql://test@pg/maintenance", None, None, tmp_path):
+            pytest.fail("Stage admitted without a connection")
+    assert "private driver detail" not in str(refused.value)
+    calls = maintenance.connect.return_value.__enter__.return_value.exec_driver_sql.call_args_list
+    assert len(calls) == 2 and calls[1].args[0].startswith("DROP DATABASE IF EXISTS ")
 
 
 def test_startup_sweep_drops_only_stale_journaled_databases_and_files(tmp_path):

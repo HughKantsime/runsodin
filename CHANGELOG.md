@@ -4,6 +4,10 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Interrupted PostgreSQL backup checks now clean up temporary databases even when the check stops while a database is being created.
+
 ## [2.8.0] - 2026-11-26
 
 

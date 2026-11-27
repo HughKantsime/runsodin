@@ -13,6 +13,7 @@ import json,os,re,tempfile,uuid
 from time import monotonic
 from sqlalchemy import inspect,text
 from sqlalchemy.engine import make_url
+from sqlalchemy.exc import DBAPIError
 
 PRESERVED029=object()
 PRESERVED034=object()
@@ -194,18 +195,35 @@ def prepared_archive(archive,target_url,maintenance_url,password_file,maintenanc
     from modules.system import restore_artifacts as artifacts
     artifacts.sweep_stale(directory,maintenance_url,maintenance_password_file)
     maintenance=create_database_engine(maintenance_url,role='restore',password_file=maintenance_password_file).execution_options(isolation_level='AUTOCOMMIT')
+    child_databases = set()
+
+    def defer_child_drop(names):
+        # The supervisor has excluded pre-existing and unrelated names. Persist that
+        # ownership so a failed drop can be retried even for an intent-only entry.
+        child_databases.update(names)
+        for child_name in names:
+            artifacts.record(directory, child_name, parent=name)
+        return []  # Keep the child's entries until the databases are actually dropped.
+
     engine=None;created=False;temporary=[]
+    failed=False
     try:
         artifacts.record(directory,name)
         with maintenance.connect() as c:c.exec_driver_sql('CREATE DATABASE "'+name+'"');created=True
         url=make_url(maintenance_url).set(database=name).render_as_string(hide_password=True)
         engine=create_database_engine(url,role='restore',password_file=maintenance_password_file)
-        with engine.connect() as c:identity=tuple(c.execute(text('SELECT oid,datdba FROM pg_database WHERE datname=current_database()')).one())
+        try:
+            stage_connection = engine.connect()
+        except DBAPIError:
+            raise b.PostgreSQLClientFailed(
+                'The PostgreSQL maintenance role could not connect to the new validation database. '
+                'Check its connection access to odin_validate_* databases.', retryable=True) from None
+        with stage_connection as c:identity=tuple(c.execute(text('SELECT oid,datdba FROM pg_database WHERE datname=current_database()')).one())
         try:
             era=preserved.restore_into_stage(engine,name,archive=archive,archive_sha256=original_sha,target_url=target_url,
-                password_file=password_file,maintenance_url=maintenance_url,maintenance_password_file=maintenance_password_file,
+                password_file=password_file,maintenance_url=url,maintenance_password_file=maintenance_password_file,
                 directory=directory,journal=artifacts.journal_dir(directory),
-                drop=lambda names:artifacts.drop_databases(maintenance_url,maintenance_password_file,names),
+                drop=defer_child_drop,
                 existing=lambda:artifacts.existing_databases(maintenance_url,maintenance_password_file),
                 deadline=monotonic()+STAGE_SECONDS)
         except (preserved029.Preserved029Refused, preserved034.Preserved034Refused, preserved035.Preserved035Refused, preserved036.Preserved036Refused, preserved037.Preserved037Refused, preserved038.Preserved038Refused, preserved039.Preserved039Refused, preserved040.Preserved040Refused, preserved043.Preserved043Refused, preserved044.Preserved044Refused, preserved045.Preserved045Refused, preserved046.Preserved046Refused, preserved053.Preserved053Refused, preserved055.Preserved055Refused, preserved056.Preserved056Refused, preserved057.Preserved057Refused, preserved060.Preserved060Refused, preserved062.Preserved062Refused, preserved065.Preserved065Refused) as refusal:
@@ -231,12 +249,24 @@ def prepared_archive(archive,target_url,maintenance_url,password_file,maintenanc
         b._run_pg_tool(['pg_dump','--format=custom','--schema','public','--no-owner','--no-privileges','--no-comments','--file',str(candidate),'--dbname',cli],maintenance_url,maintenance_password_file,directory)
         if b._sha256(archive)!=original_sha or archive.stat().st_size!=original_size:raise b.BackupValidationError('Original historical archive changed during preparation')
         yield candidate
+    except BaseException:
+        failed=True
+        raise
     finally:
         if engine is not None:engine.dispose()
         try:
             if created:  # Only a database this code created.
                 with maintenance.connect() as c:artifacts.drop_database(c,name)
             artifacts.forget(directory,name)
+            # The child issues CREATE DATABASE from the owned stage. Once its stage
+            # is dropped, no server session can still be finishing one of those CREATEs.
+            if child_databases:
+                artifacts.drop_and_forget(directory,maintenance_url,maintenance_password_file,child_databases)
+        except Exception as cleanup_error:
+            if not failed:
+                raise
+            b.logger.warning("Historical validation cleanup deferred to the stale sweep (%s) stage=%s children=%s",
+                             type(cleanup_error).__name__, name, sorted(child_databases))
         finally:
             maintenance.dispose()
             for path in temporary:path.unlink(missing_ok=True)
