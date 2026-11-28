@@ -1,6 +1,7 @@
 """Read-only Education upload filesystem diagnostics and shared reserve policy."""
 from pathlib import Path
 import shutil
+from core.storage_space import existing_storage_directory
 import os
 from decimal import Decimal, InvalidOperation, ROUND_CEILING
 
@@ -50,14 +51,7 @@ def storage_readiness(storage_root: Path) -> dict:
                 "administrator_override": True}
     try:
         root_exists = probe.exists()
-        while not probe.exists():
-            parent = probe.parent
-            if parent == probe:
-                raise OSError("No existing upload filesystem ancestor")
-            probe = parent
-        if not probe.is_dir():
-            raise OSError("Upload filesystem probe is not a directory")
-        usage = shutil.disk_usage(probe)
+        usage = shutil.disk_usage(existing_storage_directory(probe))
         reserve = required_free_bytes(usage.total, floor=floor)
         return {
             "configured_min_free_bytes": floor,

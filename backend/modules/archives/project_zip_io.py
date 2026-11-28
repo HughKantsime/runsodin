@@ -14,6 +14,7 @@ import shutil
 import stat
 import uuid
 import zipfile
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from pydantic import ValidationError
@@ -62,8 +63,26 @@ def _tags(value):
     return [tag.strip() for tag in str(value).split(",") if tag.strip()]
 
 
+@dataclass(frozen=True)
+class _OversizedExportFile:
+    original_name: str
+    size: int
+    reason: str
+
+
+def _safe_export_basename(path):
+    raw = os.path.basename(str(path or ""))
+    cleaned = "".join(ch for ch in raw if ord(ch) >= 32 and ord(ch) != 127 and ch not in ("/", "\\"))[:255]
+    return cleaned if cleaned and cleaned not in (".", "..") else "print-file"
+
+
+def _oversized_reason():
+    return f"Exceeds the {MAX_FILE_BYTES // (1024 * 1024)} MiB per-file project export limit"
+
+
 def _read_stored_file(path, remaining):
-    """Return bytes of a regular file under the storage root, or None if not exportable.
+    """Return bytes of a regular file under the storage root, _OversizedExportFile when
+    it exceeds MAX_FILE_BYTES, or None if not exportable.
 
     Symlinks are resolved first and the target must stay inside the root; O_NOFOLLOW
     then refuses a final component swapped for a link after resolution. Raises
@@ -81,8 +100,14 @@ def _read_stored_file(path, remaining):
         return None
     try:
         info = os.fstat(fd)
-        if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_FILE_BYTES:
+        if not stat.S_ISREG(info.st_mode):
             return None
+        if info.st_size > MAX_FILE_BYTES:
+            return _OversizedExportFile(
+                original_name=_safe_export_basename(path),
+                size=int(info.st_size),
+                reason=_oversized_reason(),
+            )
         if info.st_size > remaining:
             raise ProjectZipExportError("Project cannot be exported: archive files exceed the 512 MiB package limit")
         with os.fdopen(fd, "rb") as handle:
@@ -91,12 +116,19 @@ def _read_stored_file(path, remaining):
     finally:
         if fd is not None:
             os.close(fd)
-    return data if len(data) <= MAX_FILE_BYTES else None
+    if len(data) > MAX_FILE_BYTES:
+        return _OversizedExportFile(
+            original_name=_safe_export_basename(path),
+            size=len(data),
+            reason=_oversized_reason(),
+        )
+    return data
 
 
-def build_project_zip(project, archives):
-    """Build v2 ZIP bytes for a project row mapping and its visible archive mappings."""
+def build_project_zip_with_report(project, archives):
+    """Build v2 ZIP bytes and return ``(payload, omitted_files)``."""
     entries = []
+    omitted_files = []
     blobs = {}
     remaining = MAX_TOTAL_BYTES
     for archive in archives:
@@ -107,24 +139,33 @@ def build_project_zip(project, archives):
         # (direct marker, linked submission print file/job, or upload operation path).
         education = archive.get("education_submission_id") is not None or bool(archive.get("education_linked"))
         file_entry = None
-        data = None if education else _read_stored_file(archive.get("file_path"), remaining)
-        if data is not None:
-            remaining -= len(data)
+        result = None if education else _read_stored_file(archive.get("file_path"), remaining)
+        print_name = archive.get("print_name") or "Unknown"
+        if isinstance(result, _OversizedExportFile):
+            omitted_files.append({
+                "archive_key": str(index),
+                "print_name": print_name,
+                "original_name": result.original_name,
+                "size": result.size,
+                "reason": result.reason,
+            })
+        elif result is not None:
+            remaining -= len(result)
             original = os.path.basename(archive["file_path"])
             member = f"files/{index:03d}{os.path.splitext(original)[1].lower()}"
             file_entry = {
                 "member": member,
-                "size": len(data),
-                "sha256": hashlib.sha256(data).hexdigest(),
+                "size": len(result),
+                "sha256": hashlib.sha256(result).hexdigest(),
                 "original_name": original,
             }
-            blobs[member] = data
+            blobs[member] = result
         duration = archive.get("actual_duration_seconds")
         grams = archive.get("filament_used_grams")
         entries.append({
             "archive_key": str(index),
             "display": {
-                "print_name": archive.get("print_name") or "Unknown",
+                "print_name": print_name,
                 "notes": archive.get("notes"),
                 "tags": _tags(archive.get("tags")),
                 "status": archive["status"],
@@ -146,6 +187,8 @@ def build_project_zip(project, archives):
         },
         "archives": entries,
     }
+    if omitted_files:
+        manifest["omitted_files"] = omitted_files
     try:
         ProjectZipManifest.model_validate(manifest)
     except ValidationError as exc:
@@ -165,6 +208,12 @@ def build_project_zip(project, archives):
     payload = buf.getvalue()
     if len(payload) > MAX_COMPRESSED_BYTES:
         raise ProjectZipExportError("Project cannot be exported: package exceeds the 256 MiB import limit")
+    return payload, omitted_files
+
+
+def build_project_zip(project, archives):
+    """Build v2 ZIP bytes for a project row mapping and its visible archive mappings."""
+    payload, _ = build_project_zip_with_report(project, archives)
     return payload
 
 

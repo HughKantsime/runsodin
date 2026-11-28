@@ -9,7 +9,8 @@ import re
 import stat
 import tempfile
 
-MAX_PAYLOAD_BYTES=160*1024*1024
+from core.print_file_limits import MAX_COMPRESSED_BYTES as MAX_PAYLOAD_BYTES
+
 log=logging.getLogger('odin.dispatch')
 
 
@@ -32,22 +33,34 @@ def _signature(info):
 
 
 @contextmanager
-def _regular_source(path):
+def open_regular_payload(path):
+    """Open a bounded regular file without translating caller inspection errors."""
     descriptor=None
     try:
         descriptor=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
         info=os.fstat(descriptor)
         if not stat.S_ISREG(info.st_mode) or not 0<info.st_size<=MAX_PAYLOAD_BYTES:
             raise PayloadUnavailable(f'Print payload must be a nonempty regular file ({info.st_size} bytes; limit {MAX_PAYLOAD_BYTES} bytes)')
-        with os.fdopen(descriptor,'rb') as source:
-            descriptor=None
-            yield source,info
+        source=os.fdopen(descriptor,'rb')
+        descriptor=None
     except PayloadUnavailable:
         raise
     except (OSError,TypeError,ValueError):
         raise PayloadUnavailable('Print payload could not be safely read; no command was sent') from None
     finally:
         if descriptor is not None:os.close(descriptor)
+
+    with source:
+        yield source,info
+
+
+@contextmanager
+def _regular_source(path):
+    try:
+        with open_regular_payload(path) as opened:
+            yield opened
+    except (OSError,TypeError,ValueError):
+        raise PayloadUnavailable('Print payload could not be safely read; no command was sent') from None
 
 
 def _copy_hash(source,initial,destination=None):
@@ -75,13 +88,18 @@ def hash_regular_payload(path):
     with _regular_source(path) as (source,info):return _copy_hash(source,info)
 
 
-@contextmanager
-def stage_payload(path,expected_sha256):
+def validate_payload_identity(path,expected_sha256):
     if not isinstance(expected_sha256,str) or not re.fullmatch('[0-9a-f]{64}',expected_sha256):
         raise PayloadUnavailable('Print payload hash is invalid; no command was sent')
     suffix=os.path.splitext(path)[1].lower()
     if suffix not in ('.3mf','.gcode','.bgcode'):
         raise PayloadUnavailable('Print payload has an unsupported file extension; no command was sent')
+    return suffix
+
+
+@contextmanager
+def stage_payload(path,expected_sha256):
+    suffix=validate_payload_identity(path,expected_sha256)
     temporary=tempfile.TemporaryDirectory(prefix='odin-dispatch-payload-')
     try:
         descriptor,staged=tempfile.mkstemp(prefix='payload-',suffix=suffix,dir=temporary.name)

@@ -62,6 +62,7 @@ def preflight_ams_source(job, *, mapping, staged_path, payload_sha256, derived=F
     # Only options validation supplies facts, inspected from this same staged path/hash.
     facts = inspected_facts if inspected_facts is not None else inspect_ams_payload(staged_path, expected_sha256=payload_sha256,
                                expected_bytes=os.stat(staged_path).st_size, plate_index=plate_index,
+                               already_staged=True,
                                **({'multi_source': True} if h3c or (not derived and job.get('education_submission_id') is None) else {}))
     sources = facts.get('sources', (dict(source_index=facts.get('source_index'), material=facts.get('material')),))
     if h3c:

@@ -13,6 +13,7 @@ from pathlib import Path
 # Use defusedxml to prevent XXE and billion-laughs attacks when parsing 3MF XML.
 # defusedxml is a hard requirement (in requirements.txt) — no fallback to stdlib.
 from defusedxml import ElementTree as ET
+from core.print_file_limits import MAX_PLATE_JSON_BYTES
 
 def _friendly_printer_name(model_id: str) -> str:
     """Convert Bambu model ids / product names to friendly names.
@@ -27,18 +28,18 @@ def _friendly_printer_name(model_id: str) -> str:
 def extract_printer_model_from_settings(zf: zipfile.ZipFile) -> str:
     """Extract printer_model from project_settings.config (more reliable than slice_info)."""
     try:
-        if 'Metadata/project_settings.config' in zf.namelist():
-            with zf.open('Metadata/project_settings.config') as f:
-                content = f.read().decode('utf-8')
-                import json
-                data = json.loads(content)
-                # Look for printer_model key
-                pm = data.get('printer_model', '')
-                if pm:
-                    # Clean up "Bambu Lab X1C" -> "X1C", "Bambu Lab H2D" -> "H2D"
-                    if 'Bambu Lab ' in pm:
-                        return pm.replace('Bambu Lab ', '').strip()
-                    return pm
+        raw = _member_bytes(zf, 'Metadata/project_settings.config', MAX_PROJECT_SETTINGS_BYTES)
+        if raw is not None:
+            data = json.loads(raw.decode('utf-8'))
+            # Look for printer_model key
+            pm = data.get('printer_model', '')
+            if pm:
+                # Clean up "Bambu Lab X1C" -> "X1C", "Bambu Lab H2D" -> "H2D"
+                if 'Bambu Lab ' in pm:
+                    return pm.replace('Bambu Lab ', '').strip()
+                return pm
+    except MemoryError:
+        raise
     except Exception as e:
         print(f"Error extracting printer_model from settings: {e}")
     return None
@@ -196,6 +197,10 @@ def parse_3mf(file_path: str, name: Optional[str] = None) -> Optional[PrintFileM
                 thumbnail_b64=thumbnail_b64
             )
             
+    except FileTooLargeError:
+        raise
+    except MemoryError:
+        raise FileTooLargeError("file is too large to check") from None
     except Exception as e:
         print(f"Error parsing 3mf: {e}")
         return None
@@ -272,13 +277,15 @@ def _stated_slicer_settings(zf: zipfile.ZipFile) -> dict:
     """
     found = {'layer_height': None, 'supports_used': None, 'bed_type': None}
     try:
-        raw = _member_bytes(zf, 'Metadata/project_settings.config', 8 * 1024 * 1024)
+        raw = _member_bytes(zf, 'Metadata/project_settings.config', MAX_PROJECT_SETTINGS_BYTES)
         data = json.loads(raw) if raw else None
         if isinstance(data, dict):
             found['layer_height'] = _stated_layer_height(data.get('layer_height'))
             if str(data.get('enable_support', '')).strip() in ('0', '1'):
                 found['supports_used'] = str(data['enable_support']).strip() == '1'
             found['bed_type'] = _stated_plate_type(data.get('curr_bed_type'))
+    except MemoryError:
+        raise
     except Exception:
         pass
     return found
@@ -320,11 +327,13 @@ def extract_thumbnail(zf: zipfile.ZipFile) -> Optional[str]:
         
         for path in thumbnail_paths:
             if path in zf.namelist():
-                with zf.open(path) as f:
-                    data = f.read()
+                data = _member_bytes(zf, path, MAX_THUMBNAIL_BYTES)
+                if data is not None:
                     return base64.b64encode(data).decode('utf-8')
         
         return None
+    except MemoryError:
+        raise
     except Exception as e:
         print(f"Error extracting thumbnail: {e}")
         return None
@@ -333,14 +342,18 @@ def extract_thumbnail(zf: zipfile.ZipFile) -> Optional[str]:
 def extract_project_name(zf: zipfile.ZipFile) -> Optional[str]:
     """Extract project name from 3D/3dmodel.model."""
     try:
-        with zf.open('3D/3dmodel.model') as f:
-            content = f.read().decode('utf-8')
-            # Look for Title metadata
-            tree = ET.fromstring(content)
-            for meta in tree.findall('.//{http://schemas.microsoft.com/3dmanufacturing/core/2015/02}metadata'):
-                if meta.get('name') == 'Title':
-                    return meta.text
+        raw = _member_bytes(zf, '3D/3dmodel.model', MAX_PROJECT_MODEL_BYTES)
+        if raw is None:
             return None
+        content = raw.decode('utf-8')
+        # Look for Title metadata
+        tree = ET.fromstring(content)
+        for meta in tree.findall('.//{http://schemas.microsoft.com/3dmanufacturing/core/2015/02}metadata'):
+            if meta.get('name') == 'Title':
+                return meta.text
+        return None
+    except MemoryError:
+        raise
     except Exception as e:
         print(f"Error extracting project name: {e}")
         return None
@@ -358,21 +371,20 @@ def parse_unsliced_3mf(zf: zipfile.ZipFile, file_path: str, name: Optional[str] 
         filament_color = '#888888'
         color_stated = False
         
-        if 'Metadata/project_settings.config' in zf.namelist():
-            with zf.open('Metadata/project_settings.config') as f:
-                content = f.read().decode('utf-8')
-                data = json.loads(content)
-                
-                if 'filament_type' in data:
-                    types = data['filament_type']
-                    if isinstance(types, list) and len(types) > 0:
-                        filament_type = types[0]
-                
-                if 'filament_colour' in data:
-                    colors = data['filament_colour']
-                    if isinstance(colors, list) and len(colors) > 0:
-                        filament_color = colors[0]
-                        color_stated = isinstance(filament_color, str) and bool(filament_color.strip())
+        raw_settings = _member_bytes(zf, 'Metadata/project_settings.config', MAX_PROJECT_SETTINGS_BYTES)
+        if raw_settings is not None:
+            data = json.loads(raw_settings.decode('utf-8'))
+
+            if 'filament_type' in data:
+                types = data['filament_type']
+                if isinstance(types, list) and len(types) > 0:
+                    filament_type = types[0]
+
+            if 'filament_colour' in data:
+                colors = data['filament_colour']
+                if isinstance(colors, list) and len(colors) > 0:
+                    filament_color = colors[0]
+                    color_stated = isinstance(filament_color, str) and bool(filament_color.strip())
         
         filaments.append(FilamentInfo(
             slot=1,
@@ -403,6 +415,10 @@ def parse_unsliced_3mf(zf: zipfile.ZipFile, file_path: str, name: Optional[str] 
             thumbnail_b64=thumbnail_b64
         )
         
+    except FileTooLargeError:
+        raise
+    except MemoryError:
+        raise FileTooLargeError("file is too large to check") from None
     except Exception as e:
         print(f"Error parsing unsliced 3mf: {e}")
         return None
@@ -422,9 +438,6 @@ if __name__ == '__main__':
 # A plate_N.json is a few KB in real Bambu Studio / Orca exports. json.load of a large
 # member expands to many times its size in Python objects (a ~60 MB member exceeds 4 GB),
 # so a plate JSON larger than this is never parsed.
-MAX_PLATE_JSON_BYTES = 4 * 2**20
-
-
 def plate_json_too_large(zf: zipfile.ZipFile) -> bool:
     """True when any Metadata/plate_N.json declares more than MAX_PLATE_JSON_BYTES."""
     return any(re.fullmatch(r"Metadata/plate_[1-9][0-9]*\.json", info.filename)
@@ -773,6 +786,9 @@ from core.thumbnail_check import MAX_THUMBNAIL_BYTES, thumbnail_kind  # noqa: E4
 
 MAX_FACT_PLATES = 64
 MAX_SLICE_INFO_BYTES = 4 * 2**20
+MAX_PROJECT_SETTINGS_BYTES = 8 * 2**20
+MAX_PROJECT_MODEL_BYTES = 8 * 2**20
+MAX_MODEL_SETTINGS_BYTES = 8 * 2**20
 MAX_GCODE_HEADER_BYTES = 64 * 1024
 MAX_TOTAL_THUMBNAIL_BYTES = 8 * 2**20      # all plates together, keeps the child's output frame bounded
 _MAX_PLATE_FILAMENTS = 64
@@ -784,6 +800,24 @@ _SLICER_HEADER = re.compile(
 _FACT_COLOR = re.compile(r"#[0-9A-Fa-f]{6}(?:[0-9A-Fa-f]{2})?")
 # X-BBL-Client-Type is a role ("slicer"), not a product name.
 _GENERIC_CLIENT_NAMES = {"slicer": "Bambu Studio (or compatible)"}
+
+
+class FileTooLargeError(ValueError):
+    """Metadata could not be checked within the available memory."""
+
+
+class MemberTooLargeError(FileTooLargeError):
+    """A ZIP member exceeded its bounded read cap."""
+
+    def __init__(self, name: str, limit: int):
+        self.member_name = name
+        self.limit = limit
+        unit = (
+            f"{limit // (1024 * 1024)} MiB"
+            if limit >= 1024 * 1024 and limit % (1024 * 1024) == 0
+            else f"{limit} bytes"
+        )
+        super().__init__(f"{name.rsplit('/', 1)[-1]}: file is too large to check (limit {unit})")
 
 
 def _fact_number(value, high=1e7, digits=2):
@@ -803,18 +837,37 @@ def _fact_color(value):
     return value if _FACT_COLOR.fullmatch(value) else None
 
 
-def _member_bytes(zf, name, limit):
+def _member_bytes(zf, name, limit, *, raise_if_too_large: bool = False):
     """The whole member, or None when absent, a directory, declared larger than ``limit`` or
-    unreadable. Reads at most ``limit + 1`` bytes whatever the archive claims."""
+    unreadable. Reads at most ``limit + 1`` bytes whatever the archive claims.
+
+    With ``raise_if_too_large=True``, raises ``MemberTooLargeError`` instead of returning None
+    when the member's declared or actual size exceeds ``limit``.
+    """
     try:
         info = zf.getinfo(name)
-        if info.is_dir() or info.file_size > limit:
-            return None
-        with zf.open(info) as member:
-            data = member.read(limit + 1)
+    except MemoryError:
+        raise
     except Exception:
         return None
-    return data if len(data) <= limit else None
+    if info.is_dir():
+        return None
+    if info.file_size > limit:
+        if raise_if_too_large:
+            raise MemberTooLargeError(name, limit)
+        return None
+    try:
+        with zf.open(info) as member:
+            data = member.read(limit + 1)
+    except MemoryError:
+        raise
+    except Exception:
+        return None
+    if len(data) > limit:
+        if raise_if_too_large:
+            raise MemberTooLargeError(name, limit)
+        return None
+    return data
 
 
 def _member_prefix(zf, name, limit):

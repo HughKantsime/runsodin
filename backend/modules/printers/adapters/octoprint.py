@@ -144,8 +144,9 @@ class OctoPrintPrinter:
             log.warning("octoprint: ITAR blocked %s: %s", self.host, exc)
             return None
         kwargs.setdefault("timeout", self.timeout)
+        headers = {"X-Api-Key": self.api_key, **(kwargs.pop("headers", None) or {})}
         try:
-            return getattr(_http, verb)(url, headers={"X-Api-Key": self.api_key}, **kwargs)
+            return getattr(_http, verb)(url, headers=headers, **kwargs)
         except requests.exceptions.Timeout:
             log.debug("OctoPrint timeout: %s", self.host)
         except requests.exceptions.RequestException:
@@ -253,11 +254,19 @@ class OctoPrintPrinter:
             log.error("OctoPrint upload refused: unusable file name")
             return False
         try:
+            from modules.printers.adapters.multipart_stream import MultipartFileStream
             with open(local_path, "rb") as handle:
+                stream = MultipartFileStream(
+                    fields=(("select", "true"), ("print", "true")),
+                    file_field="file",
+                    filename=name,
+                    fileobj=handle,
+                    file_content_type="application/octet-stream",
+                )
                 reply = self._call(
                     "post", "/api/files/local", raise_unknown=True,
-                    files={"file": (name, handle, "application/octet-stream")},
-                    data={"select": "true", "print": "true"},
+                    data=stream,
+                    headers={"Content-Type": stream.content_type},
                     timeout=120,
                 )
         except OSError:

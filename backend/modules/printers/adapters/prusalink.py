@@ -329,12 +329,19 @@ class PrusaLinkPrinter:
             kwargs["auth"] = HTTPDigestAuth(self.username, self.password)
 
         try:
+            from modules.printers.adapters.multipart_stream import MultipartFileStream
             with open(local_path, "rb") as f:
+                stream = MultipartFileStream(
+                    fields=(("select", "true"), ("print", "true")),
+                    file_field="file",
+                    filename=remote_filename,
+                    fileobj=f,
+                    file_content_type="application/octet-stream",
+                )
                 resp = _http.post(
                     url,
-                    files={"file": (remote_filename, f, "application/octet-stream")},
-                    data={"select": "true", "print": "true"},
-                    headers=headers,
+                    data=stream,
+                    headers={**headers, "Content-Type": stream.content_type},
                     **kwargs,
                 )
             if resp.status_code in (200, 201):

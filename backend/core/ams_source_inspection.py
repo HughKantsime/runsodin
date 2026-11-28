@@ -8,12 +8,12 @@ import re
 import zipfile
 from dataclasses import dataclass
 from defusedxml import ElementTree
+
 from core.h3c_plate import RackPlate, RackPlateError
 from core.material_identity import canonical_reported_material
+from core.print_file_limits import MAX_COMPRESSED_BYTES as MAX_ARCHIVE_BYTES, MAX_GCODE_BYTES
 
-MAX_ARCHIVE_BYTES = 160 * 1024 * 1024
 MAX_XML_BYTES = 1024 * 1024
-MAX_GCODE_BYTES = 256 * 1024 * 1024
 MAX_GCODE_LINE_BYTES = 128 * 1024
 
 # Nozzle/flush/cutter command shapes from the genuine H2D slice. Feeds,

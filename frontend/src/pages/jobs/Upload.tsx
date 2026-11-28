@@ -394,7 +394,7 @@ export default function Upload() {
     },
     onError: (err) => {
       setUploadProgress(null)
-      toast.error('Upload failed: ' + (err.message || 'Unknown error'))
+      toast.error(err.message || 'Upload failed')
     },
   })
 
@@ -435,7 +435,7 @@ export default function Upload() {
           <DropZone onFileSelect={handleFileSelect} isUploading={uploadMutation.isPending} uploadProgress={uploadProgress} />
           {uploadMutation.isError && (
             <div className="mt-4 bg-red-900/30 border border-red-700 rounded-md p-4">
-              <p className="text-red-400 text-sm">Failed to upload: {uploadMutation.error?.message || 'Unknown error'}</p>
+              <p className="text-red-400 text-sm">{uploadMutation.error?.message || 'Upload failed'}</p>
             </div>
           )}
           <RecentUploads />

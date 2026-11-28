@@ -184,6 +184,15 @@ def _first_project_fact(data: dict, keys: tuple[str, ...], member: str) -> dict[
 
 def _extract_3mf_safety_facts(file_path: str) -> dict[str, dict[str, Any]]:
     """Extract safety facts and their exact recognized archive source."""
+    from modules.models_library.threemf_parser import (
+        MAX_MODEL_SETTINGS_BYTES,
+        MAX_PLATE_JSON_BYTES,
+        MAX_PROJECT_SETTINGS_BYTES,
+        MAX_SLICE_INFO_BYTES,
+        MemberTooLargeError,
+        _member_bytes,
+    )
+
     facts = {
         "api_types": _missing_fact(),
         "machine": _missing_fact(),
@@ -198,108 +207,130 @@ def _extract_3mf_safety_facts(file_path: str) -> dict[str, dict[str, Any]]:
             project_member = names.get("metadata/project_settings.config")
             if project_member:
                 try:
-                    data = json.loads(zf.read(project_member).decode("utf-8", errors="replace"))
-                    facts["machine"] = _first_project_fact(
-                        data,
-                        ("printer_model", "printer_model_id", "machine_model"),
-                        project_member,
+                    raw = _member_bytes(
+                        zf, project_member, MAX_PROJECT_SETTINGS_BYTES, raise_if_too_large=True
                     )
-                    for key in ("nozzle_diameter", "nozzle_diameters"):
-                        if key in data:
-                            value = _safe_float(data[key])
-                            if value is not None:
-                                facts["nozzle"] = _fact(value, project_member, key)
-                                break
-                    if "filament_type" in data:
-                        values = _material_values(data["filament_type"])
-                        if values:
-                            facts["materials"] = _fact(values, project_member, "filament_type")
-                    for key in ("bed_shape", "printable_area"):
-                        if key in data:
-                            x, y = _bed_shape(data[key])
-                            if x is not None and y is not None:
-                                facts["bed"] = _fact(
-                                    {"x_mm": x, "y_mm": y}, project_member, key
-                                )
-                                break
+                    if raw is not None:
+                        data = json.loads(raw.decode("utf-8", errors="replace"))
+                        facts["machine"] = _first_project_fact(
+                            data,
+                            ("printer_model", "printer_model_id", "machine_model"),
+                            project_member,
+                        )
+                        for key in ("nozzle_diameter", "nozzle_diameters"):
+                            if key in data:
+                                value = _safe_float(data[key])
+                                if value is not None:
+                                    facts["nozzle"] = _fact(value, project_member, key)
+                                    break
+                        if "filament_type" in data:
+                            values = _material_values(data["filament_type"])
+                            if values:
+                                facts["materials"] = _fact(values, project_member, "filament_type")
+                        for key in ("bed_shape", "printable_area"):
+                            if key in data:
+                                x, y = _bed_shape(data[key])
+                                if x is not None and y is not None:
+                                    facts["bed"] = _fact(
+                                        {"x_mm": x, "y_mm": y}, project_member, key
+                                    )
+                                    break
+                except (MemberTooLargeError, MemoryError):
+                    raise
                 except Exception as exc:
                     log.debug("[print_file_meta] project settings parse error: %s", exc)
 
             slice_member = names.get("metadata/slice_info.config")
             if slice_member:
                 try:
-                    content = zf.read(slice_member).decode("utf-8", errors="replace")
-                    metadata: dict[str, str] = {}
-                    filament_types: list[str] = []
-                    try:
-                        root = ET.fromstring(content)
-                        for node in root.findall(".//metadata"):
-                            key = node.get("key")
-                            value = node.get("value")
-                            if key and value:
-                                metadata[key] = value
-                        filament_types = [
-                            str(node.get("type")).strip()
-                            for node in root.findall(".//filament")
-                            if str(node.get("type") or "").strip()
-                        ]
-                    except Exception:
-                        for key in (
-                            "machine_model",
-                            "printer_model",
-                            "printer_model_id",
-                            "nozzle_diameters",
-                        ):
-                            match = re.search(
-                                rf"(?im)^\s*{re.escape(key)}\s*=\s*[\"']?([^\"'\r\n]+)",
-                                content,
-                            )
-                            if match:
-                                metadata[key] = match.group(1).strip()
+                    raw = _member_bytes(
+                        zf, slice_member, MAX_SLICE_INFO_BYTES, raise_if_too_large=True
+                    )
+                    if raw is not None:
+                        content = raw.decode("utf-8", errors="replace")
+                        metadata: dict[str, str] = {}
+                        filament_types: list[str] = []
+                        try:
+                            root = ET.fromstring(content)
+                            for node in root.findall(".//metadata"):
+                                key = node.get("key")
+                                value = node.get("value")
+                                if key and value:
+                                    metadata[key] = value
+                            filament_types = [
+                                str(node.get("type")).strip()
+                                for node in root.findall(".//filament")
+                                if str(node.get("type") or "").strip()
+                            ]
+                        except Exception:
+                            for key in (
+                                "machine_model",
+                                "printer_model",
+                                "printer_model_id",
+                                "nozzle_diameters",
+                            ):
+                                match = re.search(
+                                    rf"(?im)^\s*{re.escape(key)}\s*=\s*[\"']?([^\"'\r\n]+)",
+                                    content,
+                                )
+                                if match:
+                                    metadata[key] = match.group(1).strip()
 
-                    if not facts["machine"]["present"]:
-                        for key in ("machine_model", "printer_model", "printer_model_id"):
-                            if str(metadata.get(key, "")).strip():
-                                facts["machine"] = _fact(metadata[key], slice_member, key)
-                                break
-                    if not facts["nozzle"]["present"]:
-                        for key in ("nozzle_diameters", "nozzle_diameter"):
-                            value = _safe_float(metadata.get(key))
-                            if value is not None:
-                                facts["nozzle"] = _fact(value, slice_member, key)
-                                break
-                    if not facts["materials"]["present"] and filament_types:
-                        facts["materials"] = _fact(
-                            filament_types, slice_member, "filament[].type"
-                        )
+                        if not facts["machine"]["present"]:
+                            for key in ("machine_model", "printer_model", "printer_model_id"):
+                                if str(metadata.get(key, "")).strip():
+                                    facts["machine"] = _fact(metadata[key], slice_member, key)
+                                    break
+                        if not facts["nozzle"]["present"]:
+                            for key in ("nozzle_diameters", "nozzle_diameter"):
+                                value = _safe_float(metadata.get(key))
+                                if value is not None:
+                                    facts["nozzle"] = _fact(value, slice_member, key)
+                                    break
+                        if not facts["materials"]["present"] and filament_types:
+                            facts["materials"] = _fact(
+                                filament_types, slice_member, "filament[].type"
+                            )
+                except (MemberTooLargeError, MemoryError):
+                    raise
                 except Exception as exc:
                     log.debug("[print_file_meta] slice info parse error: %s", exc)
 
             plate_member = names.get("metadata/plate_1.json")
             if plate_member and not facts["nozzle"]["present"]:
                 try:
-                    plate_data = json.loads(
-                        zf.read(plate_member).decode("utf-8", errors="replace")
+                    raw = _member_bytes(
+                        zf, plate_member, MAX_PLATE_JSON_BYTES, raise_if_too_large=True
                     )
-                    value = _safe_float(plate_data.get("nozzle_diameter"))
-                    if value is not None:
-                        facts["nozzle"] = _fact(
-                            value, plate_member, "nozzle_diameter"
-                        )
+                    if raw is not None:
+                        plate_data = json.loads(raw.decode("utf-8", errors="replace"))
+                        value = _safe_float(plate_data.get("nozzle_diameter"))
+                        if value is not None:
+                            facts["nozzle"] = _fact(
+                                value, plate_member, "nozzle_diameter"
+                            )
+                except (MemberTooLargeError, MemoryError):
+                    raise
                 except Exception as exc:
                     log.debug("[print_file_meta] plate metadata parse error: %s", exc)
 
             model_member = names.get("metadata/model_settings.config")
             if model_member and not facts["bed"]["present"]:
                 try:
-                    content = zf.read(model_member).decode("utf-8", errors="replace")
-                    match = re.search(r"(?im)^\s*bed_shape\s*=\s*([^\r\n]+)", content)
-                    if match:
-                        x, y = _bed_shape(match.group(1))
-                        if x is not None and y is not None:
-                            facts["bed"] = _fact(
-                                {"x_mm": x, "y_mm": y}, model_member, "bed_shape"
-                            )
+                    raw = _member_bytes(
+                        zf, model_member, MAX_MODEL_SETTINGS_BYTES, raise_if_too_large=True
+                    )
+                    if raw is not None:
+                        content = raw.decode("utf-8", errors="replace")
+                        match = re.search(r"(?im)^\s*bed_shape\s*=\s*([^\r\n]+)", content)
+                        if match:
+                            x, y = _bed_shape(match.group(1))
+                            if x is not None and y is not None:
+                                facts["bed"] = _fact(
+                                    {"x_mm": x, "y_mm": y}, model_member, "bed_shape"
+                                )
+                except (MemberTooLargeError, MemoryError):
+                    raise
                 except Exception as exc:
                     log.debug("[print_file_meta] model settings parse error: %s", exc)
 
@@ -312,6 +343,8 @@ def _extract_3mf_safety_facts(file_path: str) -> dict[str, dict[str, Any]]:
                         str(facts["machine"]["source_member"]),
                         str(facts["machine"]["source_key"]),
                     )
+    except (MemberTooLargeError, MemoryError):
+        raise
     except Exception as exc:
         log.debug("[print_file_meta] 3mf open error for %s: %s", file_path, exc)
     return facts
@@ -358,6 +391,9 @@ def extract_print_file_meta(file_path: str, extension: str) -> dict:
                     {"x_mm": bed_x, "y_mm": bed_y}, "gcode_header", "bed_dimensions"
                 )
     except Exception as exc:
+        from modules.models_library.threemf_parser import MemberTooLargeError
+        if isinstance(exc, (MemberTooLargeError, MemoryError)):
+            raise
         log.warning("[print_file_meta] unexpected extraction error for %s: %s", file_path, exc)
 
     return {

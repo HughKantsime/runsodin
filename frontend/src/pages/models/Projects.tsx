@@ -124,6 +124,15 @@ export function ProjectDetail({ project, onClose, onDelete }) {
   })
 
   const [editStatus, setEditStatus] = useState(null)
+  const exportZip = useMutation({
+    mutationFn: () => projects.exportZip(project.id, detail.name),
+    onSuccess: ({ count }) => toast.success(count
+      ? `Project exported (${count} oversized file${count === 1 ? '' : 's'} left out)`
+      : 'Project exported'),
+    onError: (err: Error) => toast.error(err.message || 'Export failed'),
+  })
+  const omitted = exportZip.data
+
 
   const archives = detail?.archives || []
 
@@ -204,14 +213,24 @@ export function ProjectDetail({ project, onClose, onDelete }) {
 
             {/* Export */}
             {canDo('printers.edit') && (
-              <button
-                onClick={() => projects.exportZip(project.id, detail.name)
-                  .then(() => toast.success('Project exported'))
-                  .catch((err) => toast.error(err?.message || 'Export failed'))}
-                className="w-full mb-2 py-2 rounded-md text-sm bg-[var(--brand-input-bg)] hover:bg-[var(--brand-card-border)] transition-colors flex items-center justify-center gap-2"
-              >
-                <Download size={14} /> Export ZIP
-              </button>
+              <>
+                <button
+                  onClick={() => exportZip.mutate()}
+                  disabled={exportZip.isPending}
+                  className="w-full mb-2 py-2 rounded-md text-sm bg-[var(--brand-input-bg)] hover:bg-[var(--brand-card-border)] transition-colors flex items-center justify-center gap-2"
+                >
+                  <Download size={14} /> Export ZIP
+                </button>
+                {omitted && omitted.count > 0 && (
+                  <div role="status" className="mb-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-200">
+                    <p className="font-medium mb-1">{omitted.count} {omitted.count === 1 ? 'file was' : 'files were'} left out because {omitted.count === 1 ? 'it is' : 'they are'} larger than 128 MiB.</p>
+                    <ul className="list-disc pl-4 space-y-0.5">
+                      {omitted.names.map((name, idx) => <li key={idx}>{name}</li>)}
+                    </ul>
+                    <p>The full list is in project.json inside the ZIP.</p>
+                  </div>
+                )}
+              </>
             )}
 
             {/* Delete */}

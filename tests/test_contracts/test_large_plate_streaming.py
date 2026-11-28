@@ -14,8 +14,15 @@ from tests.test_contracts.test_ams_source_inspection import archive
 def test_fixed_limits_agree():
     from core.print_upload_limits import MAX_UPLOAD_BYTES
     from modules.organizations.education_submission_service import MAX_UPLOAD_BYTES as education
-    assert ams.MAX_GCODE_BYTES == 256 * 1024**2
-    assert ams.MAX_ARCHIVE_BYTES == MAX_UPLOAD_BYTES == education == snapshot.MAX_PAYLOAD_BYTES == 160 * 1024**2
+    from core import print_file_limits as limits, zip_bounds
+    assert limits.MAX_COMPRESSED_BYTES == ams.MAX_ARCHIVE_BYTES == MAX_UPLOAD_BYTES == snapshot.MAX_PAYLOAD_BYTES == 512 * 1024**2
+    assert ams.MAX_GCODE_BYTES == limits.MAX_GCODE_BYTES == 512 * limits.MIB
+    assert zip_bounds.MAX_MEMBER_BYTES == limits.MAX_MEMBER_BYTES == limits.GIB
+    assert zip_bounds.MAX_TOTAL_BYTES == limits.MAX_TOTAL_BYTES == 2 * 1024**3
+    assert education == limits.EDUCATION_UPLOAD_BYTES == 160 * 1024**2
+    assert limits.EDUCATION_MEMBER_BYTES == 400 * limits.MIB
+    assert limits.EDUCATION_TOTAL_BYTES == 500 * limits.MIB
+    assert limits.SINGLE_SOURCE_APPROVAL_BYTES == 64 * limits.MIB
 
 
 def test_zip_member_is_streamed_to_eof(monkeypatch):

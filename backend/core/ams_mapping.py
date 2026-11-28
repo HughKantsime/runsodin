@@ -2,6 +2,7 @@
 import json
 import logging
 import os
+import threading
 from dataclasses import asdict
 from functools import lru_cache
 from fastapi import HTTPException
@@ -131,9 +132,14 @@ def _rack_sources(path, identity, plate_index):
 def read_rack_sources(path, plate_index):
     if path:
         try:
+            from modules.models_library.mesh_isolation import inspect_on_executor
             info = os.stat(path, follow_symlinks=False)
             identity = info.st_dev, info.st_ino, info.st_size, info.st_ctime_ns
-            return [asdict(source) for source in _rack_sources(path, identity, plate_index)]
+            if threading.current_thread().name.startswith("odin-3mf"):
+                sources = _rack_sources(path, identity, plate_index)
+            else:
+                sources = inspect_on_executor(_rack_sources, path, identity, plate_index)
+            return [asdict(source) for source in sources]
         except Exception as exc:
             log.warning('Could not read rack tools (%s)', type(exc).__name__)
     return []

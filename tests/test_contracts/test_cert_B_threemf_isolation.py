@@ -20,6 +20,7 @@ import zipfile
 from pathlib import Path
 
 import pytest
+from core.print_file_limits import GIB, MAX_GCODE_BYTES, MAX_MEMBER_BYTES, MAX_TOTAL_BYTES, MIB
 
 from tests.test_contracts.test_print_file_upload_ownership_behavior import upload, upload_client  # noqa: F401
 from tests.test_contracts.test_api_token_delegation_behavior import token_client, review_db  # noqa: F401
@@ -137,16 +138,47 @@ def test_education_metadata_parses_only_in_the_child(parent_cannot_parse):
     assert _analyze_3mf_isolated(FIXTURE, None) == ("no_plate", None)
 
 
-@pytest.mark.parametrize("content,detail", [(b"not a zip", "bad zip"), (None, "500 MB")])
-def test_container_refusals_come_from_the_child(upload_client, tmp_path, content, detail):
+@pytest.fixture
+def small_worker_limits(monkeypatch):
+    # The isolated worker execs a fresh interpreter. Apply the test bounds there,
+    # before importing the worker, without adding any runtime configuration.
+    from modules.models_library import mesh_isolation
+    popen = mesh_isolation.subprocess.Popen
+    def start(argv, **kwargs):
+        assert argv[2:4] == ["-m", "modules.models_library.mesh_worker"]
+        bootstrap = (
+            "from core import print_file_limits as limits;"
+            "limits.MAX_MEMBER_BYTES=1024;limits.MAX_TOTAL_BYTES=2048;limits.MAX_GCODE_BYTES=512;"
+            "from modules.models_library.mesh_worker import main;raise SystemExit(main())"
+        )
+        return popen([*argv[:2], "-c", bootstrap, *argv[4:]], **kwargs)
+    monkeypatch.setattr(mesh_isolation.subprocess, "Popen", start)
+
+
+@pytest.mark.parametrize("case,detail", [
+    ("invalid", "bad zip"),
+    ("member", f"{MAX_MEMBER_BYTES // GIB} GiB per member"),
+    ("total", f"{MAX_TOTAL_BYTES // GIB} GiB total"),
+    ("gcode", f"{MAX_GCODE_BYTES // MIB} MiB sliced G-code"),
+])
+def test_container_refusals_come_from_the_child(upload_client, tmp_path, small_worker_limits, case, detail):
     client, issue, _ = upload_client
-    if content is None:  # a zip bomb: declared expansion over 500 MB
-        path = tmp_path / "bomb.3mf"
-        with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
-            z.writestr("3D/3dmodel.model", b"\0" * (501 * 2**20))
+    content = b"not a zip"
+    if case != "invalid":
+        path = tmp_path / "plate.3mf"
+        with zipfile.ZipFile(path, "w") as package:
+            if case == "member":
+                package.writestr("3D/first.model", bytes(1025))
+            elif case == "gcode":
+                package.writestr("Metadata/plate_1.gcode", bytes(513))
+            else:
+                for n in range(3):
+                    package.writestr(f"3D/{n}.model", bytes(683))
         content = path.read_bytes()
     response = upload(client, issue(["write:models"]), "refused.3mf", content)
-    assert response.status_code == 400 and detail in response.text
+    assert response.status_code == 400 and detail in response.json()["detail"]
+    if case == "member":
+        assert "total" not in response.json()["detail"]
 
 
 # --------------------------------------------------------------------------- install-wide pool, bounded queue, one deadline

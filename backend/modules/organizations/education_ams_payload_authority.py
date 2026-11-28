@@ -2,6 +2,7 @@
 import re
 from dataclasses import dataclass
 from sqlalchemy import text
+from core.print_file_limits import SINGLE_SOURCE_APPROVAL_BYTES
 from modules.organizations.education_review_service import _reviewable_submission,_assert_review_state,assert_file_preview_allowed
 
 
@@ -46,7 +47,7 @@ def capture_payload_graph(db,*,submission_id,revision,principal):
                 or graph['stored_path']!=graph['final_path'] or type(graph['stored_path']) is not str
                 or type(graph['file_hash']) is not str or not re.fullmatch('[0-9a-f]{64}',graph['file_hash'])
                 or graph['expected_hash']!=graph['file_hash']
-                or type(graph['storage_bytes']) is not int or not 0<graph['storage_bytes']<=64*1024*1024
+                or type(graph['storage_bytes']) is not int or not 0<graph['storage_bytes']<=SINGLE_SOURCE_APPROVAL_BYTES
                 or graph['expected_bytes']!=graph['storage_bytes']
                 or graph['job_file'] not in (None,row.print_file_id)
                 or graph['job_hash'] not in (None,graph['file_hash'])):raise ValueError()

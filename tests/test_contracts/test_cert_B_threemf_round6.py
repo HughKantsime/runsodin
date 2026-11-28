@@ -27,9 +27,10 @@ import zipfile
 from pathlib import Path
 
 import pytest
+from core.print_file_limits import GIB, MAX_MEMBER_BYTES
 from sqlalchemy import text
 
-from tests.test_contracts.test_cert_B_threemf_isolation import FIXTURE, SLICED, _hold_locks
+from tests.test_contracts.test_cert_B_threemf_isolation import FIXTURE, SLICED, _hold_locks, small_worker_limits
 from tests.test_contracts.test_print_file_upload_ownership_behavior import upload, upload_client  # noqa: F401
 from tests.test_contracts.test_api_token_delegation_behavior import token_client, review_db  # noqa: F401
 from tests.test_contracts.test_education_submission_upload import submission_db  # noqa: F401
@@ -152,15 +153,15 @@ def _many_members(path, count):
     return path
 
 
-def test_upload_refuses_too_many_members_and_oversized_members(upload_client, tmp_path):
+def test_upload_refuses_too_many_members_and_oversized_members(upload_client, tmp_path, small_worker_limits):
     client, issue, _ = upload_client
     response = upload(client, issue(["write:models"]), "many.3mf", _many_members(tmp_path / "many.3mf", 600).read_bytes())
     assert response.status_code == 400 and "too many archive members" in response.text
     big = tmp_path / "member.3mf"
     with zipfile.ZipFile(big, "w", zipfile.ZIP_DEFLATED) as z:
-        z.writestr("Metadata/plate_1.gcode", b"\0" * (401 * 2**20))  # one member over 400 MB, total under 500 MB
+        z.writestr("3D/3dmodel.model", bytes(1025))
     response = upload(client, issue(["write:models"]), "member.3mf", big.read_bytes())
-    assert response.status_code == 400 and "400 MB per member" in response.text
+    assert response.status_code == 400 and f"{MAX_MEMBER_BYTES // GIB} GiB per member" in response.text
 
 
 # --------------------------------------------------------------------------- 4. hostile child output

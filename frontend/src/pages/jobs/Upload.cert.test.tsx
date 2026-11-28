@@ -1,5 +1,5 @@
 // Cert C (F05-5.1) — real Upload page fed the captured POST /print-files/upload response.
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
@@ -91,4 +91,29 @@ test.each(['gcode', 'bgcode'])('accepts .%s from picker and drop', async extensi
   const dropInput = dropped.container.querySelector('input[type=file]')!
   fireEvent.drop(dropInput.parentElement!, { dataTransfer: { files: [new File(['G28'], 'test.' + extension.toUpperCase())] } })
   expect(await screen.findByText('Objects on Plate')).toBeInTheDocument()
+})
+
+test('large file shows byte progress and the exact server refusal', async () => {
+  let request: UploadRequest
+  let progress: (event: { lengthComputable: boolean; loaded: number; total: number }) => void
+  class PendingUpload extends UploadRequest {
+    send() { request = this }
+    upload = { addEventListener: vi.fn((_event, listener) => { progress = listener }) }
+  }
+  vi.stubGlobal('XMLHttpRequest', PendingUpload)
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const view = render(<QueryClientProvider client={client}><MemoryRouter><Upload /></MemoryRouter></QueryClientProvider>)
+  const file = new File(['fixture'], 'large.3mf')
+  Object.defineProperty(file, 'size', { value: 300 * 1024 ** 2 })
+  fireEvent.change(view.container.querySelector('input[type=file]')!, { target: { files: [file] } })
+  await waitFor(() => expect(request).toBeDefined())
+  act(() => progress({ lengthComputable: true, loaded: file.size / 2, total: file.size }))
+  expect(await screen.findByRole('progressbar')).toHaveAttribute('aria-valuenow', '50')
+  const detail = 'Not enough free disk space for this file'
+  act(() => {
+    request.status = 507
+    request.responseText = JSON.stringify({ detail })
+    request.handlers.load()
+  })
+  expect(await screen.findByText(detail)).toBeInTheDocument()
 })

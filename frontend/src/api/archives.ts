@@ -1,4 +1,4 @@
-import { fetchAPI, downloadBlob } from './client'
+import { fetchAPI, downloadBlob, downloadBlobWithHeaders } from './client'
 import type {
   Archive,
   SettlementPreview, FilamentSettlement, AccountingSummary,
@@ -75,6 +75,11 @@ export const archives = {
   previewModel: (fileId: number): string => `${window.location.origin}/api/files/${fileId}/preview-model`,
 };
 
+export interface ProjectExportResult {
+  count: number;
+  names: string[];
+}
+
 export const projects = {
   list: (status?: string): Promise<Project[]> => fetchAPI('/projects' + (status ? '?status=' + status : '')),
   get: (id: number): Promise<Project> => fetchAPI(`/projects/${id}`),
@@ -82,8 +87,22 @@ export const projects = {
   update: (id: number, data: ProjectUpdate): Promise<Project> => fetchAPI(`/projects/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   delete: (id: number): Promise<void> => fetchAPI(`/projects/${id}`, { method: 'DELETE' }),
   assignArchives: (id: number, archiveIds: number[]): Promise<unknown> => fetchAPI(`/projects/${id}/archives`, { method: 'POST', body: JSON.stringify({ archive_ids: archiveIds }) }),
-  exportZip: (id: number, name: string): Promise<void> =>
-    downloadBlob(`/projects/${id}/export`, `project_${name.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 50)}.zip`),
+  exportZip: async (id: number, name: string): Promise<ProjectExportResult> => {
+    const headers = await downloadBlobWithHeaders(`/projects/${id}/export`, `project_${name.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 50)}.zip`)
+    const raw = headers.get('X-Odin-Export-Omitted')
+    if (raw === null) return { count: 0, names: [] }
+    try {
+      const parsed = JSON.parse(raw)
+      if (Number.isSafeInteger(parsed?.count) && parsed.count > 0 &&
+          Array.isArray(parsed.names) && parsed.names.length <= Math.min(5, parsed.count) &&
+          parsed.names.every((name: unknown) => typeof name === 'string')) {
+        return parsed
+      }
+    } catch {
+      // A malformed header must not turn a partial export into a success message.
+    }
+    throw new Error('Could not read the export file list. Check project.json in the downloaded ZIP.')
+  },
   importZip: (file: File): Promise<ProjectImportResult> => {
     const body = new FormData()
     body.append('file', file)

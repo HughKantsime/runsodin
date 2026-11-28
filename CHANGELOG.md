@@ -29,6 +29,7 @@ All notable changes to O.D.I.N. are documented here.
 - Editing a printer through the API with an empty (null) value for tags, timelapse or sharing no longer saves it; before, the printer list then failed to load for everyone. Printers already affected load again.
 - The API now rejects an empty (null) status, quantity, unit or stock value when editing an order, an order line or a consumable. Previously, saving an empty value could prevent the list from loading. Lists with affected rows load again.
 - Interrupted PostgreSQL backup checks now clean up temporary databases even when the check stops while a database is being created.
+- Project ZIP exports report how many files exceeded 128 MiB and show up to five filenames. The full list and reasons are in project.json. Importing a ZIP with omitted files requires this version or later.
 
 ### Security
 
@@ -38,6 +39,7 @@ All notable changes to O.D.I.N. are documented here.
 ### Changed
 
 - PostgreSQL backups made with ODIN 2.5.0, 2.6.0, 2.7.0, 2.7.1 or 2.7.2 can be restored after a later update changes the database schema.
+- Print-file uploads accept up to 512 MiB. A 3MF package can contain up to 2 GiB unpacked, with up to 1 GiB per model part and 512 MiB per sliced G-code member. Education submissions retain their 160 MiB limit.
 
 ## [2.7.2] - 2026-11-26
 

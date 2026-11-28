@@ -44,7 +44,7 @@ def test_queue_payload_validates_private_snapshot_and_refuses_original_drift(tmp
 
 @pytest.mark.parametrize('defect', ['hash_drift', 'missing_plate', 'duplicate_plate', 'symlink',
                                     'oversize', 'unsupported_api', 'inactive_target'])
-def test_file_schedule_refuses_unusable_payload_without_queue_effects(creators, review_db, tmp_path, defect):
+def test_file_schedule_refuses_unusable_payload_without_queue_effects(creators, review_db, tmp_path, defect, monkeypatch):
     from modules.models_library.routes.print_files import router
     from modules.models_library.models import Model
     client, auth, _, _ = creators
@@ -63,7 +63,9 @@ def test_file_schedule_refuses_unusable_payload_without_queue_effects(creators, 
     if defect == 'oversize':
         # Sparse owned fixture exercises the real size guard without allocation.
         with source.open('r+b') as payload:
-            payload.truncate(160 * 1024 * 1024 + 1)
+            from core import print_payload_snapshot
+            monkeypatch.setattr(print_payload_snapshot, "MAX_PAYLOAD_BYTES", 1024)
+            payload.truncate(print_payload_snapshot.MAX_PAYLOAD_BYTES + 1)
     if defect == 'unsupported_api':
         review_db.execute(text("UPDATE printers SET api_type='anycubic_lan' WHERE id=9"))
     if defect == 'inactive_target':
